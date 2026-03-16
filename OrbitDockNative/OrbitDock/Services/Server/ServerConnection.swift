@@ -122,13 +122,13 @@ enum ServerEvent: Sendable {
   case revision(sessionId: String, revision: UInt64)
 }
 
-// MARK: - EventStream
+// MARK: - ServerConnection
 
-/// Single WebSocket connection to one OrbitDock server.
-/// Produces events via callback. Handles reconnection with exponential backoff.
-/// Only 3 outbound messages: subscribeList, subscribeSession, unsubscribeSession.
+/// Single connection to one OrbitDock server endpoint.
+/// Owns both the WebSocket (real-time events) and HTTP execution (REST queries).
+/// One connection status gates everything — when WS is down, HTTP throws immediately.
 @MainActor
-final class EventStream {
+final class ServerConnection {
   private(set) var connectionStatus: ConnectionStatus = .disconnected
   private(set) var latestSessionListItems: [ServerSessionListItem] = []
   private(set) var hasReceivedInitialSessionsList = false
@@ -141,15 +141,20 @@ final class EventStream {
     additionalListeners.append(listener)
   }
 
+  // MARK: - Private state
+
   private let authToken: String?
   private var serverURL: URL?
   private var webSocket: URLSessionWebSocketTask?
-  private var urlSession: URLSession?
+  private let wsSession: URLSession
+  private let httpSession: URLSession
   private var receiveTask: Task<Void, Never>?
   private var connectTask: Task<Void, Never>?
   private var keepAliveTask: Task<Void, Never>?
-  private var connectAttempts = 0
+  private let circuitBreaker: ConnectionCircuitBreaker
+  private var stableConnectionTask: Task<Void, Never>?
   private var lastConnectedAt: Date?
+  private var reconnectTask: Task<Void, Never>?
 
   private static let maxInboundBytes = 8 * 1_024 * 1_024
   private static let stableConnectionThreshold: TimeInterval = 30
@@ -160,19 +165,58 @@ final class EventStream {
     return host != "127.0.0.1" && host != "localhost" && host != "::1"
   }
 
-  private var maxConnectAttempts: Int { isRemote ? 20 : 10 }
-  private var maxBackoffSeconds: Double { isRemote ? 15.0 : 10.0 }
-
   init(authToken: String?) {
     self.authToken = authToken
+
+    // WS session: unlimited resource timeout for long-lived connection
+    let wsConfig = URLSessionConfiguration.default
+    wsConfig.timeoutIntervalForRequest = 10
+    wsConfig.timeoutIntervalForResource = 0
+    self.wsSession = URLSession(configuration: wsConfig)
+
+    // HTTP session: bounded timeouts for data requests
+    let httpConfig = URLSessionConfiguration.default
+    httpConfig.timeoutIntervalForRequest = 10
+    httpConfig.timeoutIntervalForResource = 60
+    httpConfig.httpMaximumConnectionsPerHost = 2
+    httpConfig.requestCachePolicy = .reloadIgnoringLocalCacheData
+    httpConfig.urlCache = nil
+    self.httpSession = URLSession(configuration: httpConfig)
+
+    self.circuitBreaker = .local()
+    netLog(.info, cat: .ws, "ServerConnection initialized")
   }
 
-  // MARK: - Connection
+  // MARK: - HTTP execution
+
+  /// Execute an HTTP request. Throws `.serverUnreachable` when WS is not connected.
+  func execute(_ request: URLRequest) async throws -> HTTPResponse {
+    guard connectionStatus == .connected else {
+      throw HTTPTransportError.serverUnreachable
+    }
+
+    let result: (Data, URLResponse) = try await withCheckedThrowingContinuation { continuation in
+      let task = httpSession.dataTask(with: request) { data, response, error in
+        if let error {
+          continuation.resume(throwing: HTTPTransportError(error: error))
+        } else if let data, let response {
+          continuation.resume(returning: (data, response))
+        } else {
+          continuation.resume(throwing: HTTPTransportError.invalidResponse)
+        }
+      }
+      task.resume()
+    }
+
+    return try HTTPResponse(data: result.0, response: result.1)
+  }
+
+  // MARK: - WebSocket connection
 
   func connect(to url: URL) {
     switch connectionStatus {
     case .disconnected, .failed:
-      connectAttempts = 0
+      break
     case .connecting, .connected:
       return
     }
@@ -183,35 +227,41 @@ final class EventStream {
   func reconnectIfNeeded() {
     guard serverURL != nil else { return }
     switch connectionStatus {
-    case .connected, .connecting:
-      Task {
+    case .connected:
+      // Verify the connection is still alive
+      Task { [weak self] in
+        guard let self else { return }
         do { try await ping() }
         catch { handleDisconnect() }
       }
+    case .connecting:
+      break // already attempting
     case .disconnected, .failed:
-      connectAttempts = 0
       attemptConnect()
     }
   }
 
   func disconnect() {
+    reconnectTask?.cancel()
+    reconnectTask = nil
     stopKeepAlive()
+    stableConnectionTask?.cancel()
+    stableConnectionTask = nil
     connectTask?.cancel()
     connectTask = nil
     receiveTask?.cancel()
     receiveTask = nil
     webSocket?.cancel(with: .goingAway, reason: nil)
     webSocket = nil
-    urlSession?.invalidateAndCancel()
-    urlSession = nil
-    connectAttempts = 0
+    circuitBreaker.reset()
     lastConnectedAt = nil
     latestSessionListItems = []
     hasReceivedInitialSessionsList = false
     setStatus(.disconnected)
+    netLog(.info, cat: .circuit, "Circuit breaker reset (explicit disconnect)")
   }
 
-  // MARK: - Outbound
+  // MARK: - Outbound WS messages
 
   func subscribeList() {
     send(.subscribeList)
@@ -223,6 +273,14 @@ final class EventStream {
 
   func unsubscribeSession(_ sessionId: String) {
     send(.unsubscribeSession(sessionId: sessionId))
+  }
+
+  // MARK: - Sessions list (REST-driven)
+
+  func applySessionsList(_ sessions: [ServerSessionListItem]) {
+    latestSessionListItems = sessions
+    hasReceivedInitialSessionsList = true
+    emit(.sessionsList(sessions))
   }
 
   // MARK: - Testing
@@ -241,34 +299,21 @@ final class EventStream {
 
   private func attemptConnect() {
     guard let serverURL else { return }
-    guard connectAttempts < maxConnectAttempts else {
-      let msg = isRemote
-        ? "Could not reach remote server after \(maxConnectAttempts) attempts"
-        : "Failed to connect after \(maxConnectAttempts) attempts"
-      setStatus(.failed(msg))
+
+    // If breaker is open, go straight to scheduled retry
+    guard circuitBreaker.shouldAllow else {
+      scheduleReconnect()
       return
     }
 
-    connectAttempts += 1
     setStatus(.connecting)
-
-    stopKeepAlive()
-    receiveTask?.cancel()
-    receiveTask = nil
-    webSocket?.cancel()
-    urlSession?.invalidateAndCancel()
-
-    let config = URLSessionConfiguration.default
-    config.timeoutIntervalForRequest = 10
-    config.timeoutIntervalForResource = 0
-    urlSession = URLSession(configuration: config)
 
     var request = URLRequest(url: serverURL)
     if let authToken, !authToken.isEmpty {
       request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
     }
 
-    webSocket = urlSession?.webSocketTask(with: request)
+    webSocket = wsSession.webSocketTask(with: request)
     webSocket?.maximumMessageSize = Self.maxInboundBytes
     webSocket?.resume()
     startReceiving()
@@ -276,18 +321,11 @@ final class EventStream {
     connectTask = Task {
       do {
         try await ping()
-        await MainActor.run { self.completeConnection() }
+        guard !Task.isCancelled else { return }
+        self.completeConnection()
       } catch {
         guard !Task.isCancelled else { return }
-        let shouldRetry = await MainActor.run { () -> Bool in
-          if case .connecting = self.connectionStatus { return true }
-          return false
-        }
-        guard shouldRetry else { return }
-        let delay = min(pow(2.0, Double(connectAttempts - 1)), maxBackoffSeconds)
-        try? await Task.sleep(for: .seconds(delay))
-        guard !Task.isCancelled else { return }
-        await MainActor.run { self.attemptConnect() }
+        self.handleDisconnect()
       }
     }
   }
@@ -297,9 +335,21 @@ final class EventStream {
     connectTask?.cancel()
     connectTask = nil
     lastConnectedAt = Date()
+    netLog(.info, cat: .ws, "Connection complete", data: ["url": serverURL?.absoluteString ?? "nil"])
     setStatus(.connected)
     startKeepAlive()
+    startStableConnectionTimer()
     subscribeList()
+  }
+
+  private func startStableConnectionTimer() {
+    stableConnectionTask?.cancel()
+    stableConnectionTask = Task {
+      try? await Task.sleep(for: .seconds(Self.stableConnectionThreshold))
+      guard !Task.isCancelled else { return }
+      circuitBreaker.recordSuccess()
+      netLog(.info, cat: .circuit, "Circuit breaker reset (stable connection)")
+    }
   }
 
   private func ping() async throws {
@@ -319,7 +369,8 @@ final class EventStream {
         guard !Task.isCancelled else { break }
         do { try await ping() }
         catch {
-          await MainActor.run { self.handleDisconnect() }
+          guard !Task.isCancelled else { break }
+          handleDisconnect()
           break
         }
       }
@@ -339,6 +390,7 @@ final class EventStream {
     while !Task.isCancelled {
       do {
         guard let message = try await webSocket?.receive() else {
+          guard !Task.isCancelled else { break }
           handleDisconnect()
           break
         }
@@ -349,6 +401,7 @@ final class EventStream {
         @unknown default: break
         }
       } catch {
+        guard !Task.isCancelled else { break }
         handleDisconnect()
         break
       }
@@ -356,15 +409,58 @@ final class EventStream {
   }
 
   private func handleDisconnect() {
+    // Only act on the first call — ignore duplicates from receiveLoop + connectTask
+    // both firing for the same failed connection.
     switch connectionStatus {
-    case .connected, .connecting:
-      if let t = lastConnectedAt, Date().timeIntervalSince(t) >= Self.stableConnectionThreshold {
-        connectAttempts = 0
-      }
-      lastConnectedAt = nil
-      attemptConnect()
     case .disconnected, .failed:
+      return
+    case .connected, .connecting:
       break
+    }
+
+    // Tear down everything from the current attempt
+    stopKeepAlive()
+    stableConnectionTask?.cancel()
+    stableConnectionTask = nil
+    connectTask?.cancel()
+    connectTask = nil
+    receiveTask?.cancel()
+    receiveTask = nil
+    webSocket?.cancel(with: .goingAway, reason: nil)
+    webSocket = nil
+    lastConnectedAt = nil
+
+    circuitBreaker.recordFailure()
+    netLog(.warning, cat: .circuit, "Circuit breaker recorded failure", data: [
+      "state": String(describing: circuitBreaker.state),
+      "url": serverURL?.absoluteString ?? "nil",
+    ])
+
+    // Schedule a single reconnect — replaces any previous pending reconnect
+    scheduleReconnect()
+  }
+
+  private func scheduleReconnect() {
+    reconnectTask?.cancel()
+
+    if circuitBreaker.shouldAllow {
+      // Breaker is still closed — reconnect on the next run loop tick
+      // (not synchronously, so duplicate handleDisconnect calls collapse)
+      reconnectTask = Task {
+        guard !Task.isCancelled else { return }
+        self.attemptConnect()
+      }
+    } else {
+      let remaining = circuitBreaker.cooldownRemaining ?? 1
+      let msg = isRemote
+        ? "Could not reach remote server — retrying in \(Int(remaining.rounded(.up)))s"
+        : "Failed to connect — retrying in \(Int(remaining.rounded(.up)))s"
+      setStatus(.failed(msg))
+      reconnectTask = Task {
+        try? await Task.sleep(for: .seconds(max(remaining, 1)))
+        guard !Task.isCancelled else { return }
+        self.attemptConnect()
+      }
     }
   }
 
@@ -373,16 +469,20 @@ final class EventStream {
   private func handleFrame(_ text: String) {
     guard let data = text.data(using: .utf8) else { return }
 
-    // If we're still connecting, receiving a frame means we're connected
     if case .connecting = connectionStatus {
       completeConnection()
     }
 
-    // Extract revision before full decode
-    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-       let rev = json["revision"] as? Int,
-       let sid = json["session_id"] as? String
-    {
+    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    let messageType = json?["type"] as? String
+    let sessionId = json?["session_id"] as? String
+
+    netLog(.debug, cat: .ws, "Frame received", sid: sessionId, data: [
+      "type": messageType ?? "unknown",
+      "bytes": text.count,
+    ])
+
+    if let json, let rev = json["revision"] as? Int, let sid = sessionId {
       emit(.revision(sessionId: sid, revision: UInt64(rev)))
     }
 
@@ -390,7 +490,12 @@ final class EventStream {
       let msg = try JSONDecoder().decode(ServerToClientMessage.self, from: data)
       routeMessage(msg)
     } catch {
-      // Silently ignore undecodable frames
+      let preview = String(text.prefix(500))
+      netLog(.error, cat: .ws, "Failed to decode frame", sid: sessionId, data: [
+        "type": messageType ?? "unknown",
+        "error": String(describing: error),
+        "preview": preview,
+      ])
     }
   }
 
