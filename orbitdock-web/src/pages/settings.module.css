@@ -1,0 +1,219 @@
+.page {
+  padding: var(--space-xl);
+  max-width: 800px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 767px) {
+  .page {
+    padding: var(--space-lg);
+  }
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-xxl);
+}
+
+.title {
+  font-size: var(--type-headline);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-xl);
+}
+
+.section {
+  margin-bottom: var(--space-xl);
+}
+
+.sectionTitle {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-md);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: var(--type-caption);
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  padding: var(--space-xs) 0;
+}
+
+.row + .row {
+  border-top: 1px solid var(--color-surface-border);
+}
+
+.label {
+  font-size: var(--type-body);
+  color: var(--color-text-secondary);
+}
+
+.value {
+  font-size: var(--type-body);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+}
+
+.modelGrid {
+  display: grid;
+  /* Single column on mobile, multi-column when space allows */
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+  gap: var(--space-sm);
+}
+
+.modelName {
+  font-size: var(--type-body);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-xxs);
+}
+
+.modelDesc {
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-sm);
+}
+
+.usageGrid {
+  display: grid;
+  /* Single column on mobile, multi-column when space allows */
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: var(--space-sm);
+}
+
+.usageHeader {
+  margin-bottom: var(--space-sm);
+}
+
+.gaugeList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding-top: var(--space-xs);
+}
+
+.usageError {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+}
+
+.empty {
+  font-size: var(--type-body);
+  color: var(--color-text-tertiary);
+  padding: var(--space-md);
+}
+
+/* Connection section enhancements */
+.connectionActions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-surface-border);
+}
+
+/* Preferences section */
+.preferenceRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+  flex-wrap: wrap;
+}
+
+.preferenceRow + .preferenceRow {
+  border-top: 1px solid var(--color-surface-border);
+}
+
+.preferenceLabel {
+  font-size: var(--type-body);
+  color: var(--color-text-secondary);
+}
+
+.preferenceHint {
+  font-size: var(--type-caption);
+  color: var(--color-text-quaternary);
+  margin-top: var(--space-xxs);
+}
+
+.preferenceControl {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* Diagnostics collapsible section */
+.diagnosticsTrigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: var(--type-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  width: 100%;
+  text-align: left;
+}
+
+.diagnosticsTrigger:hover {
+  color: var(--color-text-primary);
+}
+
+.diagnosticsChevron {
+  font-size: var(--type-caption);
+  transition: transform var(--transition-fast);
+  display: inline-block;
+}
+
+.diagnosticsChevronOpen {
+  transform: rotate(90deg);
+}
+
+.diagnosticsBody {
+  margin-top: var(--space-md);
+}
+
+.diagRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+  flex-wrap: wrap;
+}
+
+.diagRow + .diagRow {
+  border-top: 1px solid var(--color-surface-border);
+}
+
+.diagLabel {
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.diagValue {
+  font-size: var(--type-caption);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  text-align: right;
+  word-break: break-all;
+}
