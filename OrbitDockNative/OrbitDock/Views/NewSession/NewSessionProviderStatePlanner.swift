@@ -10,6 +10,7 @@ struct NewSessionProviderState: Equatable {
   var showToolConfig: Bool
   var selectedEffort: ClaudeEffortLevel
   var codexModel: String
+  var codexUseOrbitDockOverrides: Bool
   var selectedAutonomy: AutonomyLevel
   var codexCollaborationMode: CodexCollaborationMode
   var codexMultiAgentEnabled: Bool
@@ -28,6 +29,7 @@ struct NewSessionProviderState: Equatable {
     showToolConfig: false,
     selectedEffort: .default,
     codexModel: "",
+    codexUseOrbitDockOverrides: false,
     selectedAutonomy: .autonomous,
     codexCollaborationMode: .default,
     codexMultiAgentEnabled: false,
@@ -69,10 +71,15 @@ enum NewSessionProviderStatePlanner {
 
   static func syncCodexModelSelection(
     currentModel: String,
+    shouldPreferDefaultModel: Bool,
     models: [ServerCodexModelOption]
   ) -> String {
     if !currentModel.isEmpty, models.contains(where: { $0.model == currentModel }) {
       return currentModel
+    }
+
+    guard shouldPreferDefaultModel else {
+      return ""
     }
 
     if let model = models.first(where: { $0.isDefault && !$0.model.isEmpty })?.model {

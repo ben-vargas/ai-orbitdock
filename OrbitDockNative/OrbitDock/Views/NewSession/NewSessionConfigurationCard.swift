@@ -13,12 +13,14 @@ struct NewSessionConfigurationCard: View {
   @Binding var allowBypassPermissions: Bool
   @Binding var selectedEffort: ClaudeEffortLevel
   @Binding var codexModel: String
+  @Binding var codexUseOrbitDockOverrides: Bool
   @Binding var selectedAutonomy: AutonomyLevel
   @Binding var codexCollaborationMode: CodexCollaborationMode
   @Binding var codexMultiAgentEnabled: Bool
   @Binding var codexPersonality: CodexPersonalityPreset
   @Binding var codexServiceTier: CodexServiceTierPreset
   @Binding var codexInstructions: String
+  let onInspectCodexConfig: (() -> Void)?
 
   private var currentCodexModelOption: ServerCodexModelOption? {
     codexModels.first(where: { $0.model == codexModel }) ?? codexModels.first(where: \.isDefault) ?? codexModels.first
@@ -48,6 +50,10 @@ struct NewSessionConfigurationCard: View {
     currentCodexModelOption?.supportsDeveloperInstructions ?? true
   }
 
+  private var inheritsFromCodexConfig: Bool {
+    !codexUseOrbitDockOverrides
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       modelRow
@@ -67,22 +73,29 @@ struct NewSessionConfigurationCard: View {
           claudeEffortRow
 
         case .codex:
-          codexAutonomyRow
+          codexInheritanceRow
 
-          Divider()
-            .padding(.horizontal, Spacing.lg)
+          if !inheritsFromCodexConfig {
+            Divider()
+              .padding(.horizontal, Spacing.lg)
 
-          codexCollaborationRow
+            codexAutonomyRow
 
-          Divider()
-            .padding(.horizontal, Spacing.lg)
+            Divider()
+              .padding(.horizontal, Spacing.lg)
 
-          codexMultiAgentRow
+            codexCollaborationRow
 
-          Divider()
-            .padding(.horizontal, Spacing.lg)
+            Divider()
+              .padding(.horizontal, Spacing.lg)
 
-          codexAdvancedSettingsSection
+            codexMultiAgentRow
+
+            Divider()
+              .padding(.horizontal, Spacing.lg)
+
+            codexAdvancedSettingsSection
+          }
       }
     }
     .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
@@ -90,6 +103,55 @@ struct NewSessionConfigurationCard: View {
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(Color.surfaceBorder, lineWidth: 1)
     )
+  }
+
+  private var codexInheritanceRow: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: "doc.text.magnifyingglass")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color.providerCodex)
+          Text("Codex Config")
+            .font(.system(size: TypeScale.body, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+        }
+
+        Spacer()
+      }
+
+      Text("OrbitDock resolves the Codex config that applies to the selected folder, including your user config and any project-level `.codex` config.")
+      .font(.system(size: TypeScale.caption))
+      .foregroundStyle(Color.textTertiary)
+      .fixedSize(horizontal: false, vertical: true)
+
+      HStack(spacing: Spacing.md) {
+        Toggle("Customize for this session", isOn: $codexUseOrbitDockOverrides)
+          .toggleStyle(.switch)
+          .tint(Color.providerCodex)
+
+        Spacer()
+
+        if let onInspectCodexConfig {
+          Button("Inspect Codex Config") {
+            onInspectCodexConfig()
+          }
+          .buttonStyle(.plain)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.accent)
+        }
+      }
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.sm)
+    .onChange(of: codexUseOrbitDockOverrides) { _, newValue in
+      if newValue && codexModel.isEmpty {
+        codexModel = currentCodexModelOption?.model
+          ?? codexModels.first(where: \.isDefault)?.model
+          ?? codexModels.first(where: { !$0.model.isEmpty })?.model
+          ?? ""
+      }
+    }
   }
 
   private var modelRow: some View {
@@ -150,7 +212,11 @@ struct NewSessionConfigurationCard: View {
 
   @ViewBuilder
   private var codexModelPicker: some View {
-    if !codexModel.isEmpty {
+    if inheritsFromCodexConfig {
+      Text("From Codex config")
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(Color.textTertiary)
+    } else if !codexModel.isEmpty {
       Picker("Model", selection: $codexModel) {
         ForEach(codexModels.filter { !$0.model.isEmpty }, id: \.id) { model in
           Text(model.displayName).tag(model.model)
