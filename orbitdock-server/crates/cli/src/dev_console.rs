@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{self, Stdout};
 use std::net::SocketAddr;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -209,6 +210,7 @@ struct DevConsoleState {
     overlay: Option<Overlay>,
     level_filter: LevelFilter,
     session_pin: Option<String>,
+    status_message: Option<String>,
     events_by_category: HashMap<Category, VecDeque<LogRow>>,
     level_counts: LevelCounts,
     total_events: usize,
@@ -235,6 +237,7 @@ impl DevConsoleState {
             overlay: None,
             level_filter: LevelFilter::All,
             session_pin: None,
+            status_message: None,
             events_by_category,
             level_counts: LevelCounts::default(),
             total_events: 0,
@@ -417,6 +420,12 @@ fn handle_key_event(state: &mut DevConsoleState, key: KeyEvent) -> bool {
                 state.clamp_selection(pane_index);
             }
         }
+        KeyCode::Char('y') => {
+            state.status_message = Some(match copy_selected_event_to_clipboard(state) {
+                Ok(()) => "Copied selected event details to clipboard".to_string(),
+                Err(error) => format!("Clipboard copy failed: {error}"),
+            });
+        }
         KeyCode::Char('c') => {
             let current = state.panes[state.focus].category;
             let selected = Category::all()
@@ -511,6 +520,14 @@ fn draw_header(frame: &mut Frame<'_>, area: Rect, state: &DevConsoleState) {
             Some(session_id) => format!("session {}", short_session_id(session_id)),
             None => "session all".to_string(),
         }),
+        Span::raw("  "),
+        Span::styled(
+            state
+                .status_message
+                .clone()
+                .unwrap_or_else(|| "ready".to_string()),
+            Style::default().fg(Color::Green),
+        ),
     ]);
 
     let header = Paragraph::new(text)
@@ -606,6 +623,7 @@ fn draw_footer(frame: &mut Frame<'_>, area: Rect, state: &DevConsoleState) {
         Span::raw("l level  "),
         Span::raw("s pin  "),
         Span::raw("u unpin  "),
+        Span::raw("y copy  "),
         Span::raw("q quit"),
         Span::raw(if state.overlay.is_some() {
             "  Esc close picker"
@@ -794,6 +812,65 @@ fn classify_category(event: &ServerLogEvent) -> Category {
     }
 
     Category::Other
+}
+
+fn copy_selected_event_to_clipboard(state: &DevConsoleState) -> anyhow::Result<()> {
+    let event = state
+        .selected_event()
+        .context("No selected event to copy")?;
+    let payload = serde_json::to_string_pretty(event.as_ref())?;
+    copy_text_to_clipboard(&payload)
+}
+
+fn copy_text_to_clipboard(text: &str) -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        return copy_with_command("pbcopy", &[], text);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return copy_with_command("clip", &[], text);
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        copy_with_command("wl-copy", &[], text)
+            .or_else(|_| copy_with_command("xclip", &["-selection", "clipboard"], text))
+    }
+}
+
+fn copy_with_command(command: &str, args: &[&str], text: &str) -> anyhow::Result<()> {
+    let mut child = Command::new(command)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("spawn {command}"))?;
+
+    {
+        use std::io::Write;
+
+        let stdin = child
+            .stdin
+            .as_mut()
+            .context("clipboard command missing stdin")?;
+        stdin.write_all(text.as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let reason = if stderr.is_empty() {
+            format!("{command} exited with {}", output.status)
+        } else {
+            stderr
+        };
+        anyhow::bail!("{reason}");
+    }
 }
 
 struct TerminalSession {
