@@ -15,7 +15,6 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
   case dontAsk
   case `default`
   case acceptEdits
-  case auto
   case bypassPermissions
 
   var id: String {
@@ -28,7 +27,6 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
       case .dontAsk: "Don't Ask"
       case .default: "Default"
       case .acceptEdits: "Accept Edits"
-      case .auto: "Auto"
       case .bypassPermissions: "Bypass Permissions"
     }
   }
@@ -39,7 +37,6 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
       case .dontAsk: "hand.raised.fill"
       case .default: "shield.lefthalf.filled"
       case .acceptEdits: "pencil.and.outline"
-      case .auto: "bolt.circle.fill"
       case .bypassPermissions: "bolt.fill"
     }
   }
@@ -50,7 +47,6 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
       case .dontAsk: "Deny tools not pre-approved — no prompts"
       case .default: "Ask permission for file writes and commands"
       case .acceptEdits: "Auto-approve file edits, ask for commands"
-      case .auto: "Auto-approve edits and safe commands"
       case .bypassPermissions: "Auto-approve everything"
     }
   }
@@ -61,7 +57,6 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
       case .dontAsk: .feedbackCaution
       case .default: .autonomyGuarded
       case .acceptEdits: .autonomyAutonomous
-      case .auto: .autonomyAutonomous
       case .bypassPermissions: .autonomyUnrestricted
     }
   }
@@ -73,6 +68,12 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
   /// Index in CaseIterable for track positioning
   var index: Int {
     Self.allCases.firstIndex(of: self) ?? 0
+  }
+
+  /// Parse a raw string from the server, mapping unknown values (including
+  /// the legacy "auto") to `.default`.
+  init(fromServer raw: String?) {
+    self = Self(rawValue: raw ?? Self.default.rawValue) ?? .default
   }
 }
 
@@ -166,12 +167,15 @@ struct ClaudePermissionPill: View {
     .fixedSize()
     .animation(Motion.snappy, value: isActive)
     .platformPopover(isPresented: $showPopover) {
-      ClaudePermissionPopover(selection: Binding(
-        get: { currentMode },
-        set: { newMode in
-          Task { try? await serverState.updateClaudePermissionMode(sessionId, mode: newMode) }
-        }
-      ))
+      ClaudePermissionPopover(
+        selection: Binding(
+          get: { currentMode },
+          set: { newMode in
+            Task { try? await serverState.updateClaudePermissionMode(sessionId, mode: newMode) }
+          }
+        ),
+        showBypassOption: serverState.session(sessionId).allowBypassPermissions
+      )
     }
   }
 }
@@ -180,10 +184,17 @@ struct ClaudePermissionPill: View {
 
 struct ClaudePermissionPopover: View {
   @Binding var selection: ClaudePermissionMode
+  var showBypassOption: Bool = true
   @State private var selectedIndex: Int = 0
   @Environment(\.dismiss) private var dismiss
 
-  private let modes = ClaudePermissionMode.allCases
+  private var modes: [ClaudePermissionMode] {
+    if showBypassOption {
+      ClaudePermissionMode.allCases
+    } else {
+      ClaudePermissionMode.allCases.filter { $0 != .bypassPermissions }
+    }
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -196,7 +207,7 @@ struct ClaudePermissionPopover: View {
         .padding(.bottom, Spacing.sm)
 
       // Risk spectrum track
-      ClaudePermissionTrack(selection: $selection)
+      ClaudePermissionTrack(selection: $selection, showBypassOption: showBypassOption)
         .padding(.horizontal, Spacing.lg)
         .padding(.bottom, Spacing.md)
 
@@ -260,8 +271,15 @@ struct ClaudePermissionPopover: View {
 
 struct ClaudePermissionTrack: View {
   @Binding var selection: ClaudePermissionMode
+  var showBypassOption: Bool = true
 
-  private let modes = ClaudePermissionMode.allCases
+  private var modes: [ClaudePermissionMode] {
+    if showBypassOption {
+      ClaudePermissionMode.allCases
+    } else {
+      ClaudePermissionMode.allCases.filter { $0 != .bypassPermissions }
+    }
+  }
 
   var body: some View {
     VStack(spacing: Spacing.xs) {
@@ -312,7 +330,7 @@ struct ClaudePermissionTrack: View {
         Spacer()
         Text("Permissive")
           .font(.system(size: TypeScale.micro, weight: .medium))
-          .foregroundStyle(ClaudePermissionMode.bypassPermissions.color)
+          .foregroundStyle(modes.last?.color ?? ClaudePermissionMode.acceptEdits.color)
       }
     }
   }

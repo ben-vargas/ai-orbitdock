@@ -26,6 +26,7 @@ pub(crate) struct PreparedResumeSession {
     pub transcript_loaded: bool,
     pub summary: SessionSummary,
     pub handle: SessionHandle,
+    pub allow_bypass_permissions: bool,
 }
 
 pub(crate) async fn hydrate_restored_rows_if_missing(
@@ -172,6 +173,7 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         unread_count: restored.unread_count,
         mission_id: restored.mission_id,
         issue_identifier: restored.issue_identifier,
+        allow_bypass_permissions: restored.allow_bypass_permissions,
     }
 }
 
@@ -188,6 +190,7 @@ pub(crate) fn restored_session_to_handle(
 
     let mission_id = restored.mission_id.clone();
     let issue_identifier = restored.issue_identifier.clone();
+    let allow_bypass = restored.allow_bypass_permissions;
 
     let mut handle = SessionHandle::restore(
         restored.id,
@@ -268,6 +271,9 @@ pub(crate) fn restored_session_to_handle(
         restored.unread_count,
     );
     handle.set_mission_context(mission_id, issue_identifier);
+    if allow_bypass {
+        handle.set_allow_bypass_permissions(true);
+    }
     handle
 }
 
@@ -292,6 +298,7 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
     let service_tier = restored.service_tier.clone();
     let developer_instructions = restored.developer_instructions.clone();
     let claude_sdk_session_id = restored.claude_sdk_session_id.clone();
+    let allow_bypass_permissions = restored.allow_bypass_permissions;
     let row_count = restored.rows.len();
 
     let mut handle =
@@ -320,6 +327,7 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
         transcript_loaded,
         summary,
         handle,
+        allow_bypass_permissions,
     }
 }
 

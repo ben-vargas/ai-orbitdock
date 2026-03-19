@@ -223,6 +223,10 @@ fn extract_result_summary(tool_name: &str, output: &str) -> Option<String> {
         }
         _ => {
             let first_line = output.lines().next().unwrap_or("");
+            // Guard against raw JSON leaking into summaries
+            if first_line.starts_with('[') || first_line.starts_with('{') {
+                return None;
+            }
             if first_line.len() > 200 {
                 format!("{}…", &first_line[..200])
             } else {
@@ -548,6 +552,7 @@ pub struct ClaudeConnector {
 
 impl ClaudeConnector {
     /// Spawn a new `claude` CLI subprocess.
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         cwd: &str,
         model: Option<&str>,
@@ -556,6 +561,7 @@ impl ClaudeConnector {
         allowed_tools: &[String],
         disallowed_tools: &[String],
         effort: Option<&str>,
+        allow_bypass_permissions: bool,
     ) -> Result<Self, ConnectorError> {
         let claude_bin = resolve_claude_binary()?;
 
@@ -578,6 +584,9 @@ impl ClaudeConnector {
         }
         if let Some(mode) = permission_mode {
             args.extend(["--permission-mode", mode]);
+        }
+        if allow_bypass_permissions {
+            args.push("--allow-dangerously-skip-permissions");
         }
         let allowed_joined = allowed_tools.join(",");
         let disallowed_joined = disallowed_tools.join(",");
@@ -997,11 +1006,10 @@ impl ClaudeConnector {
 
     /// Change permission mode mid-session.
     pub async fn set_permission_mode(&self, mode: &str) -> Result<(), ConnectorError> {
-        let _ = self
-            .send_control_request(ControlRequestBody::SetPermissionMode {
-                mode: mode.to_string(),
-            })
-            .await;
+        self.send_control_request(ControlRequestBody::SetPermissionMode {
+            mode: mode.to_string(),
+        })
+        .await?;
         Ok(())
     }
 
@@ -2318,6 +2326,18 @@ impl ClaudeConnector {
                 .map(|v| {
                     if let Some(s) = v.as_str() {
                         s.to_string()
+                    } else if let Some(arr) = v.as_array() {
+                        // MCP tool results return Content[] blocks — extract text
+                        arr.iter()
+                            .filter_map(|item| {
+                                if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                    item.get("text").and_then(|t| t.as_str()).map(String::from)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
                     } else {
                         v.to_string()
                     }

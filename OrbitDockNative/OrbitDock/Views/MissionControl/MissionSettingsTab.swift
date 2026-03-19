@@ -28,12 +28,13 @@ struct MissionSettingsTab: View {
   @State private var maxConcurrent: UInt32 = 3
   @State private var maxConcurrentPrimary: UInt32 = 2
 
-  // Agent — Claude (default to mission-safe: auto)
+  // Agent — Claude (default to mission-safe: acceptEdits)
   @State private var claudeModel = ""
   @State private var claudeEffort: EffortLevel = .default
-  @State private var claudePermission: ClaudePermissionMode = .auto
+  @State private var claudePermission: ClaudePermissionMode = .acceptEdits
   @State private var claudeAllowedTools = ""
   @State private var claudeDisallowedTools = ""
+  @State private var claudeAllowBypass = false
 
   // Agent — Codex (default to mission-safe: autonomous)
   @State private var codexModel = ""
@@ -194,6 +195,7 @@ struct MissionSettingsTab: View {
           claudePermission: $claudePermission,
           claudeAllowedTools: $claudeAllowedTools,
           claudeDisallowedTools: $claudeDisallowedTools,
+          claudeAllowBypass: $claudeAllowBypass,
           isCompact: isCompact
         )
         .opacity(isClaudeActive ? 1 : 0.4)
@@ -338,12 +340,14 @@ struct MissionSettingsTab: View {
       claudePermission = permissionFromString(claude.permissionMode)
       claudeAllowedTools = claude.allowedTools.joined(separator: ", ")
       claudeDisallowedTools = claude.disallowedTools.joined(separator: ", ")
+      claudeAllowBypass = claude.allowBypassPermissions ?? false
     } else {
       claudeModel = ""
       claudeEffort = .default
       claudePermission = .acceptEdits
       claudeAllowedTools = ""
       claudeDisallowedTools = ""
+      claudeAllowBypass = false
     }
 
     if let codex = s.agent.codex {
@@ -379,15 +383,14 @@ struct MissionSettingsTab: View {
   }
 
   private func permissionFromString(_ value: String?) -> ClaudePermissionMode {
-    guard let value, !value.isEmpty else { return .default }
+    guard let value, !value.isEmpty else { return .acceptEdits }
     switch value {
       case "plan": return .plan
       case "dontAsk": return .dontAsk
-      case "default": return .default
+      case "default": return .acceptEdits
       case "acceptEdits": return .acceptEdits
-      case "auto": return .auto
       case "bypassPermissions": return .bypassPermissions
-      default: return .default
+      default: return .acceptEdits
     }
   }
 
@@ -431,7 +434,6 @@ struct MissionSettingsTab: View {
         case .dontAsk: "dontAsk"
         case .default: "default"
         case .acceptEdits: "acceptEdits"
-        case .auto: "auto"
         case .bypassPermissions: "bypassPermissions"
       }
     }()
@@ -447,6 +449,7 @@ struct MissionSettingsTab: View {
       agentClaudePermissionMode: .some(permissionWire),
       agentClaudeAllowedTools: parseCSV(claudeAllowedTools),
       agentClaudeDisallowedTools: parseCSV(claudeDisallowedTools),
+      agentClaudeAllowBypassPermissions: claudeAllowBypass,
       agentCodexModel: .some(codexModel.isEmpty ? nil : codexModel),
       agentCodexEffort: .some(codexEffort.serialized),
       agentCodexApprovalPolicy: .some(codexAutonomy.approvalPolicy),
@@ -508,6 +511,7 @@ private struct UpdateSettingsBody: Encodable {
   let agentClaudePermissionMode: OptionalString?
   let agentClaudeAllowedTools: [String]?
   let agentClaudeDisallowedTools: [String]?
+  let agentClaudeAllowBypassPermissions: Bool?
   let agentCodexModel: OptionalString?
   let agentCodexEffort: OptionalString?
   let agentCodexApprovalPolicy: OptionalString?
@@ -540,6 +544,7 @@ private struct UpdateSettingsBody: Encodable {
     case agentClaudePermissionMode = "agent_claude_permission_mode"
     case agentClaudeAllowedTools = "agent_claude_allowed_tools"
     case agentClaudeDisallowedTools = "agent_claude_disallowed_tools"
+    case agentClaudeAllowBypassPermissions = "agent_claude_allow_bypass_permissions"
     case agentCodexModel = "agent_codex_model"
     case agentCodexEffort = "agent_codex_effort"
     case agentCodexApprovalPolicy = "agent_codex_approval_policy"

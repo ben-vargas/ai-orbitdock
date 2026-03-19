@@ -6,6 +6,7 @@ struct MissionClaudeAgentSection: View {
   @Binding var claudePermission: ClaudePermissionMode
   @Binding var claudeAllowedTools: String
   @Binding var claudeDisallowedTools: String
+  @Binding var claudeAllowBypass: Bool
   let isCompact: Bool
 
   var body: some View {
@@ -24,14 +25,22 @@ struct MissionClaudeAgentSection: View {
         }
       }
 
-      if isCompact {
-        missionCompactField("Allowed Tools", placeholder: "Read, Edit, Bash(git:*)", text: $claudeAllowedTools)
-        missionCompactField("Disallowed Tools", placeholder: "Bash(rm:*)", text: $claudeDisallowedTools)
-      } else {
-        HStack(alignment: .top, spacing: Spacing.sm) {
+      bypassRow
+
+      VStack(alignment: .leading, spacing: Spacing.sm_) {
+        if isCompact {
           missionCompactField("Allowed Tools", placeholder: "Read, Edit, Bash(git:*)", text: $claudeAllowedTools)
           missionCompactField("Disallowed Tools", placeholder: "Bash(rm:*)", text: $claudeDisallowedTools)
+        } else {
+          HStack(alignment: .top, spacing: Spacing.sm) {
+            missionCompactField("Allowed Tools", placeholder: "Read, Edit, Bash(git:*)", text: $claudeAllowedTools)
+            missionCompactField("Disallowed Tools", placeholder: "Bash(rm:*)", text: $claudeDisallowedTools)
+          }
         }
+        Text("Comma-separated tool patterns. Example: Read, Edit, Bash(git:*) pre-approves file ops and git commands.")
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.textQuaternary)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
   }
@@ -42,11 +51,30 @@ struct MissionClaudeAgentSection: View {
 
       WrappingFlowLayout(spacing: Spacing.xs) {
         permissionChip(.acceptEdits)
-        permissionChip(.auto)
         permissionChip(.bypassPermissions)
       }
+
+      Text(permissionDescription)
+        .font(.system(size: TypeScale.micro))
+        .foregroundStyle(Color.textQuaternary)
+        .fixedSize(horizontal: false, vertical: true)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var permissionDescription: String {
+    switch claudePermission {
+    case .acceptEdits:
+      return "Auto-approves file edits. Prompts for shell commands. Good balance for most missions."
+    case .bypassPermissions:
+      return "Auto-approves everything including shell commands. Maximum autonomy \u{2014} use when running in isolated worktrees."
+    case .plan:
+      return "Plans changes before executing. Good for review-first workflows."
+    case .dontAsk:
+      return "Runs without any permission prompts."
+    case .default:
+      return "Uses default Claude permission settings."
+    }
   }
 
   private func permissionChip(_ mode: ClaudePermissionMode) -> some View {
@@ -58,7 +86,6 @@ struct MissionClaudeAgentSection: View {
         case .dontAsk: "Don't Ask"
         case .default: "Default"
         case .acceptEdits: "Edits"
-        case .auto: "Auto"
         case .bypassPermissions: "Bypass"
       }
     }() : mode.displayName
@@ -75,5 +102,23 @@ struct MissionClaudeAgentSection: View {
       )
     }
     .buttonStyle(.plain)
+  }
+
+  private var bypassRow: some View {
+    HStack(spacing: Spacing.sm) {
+      Toggle(isOn: $claudeAllowBypass) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          Text("Allow Bypass Permissions")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+          Text("Enables mid-session switching to Bypass mode. Required for unattended agents that may need unrestricted tool access.")
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.textQuaternary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      .toggleStyle(.switch)
+      .tint(Color.autonomyUnrestricted)
+    }
   }
 }

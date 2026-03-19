@@ -30,6 +30,7 @@ pub(crate) struct DirectSessionCreationInputs {
     pub effort: Option<String>,
     pub mission_id: Option<String>,
     pub issue_identifier: Option<String>,
+    pub allow_bypass_permissions: bool,
 }
 
 pub(crate) struct PreparedDirectSession {
@@ -59,6 +60,9 @@ pub(crate) struct DirectSessionRequest {
     pub issue_identifier: Option<String>,
     /// Dynamic tool specs for Codex sessions (mission tools).
     pub dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
+    /// When true, pass `--allow-dangerously-skip-permissions` to the Claude CLI,
+    /// enabling mid-session switches to `bypassPermissions` mode.
+    pub allow_bypass_permissions: bool,
 }
 
 pub(crate) struct PreparedPersistedDirectSession {
@@ -87,6 +91,7 @@ struct PersistDirectSessionCreate {
     effort: Option<String>,
     mission_id: Option<String>,
     issue_identifier: Option<String>,
+    allow_bypass_permissions: bool,
 }
 
 pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> PreparedDirectSession {
@@ -120,6 +125,9 @@ pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> Prep
 
     if input.mission_id.is_some() || input.issue_identifier.is_some() {
         handle.set_mission_context(input.mission_id, input.issue_identifier);
+    }
+    if input.allow_bypass_permissions {
+        handle.set_allow_bypass_permissions(true);
     }
 
     let summary = handle.summary();
@@ -155,6 +163,7 @@ async fn persist_direct_session_create(
         effort,
         mission_id,
         issue_identifier,
+        allow_bypass_permissions,
     } = request;
     let _ = persist_tx
         .send(PersistCommand::SessionCreate {
@@ -175,6 +184,7 @@ async fn persist_direct_session_create(
             forked_from_session_id: None,
             mission_id,
             issue_identifier,
+            allow_bypass_permissions,
         })
         .await;
 
@@ -210,6 +220,7 @@ pub(crate) async fn prepare_persist_direct_session(
         effort: request.effort.clone(),
         mission_id: request.mission_id.clone(),
         issue_identifier: request.issue_identifier.clone(),
+        allow_bypass_permissions: request.allow_bypass_permissions,
     });
 
     let persist_tx = state.persist().clone();
@@ -233,6 +244,7 @@ pub(crate) async fn prepare_persist_direct_session(
             effort: request.effort.clone(),
             mission_id: request.mission_id.clone(),
             issue_identifier: request.issue_identifier.clone(),
+            allow_bypass_permissions: request.allow_bypass_permissions,
         },
     )
     .await;
@@ -287,6 +299,7 @@ pub(crate) async fn launch_prepared_direct_session(
                     allowed_tools: &request.allowed_tools,
                     disallowed_tools: &request.disallowed_tools,
                     effort: request.effort.as_deref(),
+                    allow_bypass_permissions: request.allow_bypass_permissions,
                 },
             )
             .await
@@ -326,6 +339,7 @@ mod tests {
             effort: Some("high".into()),
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
         });
 
         assert_eq!(prepared.project_name.as_deref(), Some("project"));
@@ -370,6 +384,7 @@ mod tests {
             effort: Some("medium".into()),
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
         });
 
         assert_eq!(
@@ -400,6 +415,7 @@ mod tests {
             mission_id: None,
             issue_identifier: None,
             dynamic_tools: Vec::new(),
+            allow_bypass_permissions: false,
         };
         let prepared = prepare_direct_session(DirectSessionCreationInputs {
             id: "session-3".into(),
@@ -417,6 +433,7 @@ mod tests {
             effort: request.effort.clone(),
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
         });
 
         let persisted = PreparedPersistedDirectSession {
