@@ -271,7 +271,7 @@ On launch, `ServerManager` still checks local install state for onboarding, whil
 8. `orbitdock auth local-token` → store decrypted token in Keychain for local endpoint → connect WebSocket
 
 ### Development
-In dev, run `orbitdock init` first (provisions auth token), then `make rust-run`. The app detects the server via health check, discovers the auth token via `orbitdock auth local-token`, and connects. For LAN testing, `make rust-run-lan` binds to `0.0.0.0:4000` (requires an auth token — auto-provisioned by `init`). Set `ORBITDOCK_SERVER_PATH` in Xcode scheme to test the install flow with a debug binary.
+In dev, run `orbitdock init` first (provisions auth token), then `make rust-run`. Interactive `make rust-run`, `make rust-run-lan`, and `make rust-run-debug` launches now open the in-process Rust server dev console by default when stdout/stderr are TTYs. Set `ORBITDOCK_DEV_CONSOLE=0` to keep the plain terminal experience. The app detects the server via health check, discovers the auth token via `orbitdock auth local-token`, and connects. For LAN testing, `make rust-run-lan` binds to `0.0.0.0:4000` (requires an auth token — auto-provisioned by `init`). Set `ORBITDOCK_SERVER_PATH` in Xcode scheme to test the install flow with a debug binary.
 
 ## File Locations
 
@@ -370,13 +370,17 @@ This shows the exact payload that failed to parse, making it easy to fix struct 
 
 ## Debugging Rust Server
 
-The Rust server (`orbitdock`) logs to a file only — no stderr output. All logs are structured JSON.
+The Rust server (`orbitdock`) always writes structured JSON logs to disk. Interactive dev runs also mirror those events into the built-in TUI dev console by default.
 
 ### Log Location
 `~/.orbitdock/logs/server.log`
 
 ### Viewing Logs
 ```bash
+# Open the integrated dev console (default for interactive make targets)
+make rust-run
+make rust-run-lan
+
 # Watch all server logs live
 tail -f ~/.orbitdock/logs/server.log | jq .
 
@@ -408,6 +412,7 @@ RUST_LOG=debug make rust-run
 - `ORBITDOCK_SERVER_LOG_FILTER` - optional tracing filter override (for example `debug,tower_http=warn`).
 - `ORBITDOCK_SERVER_LOG_FORMAT` - `json` (default) or `pretty`.
 - `ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START=1` - truncates `server.log` on boot.
+- `ORBITDOCK_DEV_CONSOLE=0` - disables the integrated dev console for interactive `make rust-run*` launches.
 
 ### Structured Fields
 Core event fields are stable for filtering:

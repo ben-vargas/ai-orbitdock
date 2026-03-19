@@ -516,7 +516,12 @@ Fresh databases track migration state in `refinery_schema_history`. If you're up
 
 ## Logging
 
-Structured JSON to `<data_dir>/logs/server.log`.
+OrbitDock now has two server log surfaces:
+
+- Interactive dev runs (`make rust-run`, `make rust-run-lan`, `make rust-run-debug`) open an in-process TUI dev console by default when stdout/stderr are TTYs.
+- Structured JSON is still always written to `<data_dir>/logs/server.log` for filtering, postmortems, and non-interactive runs.
+
+Set `ORBITDOCK_DEV_CONSOLE=0` to opt out of the TUI and keep the plain terminal experience during interactive runs.
 
 ```bash
 # Watch live
@@ -539,14 +544,16 @@ tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'
 | `ORBITDOCK_SERVER_LOG_FILTER` | Tracing filter (e.g. `debug,tower_http=warn`) |
 | `ORBITDOCK_SERVER_LOG_FORMAT` | `json` (default) or `pretty` |
 | `ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START` | Set to `1` to truncate log on boot |
+| `ORBITDOCK_DEV_CONSOLE` | Set to `0` to disable the interactive dev console for `make rust-run*` targets |
 
 ## Building
 
 ```bash
 make rust-build               # dev build
-make rust-run                 # run locally (127.0.0.1:4000)
-make rust-run-lan             # run on LAN (0.0.0.0:4000, uses auto-provisioned token)
+make rust-run                 # run locally (127.0.0.1:4000, opens dev console in a TTY)
+make rust-run-lan             # run on LAN (0.0.0.0:4000, opens dev console in a TTY)
 make rust-run-remote          # run on 0.0.0.0:4000 (same as rust-run-lan)
+make rust-run-debug           # run with debug logs, opens dev console in a TTY
 make rust-generate-token      # issue and print a secure token
 make rust-check               # fast compile check
 make rust-ci                  # fmt + clippy + tests

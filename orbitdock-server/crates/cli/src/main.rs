@@ -1,5 +1,6 @@
 use clap::Parser;
 use orbitdock_cli::cli::{BinaryCli as Cli, BinaryCommand as Command};
+use std::io::IsTerminal;
 
 fn main() -> anyhow::Result<()> {
     let _arg0_guard = orbitdock_connector_codex::arg0_dispatch();
@@ -140,44 +141,68 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let (bind_addr, auth_token, allow_insecure_no_auth, startup_is_primary, tls_cert, tls_key) =
-        match cli.command {
-            Some(Command::Start {
-                bind,
-                auth_token,
-                allow_insecure_no_auth,
-                secondary,
-                tls_cert,
-                tls_key,
-            }) => (
-                bind,
-                auth_token,
-                allow_insecure_no_auth,
-                !secondary,
-                tls_cert,
-                tls_key,
-            ),
-            _ => (
-                cli.bind
-                    .unwrap_or_else(|| "127.0.0.1:4000".parse().unwrap()),
-                None,
-                false,
-                true,
-                None,
-                None,
-            ),
-        };
-
-    let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(orbitdock_server::run_server(
-        orbitdock_server::ServerRunOptions {
-            bind_addr,
+    let (
+        bind_addr,
+        auth_token,
+        allow_insecure_no_auth,
+        startup_is_primary,
+        tls_cert,
+        tls_key,
+        dev_console,
+    ) = match cli.command {
+        Some(Command::Start {
+            bind,
             auth_token,
             allow_insecure_no_auth,
-            startup_is_primary,
-            data_dir,
+            secondary,
             tls_cert,
             tls_key,
-        },
-    ))
+            dev_console,
+        }) => (
+            bind,
+            auth_token,
+            allow_insecure_no_auth,
+            !secondary,
+            tls_cert,
+            tls_key,
+            dev_console,
+        ),
+        _ => (
+            cli.bind
+                .unwrap_or_else(|| "127.0.0.1:4000".parse().unwrap()),
+            None,
+            false,
+            true,
+            None,
+            None,
+            false,
+        ),
+    };
+
+    let runtime = tokio::runtime::Runtime::new()?;
+    let run_options = orbitdock_server::ServerRunOptions {
+        bind_addr,
+        auth_token,
+        allow_insecure_no_auth,
+        startup_is_primary,
+        data_dir,
+        tls_cert,
+        tls_key,
+        logging: orbitdock_server::ServerLoggingOptions::default(),
+    };
+
+    let should_use_dev_console =
+        dev_console && std::io::stdout().is_terminal() && std::io::stderr().is_terminal();
+    if should_use_dev_console {
+        match runtime.block_on(orbitdock_cli::dev_console::run_server_with_dev_console(
+            run_options.clone(),
+        )) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                eprintln!("dev console unavailable, falling back to plain logs: {error:#}");
+            }
+        }
+    }
+
+    runtime.block_on(orbitdock_server::run_server(run_options))
 }

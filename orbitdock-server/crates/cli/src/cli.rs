@@ -69,6 +69,9 @@ pub enum BinaryCommand {
 
         #[arg(long, env = "ORBITDOCK_TLS_KEY")]
         tls_key: Option<std::path::PathBuf>,
+
+        #[arg(long, default_value_t = false)]
+        dev_console: bool,
     },
 
     /// Bootstrap a fresh machine (create dirs and run migrations)
@@ -1127,5 +1130,18 @@ mod tests {
 
         let result = dispatch_binary(&command, &config).await;
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn binary_cli_parses_start_dev_console_flag() {
+        let cli = BinaryCli::try_parse_from(["orbitdock", "start", "--dev-console"])
+            .expect("binary cli should parse dev console flag");
+
+        match cli.command {
+            Some(BinaryCommand::Start { dev_console, .. }) => {
+                assert!(dev_console);
+            }
+            other => panic!("expected start command, got {other:?}"),
+        }
     }
 }

@@ -374,16 +374,28 @@ rust-lint:
 	$(RUST_CARGO) clippy --workspace --all-targets -- -D warnings
 
 rust-run:
-	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- start --bind $(RUST_RUN_BIND)
+	@args=(); \
+	if [[ -t 1 && -t 2 && "$${ORBITDOCK_DEV_CONSOLE:-1}" != "0" ]]; then \
+		args+=(--dev-console); \
+	fi; \
+	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- start --bind $(RUST_RUN_BIND) "$${args[@]}"
 
 rust-run-lan:
-	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- start --bind $(RUST_RUN_LAN_BIND)
+	@args=(); \
+	if [[ -t 1 && -t 2 && "$${ORBITDOCK_DEV_CONSOLE:-1}" != "0" ]]; then \
+		args+=(--dev-console); \
+	fi; \
+	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- start --bind $(RUST_RUN_LAN_BIND) "$${args[@]}"
 
 rust-run-remote:
 	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- start --bind $(RUST_RUN_REMOTE_BIND)
 
 rust-run-debug:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p $(RUST_BIN_PACKAGE) -- start
+	@args=(); \
+	if [[ -t 1 && -t 2 && "$${ORBITDOCK_DEV_CONSOLE:-1}" != "0" ]]; then \
+		args+=(--dev-console); \
+	fi; \
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p $(RUST_BIN_PACKAGE) -- start "$${args[@]}"
 
 rust-generate-token:
 	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- generate-token

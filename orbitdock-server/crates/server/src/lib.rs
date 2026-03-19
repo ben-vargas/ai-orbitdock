@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 /// Server version, baked in at compile time.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub use app::{run_server, ServerRunOptions};
+pub use infrastructure::logging::{ServerLogEvent, ServerLoggingOptions, StderrLogMode};
 
 pub fn init_data_dir(explicit: Option<&Path>) -> PathBuf {
     infrastructure::paths::init_data_dir(explicit)

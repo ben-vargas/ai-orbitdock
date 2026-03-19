@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod client;
 pub mod commands;
+pub mod dev_console;
 pub mod error;
 pub mod output;
 

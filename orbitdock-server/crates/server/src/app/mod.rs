@@ -21,7 +21,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
-use crate::infrastructure::logging::init_logging;
+use crate::infrastructure::logging::{init_logging, ServerLoggingOptions};
 use crate::infrastructure::persistence::{
     cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
     create_persistence_channel, load_sessions_for_startup, PersistCommand, PersistenceWriter,
@@ -43,6 +43,7 @@ pub struct ServerRunOptions {
     pub data_dir: PathBuf,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
+    pub logging: ServerLoggingOptions,
 }
 
 pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
@@ -51,7 +52,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     crate::infrastructure::paths::ensure_dirs()?;
     crate::infrastructure::crypto::ensure_key();
 
-    let logging = init_logging()?;
+    let logging = init_logging(&options.logging)?;
     let run_id = logging.run_id.clone();
     let _log_guard = logging.guard;
     let _stderr_guard = logging._stderr_guard;
