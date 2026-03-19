@@ -1,8 +1,11 @@
 use std::collections::{HashMap, VecDeque};
+use std::fs;
 use std::io::{self, Stdout};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use crossterm::event::{
@@ -55,8 +58,15 @@ pub async fn run_server_with_dev_console(mut options: ServerRunOptions) -> anyho
             maybe_input = input.next() => {
                 match maybe_input.transpose()? {
                     Some(CrosstermEvent::Key(key)) if key.kind == KeyEventKind::Press => {
-                        if handle_key_event(&mut state, key) {
-                            break;
+                        match handle_key_event(&mut state, key) {
+                            ConsoleAction::Continue => {}
+                            ConsoleAction::Quit => break,
+                            ConsoleAction::OpenPager => {
+                                state.status_message = Some(match open_selected_event_in_pager(&state, &mut terminal) {
+                                    Ok(()) => "Opened selected event in pager".to_string(),
+                                    Err(error) => format!("Pager open failed: {error}"),
+                                });
+                            }
                         }
                     }
                     Some(CrosstermEvent::Resize(_, _)) => {}
@@ -201,6 +211,12 @@ enum Overlay {
     CategoryPicker { selected: usize },
 }
 
+enum ConsoleAction {
+    Continue,
+    Quit,
+    OpenPager,
+}
+
 struct DevConsoleState {
     bind_addr: SocketAddr,
     panes: [PaneState; 4],
@@ -332,9 +348,9 @@ impl DevConsoleState {
     }
 }
 
-fn handle_key_event(state: &mut DevConsoleState, key: KeyEvent) -> bool {
+fn handle_key_event(state: &mut DevConsoleState, key: KeyEvent) -> ConsoleAction {
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-        return true;
+        return ConsoleAction::Quit;
     }
 
     match &mut state.overlay {
@@ -355,13 +371,13 @@ fn handle_key_event(state: &mut DevConsoleState, key: KeyEvent) -> bool {
                 }
                 _ => {}
             }
-            return false;
+            return ConsoleAction::Continue;
         }
         None => {}
     }
 
     match key.code {
-        KeyCode::Char('q') => return true,
+        KeyCode::Char('q') => return ConsoleAction::Quit,
         KeyCode::Tab => {
             state.focus = (state.focus + 1) % state.panes.len();
         }
@@ -377,7 +393,7 @@ fn handle_key_event(state: &mut DevConsoleState, key: KeyEvent) -> bool {
             let pane_index = state.focus;
             let visible_len = state.filtered_rows(state.panes[pane_index].category).len();
             if visible_len == 0 {
-                return false;
+                return ConsoleAction::Continue;
             }
             let pane = &mut state.panes[pane_index];
             pane.selected = (pane.selected + 1).min(visible_len.saturating_sub(1));
@@ -434,10 +450,11 @@ fn handle_key_event(state: &mut DevConsoleState, key: KeyEvent) -> bool {
                 .unwrap_or(0);
             state.overlay = Some(Overlay::CategoryPicker { selected });
         }
+        KeyCode::Char('o') => return ConsoleAction::OpenPager,
         _ => {}
     }
 
-    false
+    ConsoleAction::Continue
 }
 
 fn draw(frame: &mut Frame<'_>, state: &mut DevConsoleState) {
@@ -459,7 +476,7 @@ fn draw(frame: &mut Frame<'_>, state: &mut DevConsoleState) {
         .constraints([
             Constraint::Length(3),
             Constraint::Min(10),
-            Constraint::Length(2),
+            Constraint::Length(3),
         ])
         .split(columns[0]);
 
@@ -624,6 +641,7 @@ fn draw_footer(frame: &mut Frame<'_>, area: Rect, state: &DevConsoleState) {
         Span::raw("s pin  "),
         Span::raw("u unpin  "),
         Span::raw("y copy  "),
+        Span::raw("o pager  "),
         Span::raw("q quit"),
         Span::raw(if state.overlay.is_some() {
             "  Esc close picker"
@@ -822,6 +840,43 @@ fn copy_selected_event_to_clipboard(state: &DevConsoleState) -> anyhow::Result<(
     copy_text_to_clipboard(&payload)
 }
 
+fn open_selected_event_in_pager(
+    state: &DevConsoleState,
+    terminal: &mut TerminalSession,
+) -> anyhow::Result<()> {
+    let event = state
+        .selected_event()
+        .context("No selected event to open")?;
+    let payload = serde_json::to_string_pretty(event.as_ref())?;
+    let temp_path = write_pager_file(&payload)?;
+    let (pager_command, pager_args) = pager_command_and_args();
+
+    terminal.suspend()?;
+
+    let pager_result = (|| -> anyhow::Result<()> {
+        let status = Command::new(&pager_command)
+            .args(&pager_args)
+            .arg(&temp_path)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .with_context(|| format!("spawn pager {pager_command}"))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            anyhow::bail!("pager exited with {status}");
+        }
+    })();
+
+    let resume_result = terminal.resume();
+    let _ = fs::remove_file(&temp_path);
+
+    resume_result?;
+    pager_result
+}
+
 fn copy_text_to_clipboard(text: &str) -> anyhow::Result<()> {
     #[cfg(target_os = "macos")]
     {
@@ -873,6 +928,40 @@ fn copy_with_command(command: &str, args: &[&str], text: &str) -> anyhow::Result
     }
 }
 
+fn write_pager_file(text: &str) -> anyhow::Result<PathBuf> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let path = std::env::temp_dir().join(format!(
+        "orbitdock-log-event-{}-{now}.json",
+        std::process::id()
+    ));
+    fs::write(&path, text)?;
+    Ok(path)
+}
+
+fn pager_command_and_args() -> (String, Vec<String>) {
+    let pager = std::env::var("PAGER")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "less".to_string());
+    let mut parts = pager
+        .split_whitespace()
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    let command = if parts.is_empty() {
+        "less".to_string()
+    } else {
+        parts.remove(0)
+    };
+    let mut args = parts;
+    if command == "less" && !args.iter().any(|arg| arg == "-R") {
+        args.insert(0, "-R".to_string());
+    }
+    (command, args)
+}
+
 struct TerminalSession {
     terminal: Terminal<CrosstermBackend<Stdout>>,
 }
@@ -893,6 +982,34 @@ impl TerminalSession {
         F: FnOnce(&mut Frame<'_>),
     {
         self.terminal.draw(render).context("draw dev console")?;
+        Ok(())
+    }
+
+    fn suspend(&mut self) -> anyhow::Result<()> {
+        disable_raw_mode().context("disable raw mode for pager")?;
+        execute!(
+            self.terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )
+        .context("leave alternate screen for pager")?;
+        self.terminal
+            .show_cursor()
+            .context("show cursor before opening pager")?;
+        Ok(())
+    }
+
+    fn resume(&mut self) -> anyhow::Result<()> {
+        enable_raw_mode().context("re-enable raw mode after pager")?;
+        execute!(
+            self.terminal.backend_mut(),
+            EnterAlternateScreen,
+            EnableMouseCapture
+        )
+        .context("re-enter alternate screen after pager")?;
+        self.terminal
+            .clear()
+            .context("clear terminal after pager")?;
         Ok(())
     }
 }
