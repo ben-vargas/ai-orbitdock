@@ -23,6 +23,7 @@ const REASONING_SUMMARY_NONE: &str = "none";
 const ENV_CODEX_SHOW_RAW_REASONING: &str = "ORBITDOCK_CODEX_SHOW_RAW_REASONING";
 const ENV_CODEX_HIDE_REASONING: &str = "ORBITDOCK_CODEX_HIDE_REASONING";
 const ENV_CODEX_REASONING_SUMMARY: &str = "ORBITDOCK_CODEX_REASONING_SUMMARY";
+const ORBITDOCK_CODEX_AUTH_STORE_MODE: AuthCredentialsStoreMode = AuthCredentialsStoreMode::File;
 
 impl CodexConnector {
     pub async fn new(
@@ -76,7 +77,7 @@ impl CodexConnector {
         let auth_manager = Arc::new(AuthManager::new(
             codex_home.clone(),
             true,
-            AuthCredentialsStoreMode::Auto,
+            ORBITDOCK_CODEX_AUTH_STORE_MODE,
         ));
 
         let mut config =
@@ -155,7 +156,7 @@ impl CodexConnector {
         let auth_manager = Arc::new(AuthManager::new(
             codex_home.clone(),
             true,
-            AuthCredentialsStoreMode::Auto,
+            ORBITDOCK_CODEX_AUTH_STORE_MODE,
         ));
 
         let mut config =
@@ -322,7 +323,7 @@ pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOptio
     let auth_manager = Arc::new(AuthManager::new(
         codex_home.clone(),
         true,
-        AuthCredentialsStoreMode::Auto,
+        ORBITDOCK_CODEX_AUTH_STORE_MODE,
     ));
     let base_config = Config::load_with_cli_overrides(Vec::new())
         .await
