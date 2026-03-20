@@ -194,10 +194,13 @@ fn main() -> anyhow::Result<()> {
     let should_use_dev_console =
         dev_console && std::io::stdout().is_terminal() && std::io::stderr().is_terminal();
     if should_use_dev_console {
-        match runtime.block_on(orbitdock_cli::dev_console::run_server_with_dev_console(
-            run_options.clone(),
-        )) {
-            Ok(()) => return Ok(()),
+        match orbitdock_cli::dev_console::try_enter_terminal() {
+            Ok(terminal) => {
+                return runtime.block_on(orbitdock_cli::dev_console::run_server_with_dev_console(
+                    run_options,
+                    terminal,
+                ));
+            }
             Err(error) => {
                 eprintln!("dev console unavailable, falling back to plain logs: {error:#}");
             }

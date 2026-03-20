@@ -28,13 +28,23 @@ use orbitdock_server::{ServerLogEvent, ServerRunOptions, StderrLogMode};
 
 const MAX_EVENTS_PER_CATEGORY: usize = 400;
 
-pub async fn run_server_with_dev_console(mut options: ServerRunOptions) -> anyhow::Result<()> {
+/// Try to set up the TUI terminal. This is separated from `run_server_with_dev_console`
+/// so callers can distinguish "TUI setup failed" (safe to fall back to plain logs)
+/// from "server itself failed" (should propagate, not retry — which would panic
+/// because the tracing subscriber is already installed).
+pub fn try_enter_terminal() -> anyhow::Result<TerminalSession> {
+    TerminalSession::enter()
+}
+
+pub async fn run_server_with_dev_console(
+    mut options: ServerRunOptions,
+    mut terminal: TerminalSession,
+) -> anyhow::Result<()> {
     let bind_addr = options.bind_addr;
     let (tx, mut rx) = mpsc::unbounded_channel();
     options.logging.live_sink = Some(tx);
     options.logging.stderr_mode = StderrLogMode::Off;
 
-    let mut terminal = TerminalSession::enter()?;
     let mut input = EventStream::new();
     let mut state = DevConsoleState::new(bind_addr);
 
@@ -877,6 +887,7 @@ fn open_selected_event_in_pager(
     pager_result
 }
 
+#[allow(clippy::needless_return)]
 fn copy_text_to_clipboard(text: &str) -> anyhow::Result<()> {
     #[cfg(target_os = "macos")]
     {
@@ -962,7 +973,7 @@ fn pager_command_and_args() -> (String, Vec<String>) {
     (command, args)
 }
 
-struct TerminalSession {
+pub struct TerminalSession {
     terminal: Terminal<CrosstermBackend<Stdout>>,
 }
 
