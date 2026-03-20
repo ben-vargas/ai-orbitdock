@@ -109,6 +109,7 @@ struct ConversationView: View {
     if let sessionObs, let sessionId {
       TimelineScrollView(
         entries: sessionObs.rowEntries,
+        entriesRevision: sessionObs.rowEntriesRevision,
         sessionId: sessionId,
         clients: serverState.clients,
         viewMode: chatViewMode,

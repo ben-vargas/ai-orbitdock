@@ -7,11 +7,15 @@
 use std::time::Duration;
 
 use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::conversation_contracts::ConversationRow;
-use orbitdock_protocol::{ServerMessage, SessionListItem, SessionStatus, StateChanges, WorkStatus};
+use orbitdock_protocol::conversation_contracts::{compute_tool_display, ConversationRow};
+use orbitdock_protocol::domain_events::ToolKind;
+use orbitdock_protocol::{
+    CodexIntegrationMode, Provider, ServerMessage, SessionListItem, SessionStatus, StateChanges,
+    WorkStatus,
+};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
 use crate::domain::sessions::transition;
@@ -112,6 +116,24 @@ fn subagent_lists_match(
                 && left.model == right.model
                 && left.last_activity_at == right.last_activity_at
         })
+}
+
+fn should_suppress_connector_user_echo(handle: &SessionHandle, event: &ConnectorEvent) -> bool {
+    if handle.provider() != Provider::Codex
+        || handle.to_snapshot().codex_integration_mode != Some(CodexIntegrationMode::Direct)
+    {
+        return false;
+    }
+
+    let ConnectorEvent::ConversationRowCreated(entry) = event else {
+        return false;
+    };
+
+    let ConversationRow::User(message) = &entry.row else {
+        return false;
+    };
+
+    handle.has_user_row_with_content(&message.content)
 }
 
 /// Handle a SessionCommand on the owned SessionHandle.
@@ -417,6 +439,73 @@ pub async fn handle_session_command(
             };
             handle.broadcast(rows_changed);
         }
+        SessionCommand::RecordQuestionAnswer { answer_text } => {
+            // Find the newest AskUserQuestion tool row that has no result yet.
+            let question_row = handle
+                .rows()
+                .iter()
+                .rev()
+                .find_map(|entry| match &entry.row {
+                    ConversationRow::Tool(tool)
+                        if tool.kind == ToolKind::AskUserQuestion && tool.result.is_none() =>
+                    {
+                        Some(entry.clone())
+                    }
+                    _ => None,
+                });
+
+            if let Some(mut entry) = question_row {
+                if let ConversationRow::Tool(ref mut tool) = entry.row {
+                    tool.result = Some(serde_json::json!({
+                        "output": answer_text,
+                    }));
+                    // Recompute display with the answer
+                    let raw_input = if tool.invocation.is_object() {
+                        Some(&tool.invocation)
+                    } else {
+                        None
+                    };
+                    tool.tool_display = Some(compute_tool_display(
+                        tool.kind,
+                        tool.family,
+                        tool.status,
+                        &tool.title,
+                        tool.subtitle.as_deref(),
+                        tool.summary.as_deref(),
+                        tool.duration_ms,
+                        raw_input,
+                        Some(&answer_text),
+                    ));
+                }
+
+                let session_id = handle.id().to_string();
+                let row_id = entry.id().to_string();
+                let entry = handle.upsert_row(entry);
+
+                let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
+                let _ = persist_tx
+                    .send(PersistCommand::RowUpsert {
+                        session_id: session_id.clone(),
+                        entry: entry.clone(),
+                        sequence_tx: Some(seq_tx),
+                    })
+                    .await;
+                if let Ok(db_seq) = seq_rx.await {
+                    handle.set_row_sequence(&row_id, db_seq);
+                }
+
+                let summary = handle
+                    .row_by_id(&row_id)
+                    .map(|r| r.to_summary())
+                    .unwrap_or_else(|| entry.to_summary());
+                handle.broadcast(ServerMessage::ConversationRowsChanged {
+                    session_id,
+                    upserted: vec![summary],
+                    removed_row_ids: vec![],
+                    total_row_count: handle.message_count() as u64,
+                });
+            }
+        }
         SessionCommand::ResolvePendingApproval {
             request_id,
             fallback_work_status,
@@ -535,6 +624,19 @@ pub(crate) async fn dispatch_connector_event(
     handle: &mut SessionHandle,
     persist_tx: &mpsc::Sender<PersistCommand>,
 ) {
+    if should_suppress_connector_user_echo(handle, &event) {
+        if let ConnectorEvent::ConversationRowCreated(entry) = &event {
+            debug!(
+                component = "session",
+                event = "session.message.connector_user_echo_suppressed",
+                session_id = %session_id,
+                row_id = %entry.id(),
+                "Suppressed duplicate Codex user-message echo"
+            );
+        }
+        return;
+    }
+
     let event = match event {
         ConnectorEvent::ConversationRowCreated(mut entry) => {
             entry.row =
@@ -704,4 +806,64 @@ pub(crate) fn spawn_interrupt_watchdog(
             })
             .await;
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orbitdock_protocol::conversation_contracts::{ConversationRowEntry, MessageRowContent};
+
+    fn user_entry(session_id: &str, row_id: &str, content: &str) -> ConversationRowEntry {
+        ConversationRowEntry {
+            session_id: session_id.to_string(),
+            sequence: 0,
+            turn_id: None,
+            row: ConversationRow::User(MessageRowContent {
+                id: row_id.to_string(),
+                content: content.to_string(),
+                turn_id: None,
+                timestamp: None,
+                is_streaming: false,
+                images: vec![],
+            }),
+        }
+    }
+
+    #[test]
+    fn suppresses_duplicate_codex_user_echo_for_direct_sessions() {
+        let mut handle = SessionHandle::new(
+            "session-1".to_string(),
+            Provider::Codex,
+            "/repo".to_string(),
+        );
+        handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+        handle.add_row(user_entry("session-1", "user-http-1", "hello world"));
+
+        let event = ConnectorEvent::ConversationRowCreated(user_entry(
+            "session-1",
+            "user-codex-1",
+            "hello world",
+        ));
+
+        assert!(should_suppress_connector_user_echo(&handle, &event));
+    }
+
+    #[test]
+    fn does_not_suppress_distinct_user_message_content() {
+        let mut handle = SessionHandle::new(
+            "session-1".to_string(),
+            Provider::Codex,
+            "/repo".to_string(),
+        );
+        handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+        handle.add_row(user_entry("session-1", "user-http-1", "hello world"));
+
+        let event = ConnectorEvent::ConversationRowCreated(user_entry(
+            "session-1",
+            "user-codex-1",
+            "different",
+        ));
+
+        assert!(!should_suppress_connector_user_echo(&handle, &event));
+    }
 }

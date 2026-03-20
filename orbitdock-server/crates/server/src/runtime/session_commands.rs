@@ -153,6 +153,12 @@ pub enum SessionCommand {
     UpsertRowAndBroadcast {
         entry: ConversationRowEntry,
     },
+    /// Record a question answer on the most recent unanswered question tool row.
+    /// Finds the newest AskUserQuestion tool row with no result and sets its
+    /// output to the provided answer text.
+    RecordQuestionAnswer {
+        answer_text: String,
+    },
 
     // -- Approval --
     /// Resolve a pending approval request and promote the next one if present.

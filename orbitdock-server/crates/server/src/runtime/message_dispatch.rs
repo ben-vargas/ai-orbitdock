@@ -432,6 +432,18 @@ pub(crate) async fn dispatch_answer_question(
         })
         .await;
 
+    // Build the answer text for recording on the tool row
+    let answer_text = if answer.is_empty() {
+        normalized_answers
+            .values()
+            .flat_map(|v| v.iter())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        answer.clone()
+    };
+
     if let Some(tx) = state.get_codex_action_tx(session_id) {
         let _ = tx
             .send(CodexAction::AnswerQuestion {
@@ -446,6 +458,16 @@ pub(crate) async fn dispatch_answer_question(
                 answers: normalized_answers,
             })
             .await;
+    }
+
+    // Record the answer on the question tool row so the UI shows
+    // the response instead of "Pending" / "No response recorded".
+    if let Some(actor) = state.get_session(session_id) {
+        if !answer_text.is_empty() {
+            actor
+                .send(SessionCommand::RecordQuestionAnswer { answer_text })
+                .await;
+        }
     }
 
     let _ = state

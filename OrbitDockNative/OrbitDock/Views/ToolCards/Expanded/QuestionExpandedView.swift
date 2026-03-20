@@ -17,7 +17,7 @@ struct QuestionExpandedView: View {
   }
 
   private var isCompleted: Bool {
-    toolRow.status == .completed
+    toolRow.status == .completed || toolRow.status == .failed
   }
 
   var body: some View {
