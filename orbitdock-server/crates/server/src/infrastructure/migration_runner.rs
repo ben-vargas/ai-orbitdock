@@ -14,7 +14,7 @@ use tracing::{info, warn};
 mod embedded {
     use refinery::embed_migrations;
 
-    embed_migrations!("../../../migrations");
+    embed_migrations!("../../migrations");
 }
 
 const LEGACY_MIGRATION_TABLE: &str = "schema_versions";
