@@ -11,7 +11,6 @@ import { MessageComposer } from '../components/input/message-composer.jsx'
 import { RateLimitBanner } from '../components/input/rate-limit-banner.jsx'
 import { SessionHeader } from '../components/session/session-header.jsx'
 import { WorkerRosterPanel } from '../components/session/worker-roster-panel.jsx'
-import { ContextualStatusStrip } from '../components/session/contextual-status-strip.jsx'
 import { SessionActionBar } from '../components/session/session-action-bar.jsx'
 import { DiffAvailableBanner } from '../components/session/diff-available-banner.jsx'
 import { WorktreeCleanupBanner } from '../components/session/worktree-cleanup-banner.jsx'
@@ -19,7 +18,7 @@ import { CapabilitiesPanel } from '../components/session/capabilities-panel.jsx'
 import { SessionSkeleton } from '../components/session/session-skeleton.jsx'
 import { ReviewPanel } from '../components/review/review-panel.jsx'
 import { ApprovalBanner } from '../components/approval/approval-banner.jsx'
-import { createHttpClient } from '../api/http.js'
+import { connectionState, http } from '../stores/connection.js'
 import { useMachine } from '../hooks/use-machine.js'
 import { useKeyboard } from '../hooks/use-keyboard.js'
 import { approvalMachine } from '../machines/approval.machine.js'
@@ -31,8 +30,6 @@ import {
   handleReviewWsEvent,
 } from '../stores/review.js'
 import styles from './session.module.css'
-
-const http = createHttpClient('')
 
 const SessionPage = () => {
   const [, params] = useRoute('/session/:id')
@@ -223,6 +220,13 @@ const SessionPage = () => {
     })
   }
 
+  const handleModelChange = (model) => {
+    http.patch(`/api/sessions/${sessionId}/config`, { model }).catch((err) => {
+      console.warn('[session] model change failed:', err.message)
+      addToast({ title: 'Model change failed', body: err.message, type: 'error' })
+    })
+  }
+
   const handleDecide = (decision) => {
     if (!pendingRequest) return
     sendApproval({ type: 'DECIDE', decision })
@@ -275,6 +279,8 @@ const SessionPage = () => {
 
   const isEnded = session?.status === 'ended' || session?.work_status === 'ended'
   const isWorking = session?.work_status === 'working'
+  const isPassive = session?.work_status === 'reply' || session?.work_status === 'ended'
+  const showTakeover = session?.status === 'active' && isPassive
   const showWorktreeBanner = isEnded && session?.is_worktree && !!session?.worktree_id
 
   const handleInterrupt = () => {
@@ -327,6 +333,13 @@ const SessionPage = () => {
     })
   }
 
+  const handleShellExec = (command) => {
+    http.post(`/api/sessions/${sessionId}/shell/exec`, { command, timeout_secs: 120 }).catch((err) => {
+      console.warn('[session] shell exec failed:', err.message)
+      addToast({ title: 'Shell exec failed', body: err.message, type: 'error' })
+    })
+  }
+
   const handleResume = () => {
     http.post(`/api/sessions/${sessionId}/resume`).catch((err) => {
       console.warn('[session] resume failed:', err.message)
@@ -337,6 +350,25 @@ const SessionPage = () => {
     http.del(`/api/worktrees/${worktreeId}`).catch((err) => {
       console.warn('[session] worktree delete failed:', err.message)
     })
+
+  const handleContinueInNew = () => {
+    // Fork from the latest message into a new session
+    http.post(`/api/sessions/${sessionId}/fork`).then((res) => {
+      if (res?.session?.id) navigate(`/session/${res.session.id}`)
+    }).catch((err) => {
+      console.warn('[session] continue in new failed:', err.message)
+      addToast({ title: 'Continue failed', body: err.message, type: 'error' })
+    })
+  }
+
+  const handleForkToWorktree = () => {
+    http.post(`/api/sessions/${sessionId}/fork-to-worktree`).then((res) => {
+      if (res?.session?.id) navigate(`/session/${res.session.id}`)
+    }).catch((err) => {
+      console.warn('[session] fork to worktree failed:', err.message)
+      addToast({ title: 'Fork to worktree failed', body: err.message, type: 'error' })
+    })
+  }
 
   const handleToggleCapabilities = () => setCapabilitiesOpen((v) => !v)
 
@@ -353,19 +385,19 @@ const SessionPage = () => {
       <div class={`${styles.conversationCol} ${reviewOpen ? styles.conversationColNarrow : ''}`}>
         <SessionHeader
           session={session}
-          onCompact={handleCompact}
-          onUndo={handleUndo}
           onEnd={handleEnd}
           onRename={handleRename}
           onFork={handleFork}
+          onForkToWorktree={handleForkToWorktree}
+          onContinueInNew={handleContinueInNew}
           onTakeover={handleTakeover}
           onRollback={handleRollback}
           onToggleCapabilities={handleToggleCapabilities}
           capabilitiesOpen={capabilitiesOpen}
           reviewOpen={reviewOpen}
           onReviewToggle={reviewOpen ? handleCloseReview : handleOpenReview}
+          tokenUsage={tokenUsage}
         />
-        <ContextualStatusStrip session={session} tokenUsage={tokenUsage} />
         <WorkerRosterPanel rows={rows} />
         {diffAvailable && (
           <DiffAvailableBanner
@@ -379,6 +411,8 @@ const SessionPage = () => {
           hasMoreBefore={conversation.hasMoreBefore.value}
           onLoadOlder={() => conversation.loadOlder(http, sessionId)}
           scrollRef={scrollAnchor}
+          session={session}
+          unreadCount={unreadCount}
         />
         {rateLimitInfo && (
           <RateLimitBanner
@@ -386,12 +420,7 @@ const SessionPage = () => {
             onExpired={() => setRateLimitInfo(null)}
           />
         )}
-        <SessionActionBar
-          session={session}
-          isPinned={scrollAnchor.isPinned.value}
-          unreadCount={unreadCount}
-          onScrollToBottom={scrollAnchor.scrollToBottom}
-        />
+        <SessionActionBar session={session} />
         {showWorktreeBanner && (
           <WorktreeCleanupBanner
             worktreeId={session.worktree_id}
@@ -407,21 +436,45 @@ const SessionPage = () => {
             onRespondPermission={handleRespondPermission}
           />
         )}
+        {/* Takeover banner — visible when viewing a passive session */}
+        {showTakeover && (
+          <div class={styles.takeoverBanner}>
+            <span class={styles.takeoverDot} />
+            <span class={styles.takeoverLabel}>Take over to send messages</span>
+            <button class={styles.takeoverBtn} onClick={handleTakeover}>
+              Take Over
+            </button>
+          </div>
+        )}
         <MessageComposer
           sessionId={sessionId}
           onSend={handleSend}
           onSteer={handleSteer}
+          onShellExec={handleShellExec}
           onInterrupt={handleInterrupt}
           onResume={handleResume}
+          onContinueInNew={handleContinueInNew}
+          onUndo={handleUndo}
+          onFork={handleFork}
+          onForkToWorktree={handleForkToWorktree}
+          onCompact={handleCompact}
+          onEnd={handleEnd}
           disabled={isEnded}
           isWorking={isWorking}
           isPending={isPending}
           isEnded={isEnded}
+          isConnected={connectionState.value === 'connected'}
           provider={session?.provider}
           approvalPolicy={approvalPolicy}
           onApprovalPolicyChange={handleApprovalPolicyChange}
           projectPath={session?.project_path || session?.repository_root}
           skills={liveSkills}
+          session={session}
+          tokenUsage={tokenUsage}
+          isPinned={scrollAnchor.isPinned.value}
+          unreadCount={unreadCount}
+          onScrollToBottom={scrollAnchor.scrollToBottom}
+          onModelChange={handleModelChange}
         />
         <CapabilitiesPanel
           open={capabilitiesOpen}

@@ -1,49 +1,50 @@
 import { useState, useEffect } from 'preact/hooks'
 import { http } from '../../stores/connection.js'
-import { UsageGauge } from '../ui/usage-gauge.jsx'
 import styles from './usage-summary.module.css'
 
 const REFRESH_INTERVAL_MS = 60_000
 
 const pickPrimaryWindow = (usage) => {
   if (!usage?.windows?.length) return null
-  // Prefer the first window that has a real limit set
   return usage.windows.find((w) => w.limit > 0) ?? usage.windows[0]
 }
 
-const ProviderUsage = ({ provider, usage, error }) => {
+const getBarColor = (pct) => {
+  if (pct >= 0.85) return 'negative'
+  if (pct >= 0.60) return 'caution'
+  return 'positive'
+}
+
+const CompactProviderPill = ({ provider, usage, error }) => {
+  const window = pickPrimaryWindow(usage)
+  if (!window && !error) return null
+
   const colorVar = `var(--color-provider-${provider})`
   const label = provider.charAt(0).toUpperCase() + provider.slice(1)
 
-  if (error) {
+  if (error || !window) {
     return (
-      <div class={styles.providerBlock}>
-        <span class={styles.providerLabel} style={{ color: colorVar }}>{label}</span>
-        <span class={styles.providerError}>{error}</span>
+      <div class={styles.pill}>
+        <span class={styles.providerDot} style={{ background: colorVar }} />
+        <span class={styles.pillLabel}>{label}</span>
+        <span class={styles.pillDash}>--</span>
       </div>
     )
   }
 
-  const window = pickPrimaryWindow(usage)
-  if (!window) {
-    return (
-      <div class={styles.providerBlock}>
-        <span class={styles.providerLabel} style={{ color: colorVar }}>{label}</span>
-        <span class={styles.providerError}>No usage data</span>
-      </div>
-    )
-  }
+  const pct = window.limit > 0 ? Math.min(window.used / window.limit, 1) : 0
+  const colorKey = getBarColor(pct)
 
   return (
-    <div class={styles.providerBlock}>
-      <span class={styles.providerLabel} style={{ color: colorVar }}>{label}</span>
-      <div class={styles.gaugeWrap}>
-        <UsageGauge
-          name={window.name}
-          used={window.used}
-          limit={window.limit}
-          remaining={window.remaining}
-          resetsAt={window.resets_at}
+    <div class={styles.pill}>
+      <span class={styles.providerDot} style={{ background: colorVar }} />
+      <span class={styles.pillLabel}>{label}</span>
+      <span class={styles.pillPct} data-color={colorKey}>{Math.round(pct * 100)}%</span>
+      <div class={styles.miniTrack}>
+        <div
+          class={styles.miniFill}
+          data-color={colorKey}
+          style={{ width: `${pct * 100}%` }}
         />
       </div>
     </div>
@@ -51,7 +52,6 @@ const ProviderUsage = ({ provider, usage, error }) => {
 }
 
 const UsageSummary = () => {
-  const [open, setOpen] = useState(false)
   const [claudeData, setClaudeData] = useState(null)
   const [codexData, setCodexData] = useState(null)
 
@@ -70,38 +70,32 @@ const UsageSummary = () => {
     return () => clearInterval(id)
   }, [])
 
-  const hasAny = claudeData || codexData
+  const claudeWindow = claudeData ? pickPrimaryWindow(claudeData.usage) : null
+  const codexWindow = codexData ? pickPrimaryWindow(codexData.usage) : null
+  const claudeError = claudeData?.error_info?.message
+  const codexError = codexData?.error_info?.message
 
-  if (!hasAny) return null
+  // Only show if there's actual data or an error worth showing
+  const showClaude = claudeWindow || claudeError
+  const showCodex = codexWindow || codexError
+
+  if (!showClaude && !showCodex) return null
 
   return (
-    <div class={styles.panel}>
-      <button
-        class={styles.header}
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <span class={styles.headerLabel}>Usage</span>
-        <span class={styles.chevron} data-open={open}>›</span>
-      </button>
-
-      {open && (
-        <div class={styles.body}>
-          {claudeData && (
-            <ProviderUsage
-              provider="claude"
-              usage={claudeData.usage}
-              error={claudeData.error_info?.message}
-            />
-          )}
-          {codexData && (
-            <ProviderUsage
-              provider="codex"
-              usage={codexData.usage}
-              error={codexData.error_info?.message}
-            />
-          )}
-        </div>
+    <div class={styles.usageRow}>
+      {showClaude && (
+        <CompactProviderPill
+          provider="claude"
+          usage={claudeData?.usage}
+          error={claudeError}
+        />
+      )}
+      {showCodex && (
+        <CompactProviderPill
+          provider="codex"
+          usage={codexData?.usage}
+          error={codexError}
+        />
       )}
     </div>
   )

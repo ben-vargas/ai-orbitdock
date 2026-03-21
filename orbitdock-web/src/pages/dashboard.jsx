@@ -1,31 +1,33 @@
 import { useState, useMemo } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { SessionList } from '../components/session/session-list.jsx'
+import { SessionList, classifyZone } from '../components/session/session-list.jsx'
 import { FilterToolbar } from '../components/dashboard/filter-toolbar.jsx'
 import { UsageSummary } from '../components/dashboard/usage-summary.jsx'
 import { DashboardSkeleton } from '../components/dashboard/dashboard-skeleton.jsx'
-import { selectSession, sessions } from '../stores/sessions.js'
+import { selectSession, sessions, showCreateDialog } from '../stores/sessions.js'
 import { connectionState } from '../stores/connection.js'
 import { groupByRepo, extractRepoName } from '../lib/group-sessions.js'
 import { useKeyboard } from '../hooks/use-keyboard.js'
 import styles from './dashboard.module.css'
 
-const DEFAULT_FILTERS = { provider: 'all', status: 'all', repo: 'all' }
+const DEFAULT_FILTERS = { zone: 'all', repo: 'all' }
 const DEFAULT_SORT = 'activity'
 
+const getGreeting = () => {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 17) return 'Good afternoon'
+  return 'Good evening'
+}
+
 // Sort a flat list of sessions according to the sort key.
-// groupByRepo already handles the "activity" sort by latest group time — we
-// pass the sorted flat list into groupByRepo so that inner sorting is consistent.
 const sortSessions = (list, sort) => {
-  if (sort === 'activity') {
-    // groupByRepo will sort internally; return the list as-is so its logic applies
-    return list
-  }
+  if (sort === 'activity') return list
   const copy = [...list]
   if (sort === 'name') {
     copy.sort((a, b) => {
-      const aName = (a.custom_name || a.summary || a.first_prompt || a.id).toLowerCase()
-      const bName = (b.custom_name || b.summary || b.first_prompt || b.id).toLowerCase()
+      const aName = (a.display_title || a.custom_name || a.summary || a.first_prompt || a.id).toLowerCase()
+      const bName = (b.display_title || b.custom_name || b.summary || b.first_prompt || b.id).toLowerCase()
       return aName.localeCompare(bName)
     })
   } else if (sort === 'status') {
@@ -38,6 +40,12 @@ const sortSessions = (list, sort) => {
   }
   return copy
 }
+
+const PlusIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+    <path d="M8 3v10M3 8h10" />
+  </svg>
+)
 
 const DashboardPage = () => {
   const [, navigate] = useLocation()
@@ -55,20 +63,33 @@ const DashboardPage = () => {
       if (!seen.has(path)) seen.set(path, { path, name: extractRepoName(path) })
     }
     return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
-    // sessions.value — signal reference — changes whenever the map is replaced,
-    // which covers additions, removals, and field mutations.
   }, [sessions.value])
+
+  // Compute zone counts (before zone filter, after repo filter)
+  const zoneCounts = useMemo(() => {
+    let baseList = allSessions
+    if (filters.repo !== 'all') {
+      baseList = baseList.filter(
+        (s) => (s.repository_root || s.project_path || 'Unknown') === filters.repo
+      )
+    }
+    const counts = { attention: 0, working: 0, ready: 0, total: baseList.length }
+    for (const s of baseList) {
+      const zone = classifyZone(s)
+      counts[zone]++
+    }
+    return counts
+  }, [sessions.value, filters.repo])
 
   // Apply filters then sort then group.
   const groups = useMemo(() => {
     let filtered = allSessions
 
-    if (filters.provider !== 'all') {
-      filtered = filtered.filter((s) => s.provider === filters.provider)
+    // Zone filter
+    if (filters.zone && filters.zone !== 'all') {
+      filtered = filtered.filter((s) => classifyZone(s) === filters.zone)
     }
-    if (filters.status !== 'all') {
-      filtered = filtered.filter((s) => s.status === filters.status)
-    }
+
     if (filters.repo !== 'all') {
       filtered = filtered.filter(
         (s) => (s.repository_root || s.project_path || 'Unknown') === filters.repo
@@ -79,7 +100,7 @@ const DashboardPage = () => {
     return groupByRepo(sorted)
   }, [sessions.value, filters, sort])
 
-  // Flat ordered list for keyboard nav — mirrors the visual order after grouping.
+  // Flat ordered list for keyboard nav.
   const sessionList = useMemo(
     () => groups.flatMap((g) => g.sessions),
     [groups]
@@ -103,23 +124,76 @@ const DashboardPage = () => {
   })
 
   // Show the skeleton while the WS session list hasn't arrived yet.
-  // Once connected the sessions map is populated; until then it stays empty.
   const connState = connectionState.value
   const isLoading = sessions.value.size === 0 && connState !== 'connected'
 
   if (isLoading) return <DashboardSkeleton />
 
+  // Build the stat summary line
+  const summaryParts = []
+  if (zoneCounts.total > 0) {
+    const active = zoneCounts.working + zoneCounts.attention + zoneCounts.ready
+    summaryParts.push(
+      <span key="active">
+        <span class={styles.greetingCount}>{active}</span> session{active !== 1 ? 's' : ''} active
+      </span>
+    )
+  }
+  if (zoneCounts.attention > 0) {
+    summaryParts.push(
+      <span key="attn">
+        <span class={`${styles.greetingCount} ${styles.greetingCountAttention}`}>{zoneCounts.attention}</span> need{zoneCounts.attention !== 1 ? '' : 's'} attention
+      </span>
+    )
+  }
+  if (zoneCounts.working > 0) {
+    summaryParts.push(
+      <span key="work">
+        <span class={`${styles.greetingCount} ${styles.greetingCountWorking}`}>{zoneCounts.working}</span> running
+      </span>
+    )
+  }
+
   return (
     <div class={styles.page}>
-      <UsageSummary />
-      <FilterToolbar
-        filters={filters}
-        onFiltersChange={setFilters}
-        sort={sort}
-        onSortChange={setSort}
-        repos={repos}
-      />
-      <SessionList groups={groups} onSelect={handleSelect} />
+      <div class={styles.pageHeader}>
+        <div class={styles.greeting}>
+          <span class={styles.greetingText}>{getGreeting()}</span>
+          {summaryParts.length > 0 && (
+            <span class={styles.greetingSummary}>
+              {summaryParts.reduce((acc, part, i) => {
+                if (i === 0) return [part]
+                return [...acc, <span key={`sep-${i}`} class={styles.greetingSep}> · </span>, part]
+              }, [])}
+            </span>
+          )}
+        </div>
+        <UsageSummary />
+      </div>
+
+      <div class={styles.stickyToolbar}>
+        <FilterToolbar
+          filters={filters}
+          onFiltersChange={setFilters}
+          sort={sort}
+          onSortChange={setSort}
+          repos={repos}
+          zoneCounts={zoneCounts}
+        />
+      </div>
+
+      <div class={styles.scrollArea}>
+        <SessionList groups={groups} onSelect={handleSelect} />
+      </div>
+
+      {/* Mobile floating action button */}
+      <button
+        class={styles.fab}
+        onClick={() => { showCreateDialog.value = true }}
+        aria-label="New Session"
+      >
+        <PlusIcon />
+      </button>
     </div>
   )
 }
