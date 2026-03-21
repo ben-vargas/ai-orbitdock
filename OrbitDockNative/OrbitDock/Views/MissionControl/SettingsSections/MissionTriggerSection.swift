@@ -7,7 +7,38 @@ struct MissionTriggerSection: View {
   @Binding var editStates: String
   @Binding var editProject: String
   @Binding var editTeam: String
+  let trackerKind: String
   let isCompact: Bool
+
+  private var isGitHub: Bool {
+    trackerKind == "github"
+  }
+
+  private var projectLabel: String {
+    isGitHub ? "Project Number" : "Project"
+  }
+
+  private var projectPlaceholder: String {
+    isGitHub ? "1" : "PROJ"
+  }
+
+  private var teamLabel: String {
+    isGitHub ? "Owner" : "Team"
+  }
+
+  private var teamPlaceholder: String {
+    isGitHub ? "robdel12" : "Engineering"
+  }
+
+  private var statesPlaceholder: String {
+    isGitHub ? "Ready, Backlog" : "Todo, In Progress"
+  }
+
+  private var statesHint: String {
+    isGitHub
+      ? "Default statuses: Backlog, Ready, In progress, In review, Done"
+      : "Common states: Todo, In Progress, Done, Canceled"
+  }
 
   var body: some View {
     missionInstrumentPanel(
@@ -47,19 +78,19 @@ struct MissionTriggerSection: View {
           missionSectionLabel("Filters")
 
           if isCompact {
-            missionCompactField("Project", placeholder: "PROJ", text: $editProject)
-            missionCompactField("Team", placeholder: "Engineering", text: $editTeam)
+            missionCompactField(projectLabel, placeholder: projectPlaceholder, text: $editProject)
+            missionCompactField(teamLabel, placeholder: teamPlaceholder, text: $editTeam)
           } else {
             HStack(alignment: .top, spacing: Spacing.sm) {
-              missionCompactField("Project", placeholder: "PROJ", text: $editProject)
-              missionCompactField("Team", placeholder: "Engineering", text: $editTeam)
+              missionCompactField(projectLabel, placeholder: projectPlaceholder, text: $editProject)
+              missionCompactField(teamLabel, placeholder: teamPlaceholder, text: $editTeam)
             }
           }
 
           missionCompactField("Labels", placeholder: "bug, agent-ready", text: $editLabels)
-          missionCompactField("States", placeholder: "Todo, In Progress", text: $editStates)
+          missionCompactField("States", placeholder: statesPlaceholder, text: $editStates)
 
-          Text("Common states: Todo, In Progress, Done, Canceled")
+          Text(statesHint)
             .font(.system(size: TypeScale.micro))
             .foregroundStyle(Color.textQuaternary)
         }

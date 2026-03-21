@@ -65,6 +65,17 @@ fn default_tracker() -> String {
     "linear".to_string()
 }
 
+fn slugify_mission_name(name: &str) -> String {
+    name.to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 fn default_provider() -> String {
     "claude".to_string()
 }
@@ -157,6 +168,23 @@ pub async fn create_mission(
 
     let id = orbitdock_protocol::new_id();
 
+    // Auto-generate a unique mission file path if this repo already has missions
+    let repo_for_count = req.repo_root.clone();
+    let existing_count = db_read(&registry, move |conn| {
+        crate::infrastructure::persistence::mission_control::count_missions_by_repo_root(
+            conn,
+            &repo_for_count,
+        )
+    })
+    .await?;
+
+    let mission_file_path = if existing_count > 0 {
+        let slug = slugify_mission_name(&req.name);
+        Some(format!("MISSION-{slug}.md"))
+    } else {
+        None
+    };
+
     let _ = registry
         .persist()
         .send(PersistCommand::MissionCreate {
@@ -167,7 +195,7 @@ pub async fn create_mission(
             provider: req.provider.clone(),
             config_json: None,
             prompt_template: None,
-            mission_file_path: None,
+            mission_file_path: mission_file_path.clone(),
         })
         .await;
 
@@ -181,11 +209,12 @@ pub async fn create_mission(
 
     let primary_provider = req.provider.parse::<Provider>().unwrap();
 
-    let orchestrator_status = if crate::support::api_keys::resolve_linear_api_key().is_none() {
-        Some("no_api_key".to_string())
-    } else {
-        Some("polling".to_string())
-    };
+    let orchestrator_status =
+        if crate::support::api_keys::resolve_tracker_api_key(&req.tracker_kind).is_none() {
+            Some("no_api_key".to_string())
+        } else {
+            Some("polling".to_string())
+        };
 
     Ok(Json(MissionSummary {
         id,
@@ -206,6 +235,7 @@ pub async fn create_mission(
         orchestrator_status,
         last_polled_at: None,
         poll_interval: None,
+        mission_file_path,
     }))
 }
 
@@ -445,7 +475,7 @@ pub async fn scaffold_mission_file(
 
     // Generate scaffold via domain logic
     let (file_content, config, prompt_template) =
-        generate_scaffold(&mission.provider).map_err(|e| {
+        generate_scaffold(&mission.provider, &mission.tracker_kind).map_err(|e| {
             internal(
                 "scaffold_error",
                 format!("Failed to generate scaffold: {e}"),
@@ -597,7 +627,7 @@ pub async fn get_default_template(
         .await?
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    let full_template = default_mission_template(&mission.provider);
+    let full_template = default_mission_template(&mission.provider, &mission.tracker_kind);
     let template_body = parse_mission_file(&full_template)
         .map(|def| def.prompt_template)
         .unwrap_or_default();
@@ -669,6 +699,68 @@ pub async fn delete_linear_key(
     Ok(Json(LinearKeyStatusResponse { configured: false }))
 }
 
+// ── GitHub API key endpoints ────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct GitHubKeyStatusResponse {
+    pub configured: bool,
+}
+
+#[derive(Deserialize)]
+pub struct SetGitHubKeyRequest {
+    pub key: String,
+}
+
+/// GET /api/server/github-key
+pub async fn check_github_key() -> Json<GitHubKeyStatusResponse> {
+    Json(GitHubKeyStatusResponse {
+        configured: crate::support::api_keys::resolve_github_api_key().is_some(),
+    })
+}
+
+/// POST /api/server/github-key
+pub async fn set_github_key(
+    State(registry): State<Arc<SessionRegistry>>,
+    Json(body): Json<SetGitHubKeyRequest>,
+) -> ApiResult<GitHubKeyStatusResponse> {
+    info!(
+        component = "mission_control",
+        event = "api.github_key.set",
+        "GitHub token set via REST"
+    );
+
+    let _ = registry
+        .persist()
+        .send(PersistCommand::SetConfig {
+            key: "github_api_key".into(),
+            value: body.key,
+        })
+        .await;
+
+    Ok(Json(GitHubKeyStatusResponse { configured: true }))
+}
+
+/// DELETE /api/server/github-key
+pub async fn delete_github_key(
+    State(registry): State<Arc<SessionRegistry>>,
+) -> ApiResult<GitHubKeyStatusResponse> {
+    info!(
+        component = "mission_control",
+        event = "api.github_key.deleted",
+        "GitHub token deleted via REST"
+    );
+
+    let _ = registry
+        .persist()
+        .send(PersistCommand::SetConfig {
+            key: "github_api_key".into(),
+            value: String::new(),
+        })
+        .await;
+
+    Ok(Json(GitHubKeyStatusResponse { configured: false }))
+}
+
 // ── Tracker keys endpoint ────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -700,14 +792,28 @@ pub async fn get_tracker_keys() -> Json<TrackerKeysResponse> {
         None
     };
 
+    let github_key = crate::support::api_keys::resolve_github_api_key();
+    let github_source = if github_key.is_some() {
+        if std::env::var("GITHUB_TOKEN")
+            .map(|k| !k.is_empty())
+            .unwrap_or(false)
+        {
+            Some("env".to_string())
+        } else {
+            Some("settings".to_string())
+        }
+    } else {
+        None
+    };
+
     Json(TrackerKeysResponse {
         linear: TrackerKeyInfo {
             configured: linear_key.is_some(),
             source: linear_source,
         },
         github: TrackerKeyInfo {
-            configured: false,
-            source: None,
+            configured: github_key.is_some(),
+            source: github_source,
         },
     })
 }
@@ -816,8 +922,9 @@ pub async fn start_mission_orchestrator_endpoint(
         .await?
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    let api_key = crate::support::api_keys::resolve_linear_api_key()
-        .ok_or_else(|| bad_request("no_api_key", "Linear API key not configured. Set it via POST /api/server/linear-key or LINEAR_API_KEY env var.".to_string()))?;
+    let tracker_kind = mission.tracker_kind.clone();
+    let tracker = crate::support::api_keys::build_tracker(&tracker_kind)
+        .map_err(|e| bad_request("no_api_key", e.to_string()))?;
 
     if !registry.try_start_orchestrator() {
         return Err(conflict(
@@ -828,10 +935,6 @@ pub async fn start_mission_orchestrator_endpoint(
 
     let reg = registry.clone();
     tokio::spawn(async move {
-        let tracker: std::sync::Arc<dyn crate::domain::mission_control::tracker::Tracker> =
-            std::sync::Arc::new(crate::infrastructure::linear::client::LinearClient::new(
-                api_key,
-            ));
         crate::runtime::mission_orchestrator::start_mission_orchestrator(reg.clone(), tracker)
             .await;
         // If the loop ever exits, release the guard
@@ -852,7 +955,7 @@ pub async fn start_mission_orchestrator_endpoint(
 
 #[derive(Deserialize)]
 pub struct ManualDispatchRequest {
-    /// Linear issue identifier (e.g. "VIZ-240")
+    /// Issue identifier (e.g. "VIZ-240" for Linear, "owner/repo#42" for GitHub)
     pub issue_identifier: String,
     /// Optional provider override (defaults to mission's primary)
     pub provider: Option<String>,
@@ -872,9 +975,9 @@ pub async fn dispatch_mission_issue(
         .await?
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    // 2. Resolve Linear API key
-    let api_key = crate::support::api_keys::resolve_linear_api_key()
-        .ok_or_else(|| bad_request("no_api_key", "Linear API key not configured".to_string()))?;
+    // 2. Build tracker for this mission's kind
+    let tracker = crate::support::api_keys::build_tracker(&mission.tracker_kind)
+        .map_err(|e| bad_request("no_api_key", e.to_string()))?;
 
     // 3. Parse MISSION.md
     let mission_file_path = mission.resolved_mission_path();
@@ -884,16 +987,15 @@ pub async fn dispatch_mission_issue(
     let workflow = parse_mission_file(&mission_content)
         .map_err(|e| bad_request("parse_error", format!("MISSION.md parse error: {e}")))?;
 
-    // 4. Fetch issue from Linear
-    let linear_client = crate::infrastructure::linear::client::LinearClient::new(api_key.clone());
-    let issue = linear_client
+    // 4. Fetch issue from tracker
+    let issue = tracker
         .fetch_issue_by_identifier(&req.issue_identifier)
         .await
-        .map_err(|e| internal("linear_error", format!("Linear query failed: {e}")))?
+        .map_err(|e| internal("tracker_error", format!("Tracker query failed: {e}")))?
         .ok_or_else(|| {
             not_found(
                 "issue_not_found",
-                format!("Issue {} not found in Linear", req.issue_identifier),
+                format!("Issue {} not found", req.issue_identifier),
             )
         })?;
 
@@ -918,11 +1020,7 @@ pub async fn dispatch_mission_issue(
         .await
         .map_err(|e| internal("persist_error", format!("Failed to upsert issue: {e}")))?;
 
-    // 6. Spawn dispatch
-    let tracker: std::sync::Arc<dyn crate::domain::mission_control::tracker::Tracker> =
-        std::sync::Arc::new(crate::infrastructure::linear::client::LinearClient::new(
-            api_key,
-        ));
+    // 6. Spawn dispatch (reuse the tracker built in step 2)
 
     let reg = registry.clone();
     let mid_dispatch = mission.id.clone();
@@ -1282,6 +1380,7 @@ fn summary_from_row(
         orchestrator_status,
         last_polled_at: None,
         poll_interval: None,
+        mission_file_path: row.mission_file_path.clone(),
     }
 }
 
