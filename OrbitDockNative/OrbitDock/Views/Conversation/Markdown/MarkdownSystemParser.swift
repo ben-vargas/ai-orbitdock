@@ -8,22 +8,28 @@
 
 import Foundation
 import Markdown
+import os
 
 enum MarkdownSystemParser {
   // MARK: - Cache
 
-  private struct CacheKey: Hashable {
+  private struct CacheKey: Hashable, Sendable {
     let markdown: String
     let style: ContentStyle
   }
 
-  private struct CacheEntry {
+  private struct CacheEntry: Sendable {
     let blocks: [MarkdownBlock]
     var accessTick: UInt64
   }
 
-  private static var parseCache: [CacheKey: CacheEntry] = [:]
-  private static var parseCacheTick: UInt64 = 0
+  private struct CacheState: Sendable {
+    var entries: [CacheKey: CacheEntry] = [:]
+    var tick: UInt64 = 0
+  }
+
+  private static let cache = OSAllocatedUnfairLock(initialState: CacheState())
+
   #if os(iOS)
     private static let maxCacheSize = 160
   #else
@@ -38,20 +44,37 @@ enum MarkdownSystemParser {
 
   static func parse(_ markdown: String, style: ContentStyle = .standard) -> [MarkdownBlock] {
     let key = CacheKey(markdown: markdown, style: style)
-    if var cached = parseCache[key] {
-      cached.accessTick = nextParseCacheTick()
-      parseCache[key] = cached
-      return cached.blocks
+
+    if let cached = cache.withLock({ state -> [MarkdownBlock]? in
+      if var entry = state.entries[key] {
+        state.tick &+= 1
+        entry.accessTick = state.tick
+        state.entries[key] = entry
+        return entry.blocks
+      }
+      return nil
+    }) {
+      return cached
     }
 
     let blocks = parseUncached(markdown, style: style)
-    insertCacheValue(blocks, for: key)
+
+    cache.withLock { state in
+      if state.entries[key] == nil {
+        evictIfNeeded(state: &state)
+      }
+      state.tick &+= 1
+      state.entries[key] = CacheEntry(blocks: blocks, accessTick: state.tick)
+    }
+
     return blocks
   }
 
   static func clearCache() {
-    parseCache.removeAll(keepingCapacity: true)
-    parseCacheTick = 0
+    cache.withLock { state in
+      state.entries.removeAll(keepingCapacity: true)
+      state.tick = 0
+    }
   }
 
   // MARK: - Parsing
@@ -332,32 +355,17 @@ enum MarkdownSystemParser {
 
   // MARK: - Cache Machinery
 
-  private static func nextParseCacheTick() -> UInt64 {
-    parseCacheTick &+= 1
-    return parseCacheTick
-  }
-
-  private static func insertCacheValue(_ value: [MarkdownBlock], for key: CacheKey) {
-    if parseCache[key] == nil {
-      evictIfNeeded()
-    }
-
-    parseCache[key] = CacheEntry(blocks: value, accessTick: nextParseCacheTick())
-  }
-
-  private static func evictIfNeeded() {
-    guard parseCache.count >= maxCacheSize else { return }
-    let toEvict = min(evictionBatchSize, parseCache.count)
+  private static func evictIfNeeded(state: inout CacheState) {
+    guard state.entries.count >= maxCacheSize else { return }
+    let toEvict = min(evictionBatchSize, state.entries.count)
     guard toEvict > 0 else { return }
 
-    let keysToEvict = parseCache
-      .sorted { lhs, rhs in
-        lhs.value.accessTick < rhs.value.accessTick
-      }
+    let keysToEvict = state.entries
+      .sorted { $0.value.accessTick < $1.value.accessTick }
       .prefix(toEvict)
       .map(\.key)
     for key in keysToEvict {
-      parseCache.removeValue(forKey: key)
+      state.entries.removeValue(forKey: key)
     }
   }
 }

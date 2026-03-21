@@ -243,7 +243,9 @@ private struct ConversationProjectSection: View {
         )
       }
 
-      if layoutMode == .desktop {
+      if layoutMode.isPhoneCompact {
+        compactStateIndicator
+      } else {
         stateCluster
       }
 
@@ -260,6 +262,31 @@ private struct ConversationProjectSection: View {
 
       focusButton
     }
+  }
+
+  /// Phone-compact: just colored count dots — no labels
+  private var compactStateIndicator: some View {
+    HStack(spacing: Spacing.xs) {
+      if group.attentionCount > 0 {
+        compactCountBadge("\(group.attentionCount)", tint: .statusPermission)
+      }
+      if group.workingCount > 0 {
+        compactCountBadge("\(group.workingCount)", tint: .statusWorking)
+      }
+    }
+  }
+
+  private func compactCountBadge(_ count: String, tint: Color) -> some View {
+    Text(count)
+      .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+      .foregroundStyle(tint)
+      .frame(minWidth: 14)
+      .padding(.horizontal, 3)
+      .padding(.vertical, 1)
+      .background(
+        Capsule(style: .continuous)
+          .fill(tint.opacity(OpacityTier.light))
+      )
   }
 
   private var stateCluster: some View {
@@ -353,7 +380,7 @@ private struct CompactConversationRow: View {
             .lineLimit(1)
             .layoutPriority(-1)
 
-          if layoutMode == .desktop {
+          if !layoutMode.isPhoneCompact {
             Spacer(minLength: Spacing.md)
 
             compactMetadata
@@ -500,7 +527,7 @@ private struct ActivityConversationCard: View {
               .foregroundStyle(Color.textQuaternary)
           }
 
-          if let model = conversation.model, layoutMode == .desktop {
+          if let model = conversation.model, !layoutMode.isPhoneCompact {
             Text(displayNameForModel(model, provider: conversation.provider))
               .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textQuaternary)
@@ -650,7 +677,7 @@ private struct AlertConversationCard: View {
               .foregroundStyle(Color.textQuaternary)
           }
 
-          if let model = conversation.model, layoutMode == .desktop {
+          if let model = conversation.model, !layoutMode.isPhoneCompact {
             Text(displayNameForModel(model, provider: conversation.provider))
               .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textQuaternary)
