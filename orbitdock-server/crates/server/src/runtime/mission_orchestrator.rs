@@ -80,7 +80,7 @@ pub async fn start_mission_orchestrator(registry: Arc<SessionRegistry>, tracker:
 async fn orchestrator_tick(
     registry: &Arc<SessionRegistry>,
     tracker: &Arc<dyn Tracker>,
-    nudge_tracker: &mut HashMap<String, std::time::Instant>,
+    nudge_tracker: &mut HashMap<String, (std::time::Instant, u32)>,
     last_poll_at: &mut HashMap<String, std::time::Instant>,
 ) -> anyhow::Result<()> {
     let db_path = registry.db_path().clone();
@@ -108,6 +108,9 @@ async fn orchestrator_tick(
                 error = %err,
                 "Failed to process mission"
             );
+            // Broadcast updated state — don't persist tracker/runtime errors as
+            // parse_error (that column is for MISSION.md parse failures only).
+            broadcast_mission_delta_by_id(registry, &mission.id).await;
         }
     }
 
@@ -176,7 +179,7 @@ async fn process_mission(
     registry: &Arc<SessionRegistry>,
     tracker: &Arc<dyn Tracker>,
     mission: &MissionRow,
-    nudge_tracker: &mut HashMap<String, std::time::Instant>,
+    nudge_tracker: &mut HashMap<String, (std::time::Instant, u32)>,
     last_poll_at: &mut HashMap<String, std::time::Instant>,
 ) -> anyhow::Result<()> {
     // Load and parse mission file (MISSION.md or custom path)
@@ -312,7 +315,7 @@ async fn process_mission(
 
     // Skip candidate fetch + dispatch for manual-only missions
     if workflow.config.trigger.kind == "manual_only" {
-        broadcast_mission_delta(registry, mission).await;
+        broadcast_mission_delta_by_id(registry, &mission.id).await;
         return Ok(());
     }
 
@@ -489,8 +492,8 @@ async fn process_mission(
     // Record that we processed this mission
     last_poll_at.insert(mission.id.clone(), std::time::Instant::now());
 
-    // Broadcast MissionDelta
-    broadcast_mission_delta(registry, mission).await;
+    // Broadcast MissionDelta (reload from DB to include any PersistCommand updates)
+    broadcast_mission_delta_by_id(registry, &mission.id).await;
 
     Ok(())
 }

@@ -57,6 +57,11 @@ pub(crate) fn stall_elapsed_secs(
 /// Cooldown between continuation nudges for the same issue (5 minutes).
 const NUDGE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(300);
 
+/// Maximum number of nudges before treating the session as stalled.
+/// After this many nudges without the session ending on its own, the
+/// orchestrator will stop nudging and let stall detection handle cleanup.
+const MAX_NUDGE_ATTEMPTS: u32 = 3;
+
 /// Reconcile a mission's running issues:
 /// - Check if tracker state moved to terminal -> mark completed
 /// - Check if agent session ended -> mark completed/failed
@@ -67,7 +72,7 @@ pub async fn reconcile_mission(
     mission: &MissionRow,
     existing_issues: &[MissionIssueRow],
     config: &MissionConfig,
-    nudge_tracker: &mut HashMap<String, std::time::Instant>,
+    nudge_tracker: &mut HashMap<String, (std::time::Instant, u32)>,
 ) {
     let running_issues: Vec<&MissionIssueRow> = existing_issues
         .iter()
@@ -235,12 +240,22 @@ pub async fn reconcile_mission(
         let snap = actor.snapshot();
 
         if snap.work_status == orbitdock_protocol::WorkStatus::Waiting {
-            // Skip if we nudged this issue within the cooldown period
-            if let Some(last_nudge) = nudge_tracker.get(&issue_row.issue_id) {
-                if now.duration_since(*last_nudge) < NUDGE_COOLDOWN {
+            // Check nudge history for this issue
+            if let Some(&(last_nudge, count)) = nudge_tracker.get(&issue_row.issue_id) {
+                // Skip if within cooldown
+                if now.duration_since(last_nudge) < NUDGE_COOLDOWN {
+                    continue;
+                }
+                // Stop nudging after max attempts — let stall detection handle it
+                if count >= MAX_NUDGE_ATTEMPTS {
                     continue;
                 }
             }
+
+            let nudge_count = nudge_tracker
+                .get(&issue_row.issue_id)
+                .map(|&(_, c)| c)
+                .unwrap_or(0);
 
             let nudge = format!(
                 "The issue {} is still in an active state. \
@@ -250,12 +265,14 @@ pub async fn reconcile_mission(
                 issue_row.issue_identifier,
             );
             if send_continuation_message(registry, session_id, &nudge).await {
-                nudge_tracker.insert(issue_row.issue_id.clone(), now);
+                nudge_tracker.insert(issue_row.issue_id.clone(), (now, nudge_count + 1));
                 info!(
                     component = "mission_control",
                     event = "reconciliation.continuation_nudge",
                     issue_id = %issue_row.issue_id,
                     session_id = %session_id,
+                    nudge_count = nudge_count + 1,
+                    max_nudges = MAX_NUDGE_ATTEMPTS,
                     "Sent continuation nudge to idle session"
                 );
                 handled_issue_ids.insert(issue_row.issue_id.clone());
