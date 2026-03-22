@@ -67,3 +67,5 @@ You are working in a git worktree on branch `mission/{{ issue.identifier | downc
 - Stop early only for true blockers (missing auth, permissions, secrets).
 - Do not expand scope. File follow-up issues for anything tangential.
 - Keep the workpad updated — it is the primary way humans track your progress.
+- Use gitmoji in commit messages and PR titles (e.g. ✨, 🐛, ♻️, 🔧).
+- **NEVER merge PRs.** Create the PR, verify CI passes, and address any review feedback — but leave merging to a human.

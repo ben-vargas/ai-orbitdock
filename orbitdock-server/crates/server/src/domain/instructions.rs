@@ -122,6 +122,7 @@ multiple comments. One living document.
 - Work end-to-end without asking for human follow-up
 - Use `mission_report_blocked` only for true blockers (missing auth, secrets, permissions)
 - Create a PR when complete, then use `mission_link_pr` to attach it to the issue
+- **NEVER merge PRs.** After opening the PR, check CI status and address review feedback — but leave merging to a human.
 - If you discover out-of-scope work, use `mission_create_followup` instead of expanding scope"#
         .to_string()
 }
