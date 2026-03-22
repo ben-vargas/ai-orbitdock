@@ -20,7 +20,9 @@ extension DirectSessionComposer {
 
   func handleComposerFocusEvent(_ event: ComposerTextAreaFocusEvent) {
     let shouldRefocus = inputState.focus.handle(event, isSessionActive: isSessionActive)
-    guard shouldRefocus else { return }
+    // On compact, never fight to reclaim focus — if the keyboard was
+    // dismissed (interactive scroll, "Done" button, tap outside), respect it.
+    guard shouldRefocus, !isCompactLayout else { return }
     Task { @MainActor in
       await Task.yield()
       guard inputState.focus.shouldMaintainTypingFocus,
@@ -202,7 +204,11 @@ extension DirectSessionComposer {
     withAnimation(Motion.gentle) {
       attachmentState.clearAfterSend()
     }
-    requestComposerFocus()
+    // On compact, don't re-summon the keyboard after sending — the user
+    // wants to read the response. They can tap the composer to type again.
+    if !isCompactLayout {
+      requestComposerFocus()
+    }
   }
 
   func reconcileRecoveredSendIfNeeded() {

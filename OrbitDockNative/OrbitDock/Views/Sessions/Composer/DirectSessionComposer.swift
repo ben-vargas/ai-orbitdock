@@ -293,7 +293,11 @@ struct DirectSessionComposer: View {
       resetPendingPanelStateForRequest()
       guard obs.isActive else { return }
       await Task.yield()
-      requestComposerFocus()
+      // On compact (iPhone), don't auto-summon the keyboard — let the user
+      // read the conversation first and tap when ready to type.
+      if !isCompactLayout {
+        requestComposerFocus()
+      }
     }
     .task(id: projectPath) {
       guard let path = projectPath else { return }
@@ -318,6 +322,11 @@ struct DirectSessionComposer: View {
       guard newValue > 0 else { return }
       withAnimation(Motion.standard) {
         pendingState.isExpanded = true
+      }
+      // Dismiss keyboard when approval panel opens — on compact the panel
+      // and keyboard together leave almost no conversation visible.
+      if isCompactLayout {
+        relinquishComposerFocus()
       }
     }
     .onChange(of: codexModelOptionsSignature) { _, _ in
@@ -374,8 +383,8 @@ struct DirectSessionComposer: View {
       moveCursorToEndSignal: $inputState.focus.moveCursorToEndSignal,
       measuredHeight: $inputState.focus.measuredHeight,
       isEnabled: !isSending && !isDictationActive,
-      minLines: 2,
-      maxLines: 4,
+      minLines: isCompactLayout ? 1 : 2,
+      maxLines: isCompactLayout ? 3 : 4,
       onPasteImage: { pasteImageFromClipboard() },
       canPasteImage: { canPasteImageFromClipboard },
       onKeyCommand: handleComposerTextAreaKeyCommand,
