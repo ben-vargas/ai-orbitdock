@@ -207,7 +207,12 @@ pub async fn create_mission(
         "Mission created"
     );
 
-    let primary_provider = req.provider.parse::<Provider>().unwrap();
+    let primary_provider = req.provider.parse::<Provider>().map_err(|_| {
+        bad_request(
+            "invalid_provider",
+            format!("Invalid provider: {}", req.provider),
+        )
+    })?;
 
     let orchestrator_status =
         if crate::support::api_keys::resolve_tracker_api_key(&req.tracker_kind).is_none() {
@@ -1338,24 +1343,25 @@ fn summary_from_row(
                     .provider
                     .primary
                     .parse::<Provider>()
-                    .unwrap_or_else(|_| row.provider.parse::<Provider>().unwrap()),
+                    .or_else(|_| row.provider.parse::<Provider>())
+                    .unwrap_or(Provider::Claude),
                 config.provider.strategy.clone(),
                 config
                     .provider
                     .secondary
                     .as_ref()
-                    .map(|s| s.parse::<Provider>().unwrap()),
+                    .and_then(|s| s.parse::<Provider>().ok()),
             )
         } else {
             (
-                row.provider.parse::<Provider>().unwrap(),
+                row.provider.parse::<Provider>().unwrap_or(Provider::Claude),
                 "single".to_string(),
                 None,
             )
         }
     } else {
         (
-            row.provider.parse::<Provider>().unwrap(),
+            row.provider.parse::<Provider>().unwrap_or(Provider::Claude),
             "single".to_string(),
             None,
         )
@@ -1440,7 +1446,12 @@ fn issue_row_to_item(row: MissionIssueRow) -> MissionIssueItem {
         _ => OrchestrationState::Queued,
     };
 
-    let provider: Provider = row.provider.as_deref().unwrap_or("claude").parse().unwrap();
+    let provider: Provider = row
+        .provider
+        .as_deref()
+        .unwrap_or("claude")
+        .parse()
+        .unwrap_or(Provider::Claude);
 
     MissionIssueItem {
         issue_id: row.issue_id,
