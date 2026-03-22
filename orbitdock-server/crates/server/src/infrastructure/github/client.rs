@@ -53,13 +53,26 @@ impl GitHubClient {
 
         let gql: GraphQLResponse<T> = resp.json().await?;
 
+        // Return data even with partial errors — the dual user/org project
+        // query always produces one error branch for personal accounts.
+        if let Some(data) = gql.data {
+            if let Some(ref errors) = gql.errors {
+                let msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
+                tracing::debug!(
+                    component = "github",
+                    errors = %msgs.join("; "),
+                    "GraphQL partial errors (data still returned)"
+                );
+            }
+            return Ok(data);
+        }
+
         if let Some(errors) = gql.errors {
             let msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
             anyhow::bail!("GitHub GraphQL errors: {}", msgs.join("; "));
         }
 
-        gql.data
-            .ok_or_else(|| anyhow::anyhow!("GitHub response contained no data"))
+        anyhow::bail!("GitHub response contained no data")
     }
 
     /// Parse an identifier like `owner/repo#42` into (owner, repo, number).
