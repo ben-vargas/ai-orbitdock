@@ -182,7 +182,7 @@ pub async fn create_mission(
         let slug = slugify_mission_name(&req.name);
         Some(format!("MISSION-{slug}.md"))
     } else {
-        None
+        Some("MISSION.md".to_string())
     };
 
     let _ = registry

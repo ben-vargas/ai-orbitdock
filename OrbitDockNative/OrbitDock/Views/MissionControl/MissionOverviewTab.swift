@@ -65,7 +65,8 @@ struct MissionOverviewTab: View {
         lastTickAt: lastTickAt,
         isCompact: isCompact,
         onUpdateMission: onUpdateMission,
-        onStartOrchestrator: startOrchestrator
+        onStartOrchestrator: startOrchestrator,
+        onTriggerPoll: triggerPoll
       )
 
       // Hero Zone — state-driven content
@@ -194,5 +195,17 @@ struct MissionOverviewTab: View {
     }
     isStartingOrchestrator = false
     await onRefresh()
+  }
+
+  private func triggerPoll() async {
+    guard let http else { return }
+    do {
+      let _: MissionOkResponse = try await http.post(
+        "/api/missions/\(missionId)/trigger",
+        body: EmptyBody()
+      )
+    } catch {
+      actionError = error.localizedDescription
+    }
   }
 }

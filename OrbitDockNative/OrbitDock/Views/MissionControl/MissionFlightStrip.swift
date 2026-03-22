@@ -7,6 +7,7 @@ struct MissionFlightStrip: View {
   let isCompact: Bool
   let onUpdateMission: (Bool?, Bool?) async -> Void
   let onStartOrchestrator: () async -> Void
+  let onTriggerPoll: () async -> Void
 
   private var isPolling: Bool {
     mission.orchestratorStatus == "polling"
@@ -140,6 +141,14 @@ struct MissionFlightStrip: View {
 
   private var controlButtons: some View {
     HStack(spacing: Spacing.xs) {
+      controlButton(
+        icon: "arrow.clockwise",
+        color: Color.accent,
+        enabled: isPolling
+      ) {
+        await onTriggerPoll()
+      }
+
       controlButton(
         icon: "play.fill",
         color: Color.feedbackPositive,

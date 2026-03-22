@@ -99,6 +99,13 @@ struct MissionsClient: Sendable {
     )
   }
 
+  func triggerPoll(_ id: String) async throws {
+    let _: MissionOkResponse = try await http.post(
+      "/api/missions/\(requestBuilder.encodePathComponent(id))/trigger",
+      body: EmptyBody()
+    )
+  }
+
   // MARK: - Mission Settings
 
   func updateSettings(
