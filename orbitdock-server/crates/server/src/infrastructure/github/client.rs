@@ -892,6 +892,62 @@ mod tests {
         }
     }
 
+    // ── parse_identifier ─────────────────────────────────────────────
+
+    #[test]
+    fn parse_valid_identifier() {
+        let (owner, repo, number) = GitHubClient::parse_identifier("owner/repo#42").unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
+        assert_eq!(number, 42);
+    }
+
+    #[test]
+    fn parse_valid_identifier_large_number() {
+        let (owner, repo, number) = GitHubClient::parse_identifier("my-org/my-repo#99999").unwrap();
+        assert_eq!(owner, "my-org");
+        assert_eq!(repo, "my-repo");
+        assert_eq!(number, 99999);
+    }
+
+    #[test]
+    fn parse_missing_hash() {
+        let err = GitHubClient::parse_identifier("owner/repo42").unwrap_err();
+        assert!(
+            err.to_string().contains("Invalid GitHub identifier format"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_missing_owner() {
+        let err = GitHubClient::parse_identifier("/repo#42").unwrap_err();
+        assert!(
+            err.to_string().contains("Invalid GitHub identifier format"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_missing_repo() {
+        let err = GitHubClient::parse_identifier("owner/#42").unwrap_err();
+        assert!(
+            err.to_string().contains("Invalid GitHub identifier format"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_non_numeric_issue_number() {
+        let err = GitHubClient::parse_identifier("owner/repo#abc").unwrap_err();
+        assert!(
+            err.to_string().contains("Invalid issue number"),
+            "unexpected error: {err}"
+        );
+    }
+
+    // ── filter_project_items ─────────────────────────────────────────
+
     #[test]
     fn no_filters_returns_all_issues() {
         let client = make_client();
