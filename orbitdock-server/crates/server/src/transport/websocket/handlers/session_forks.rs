@@ -230,7 +230,7 @@ pub(crate) async fn handle_fork_session(
                     send_json(
                         client_tx,
                         ServerMessage::ConversationBootstrap {
-                            session: started.snapshot,
+                            session: Box::new(started.snapshot),
                             conversation: RowPageSummary {
                                 rows: vec![],
                                 total_row_count: 0,
@@ -391,7 +391,7 @@ pub(crate) async fn handle_fork_session(
                     send_json(
                         client_tx,
                         ServerMessage::ConversationBootstrap {
-                            session: started.snapshot,
+                            session: Box::new(started.snapshot),
                             conversation: RowPageSummary {
                                 rows: vec![],
                                 total_row_count: 0,
