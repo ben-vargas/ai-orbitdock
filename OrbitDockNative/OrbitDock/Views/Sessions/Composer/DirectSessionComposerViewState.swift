@@ -236,7 +236,11 @@ extension DirectSessionComposer {
     )
   }
 
-  var currentCodexPermissionRules: (approvalPolicy: String?, approvalPolicyDetails: ServerCodexApprovalPolicy?, sandboxMode: String?)? {
+  var currentCodexPermissionRules: (
+    approvalPolicy: String?,
+    approvalPolicyDetails: ServerCodexApprovalPolicy?,
+    sandboxMode: String?
+  )? {
     guard case let .codex(approvalPolicy, approvalPolicyDetails, sandboxMode) = obs.permissionRules else {
       return nil
     }

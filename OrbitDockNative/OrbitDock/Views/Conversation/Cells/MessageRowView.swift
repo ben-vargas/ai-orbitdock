@@ -184,7 +184,10 @@ private struct MessageMemoryCitationView: View {
     }
     .padding(.horizontal, Spacing.sm)
     .padding(.vertical, Spacing.sm)
-    .background(Color.backgroundTertiary.opacity(OpacityTier.medium), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .background(
+      Color.backgroundTertiary.opacity(OpacityTier.medium),
+      in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+    )
     .overlay(
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
         .stroke(Color.providerCodex.opacity(OpacityTier.light), lineWidth: 1)
