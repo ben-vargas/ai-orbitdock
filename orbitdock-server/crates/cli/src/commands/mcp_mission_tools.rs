@@ -16,6 +16,8 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
+use crate::client::config::ClientConfig;
+use crate::client::rest::{RestClient, RestResult};
 use orbitdock_server::linear::LinearClient;
 use orbitdock_server::mission_tools::{
     execute_mission_tool, mission_tool_definitions, MissionToolContext,
@@ -149,6 +151,9 @@ async fn handle_tools_call(tracker: &dyn Tracker, ctx: &MissionToolContext, msg:
     let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
     let result = execute_mission_tool(tracker, ctx, tool_name, arguments).await;
+    if let Some(ref tracker_state) = result.completed_state {
+        notify_issue_completed(ctx, tracker_state).await;
+    }
 
     if result.success {
         json!({
@@ -171,5 +176,24 @@ async fn handle_tools_call(tracker: &dyn Tracker, ctx: &MissionToolContext, msg:
                 "isError": true
             }
         })
+    }
+}
+
+async fn notify_issue_completed(ctx: &MissionToolContext, tracker_state: &str) {
+    let config = ClientConfig::from_sources(None, None, true, None);
+    let rest = RestClient::new(&config);
+    let path = format!(
+        "/api/missions/{}/issues/{}/complete",
+        ctx.mission_id, ctx.issue_id
+    );
+
+    let response: RestResult<Value> = rest
+        .post_json(&path, &json!({ "tracker_state": tracker_state }))
+        .await;
+
+    if let RestResult::ConnectionError(message) = response {
+        eprintln!(
+            "[orbitdock-mission] Failed to sync completed issue back to OrbitDock: {message}"
+        );
     }
 }

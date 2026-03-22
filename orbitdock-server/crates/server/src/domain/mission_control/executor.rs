@@ -14,6 +14,9 @@ pub struct MissionToolResult {
     pub output: String,
     /// True when the agent signalled a blocker via `mission_report_blocked`.
     pub blocked: bool,
+    /// Present when a successful tool call should also mark the local OrbitDock
+    /// mission issue as completed.
+    pub completed_state: Option<String>,
 }
 
 /// Execute a mission tool call against the tracker API.
@@ -37,6 +40,7 @@ pub async fn execute_mission_tool(
             output: serde_json::json!({ "error": format!("Unknown tool: {tool_name}") })
                 .to_string(),
             blocked: false,
+            completed_state: None,
         },
     }
 }
@@ -61,6 +65,7 @@ async fn exec_get_issue(tracker: &dyn Tracker, ctx: &MissionToolContext) -> Miss
             })
             .to_string(),
             blocked: false,
+            completed_state: None,
         },
         Ok(None) => MissionToolResult {
             success: false,
@@ -68,6 +73,7 @@ async fn exec_get_issue(tracker: &dyn Tracker, ctx: &MissionToolContext) -> Miss
                 serde_json::json!({ "error": format!("Issue {} not found", ctx.issue_identifier) })
                     .to_string(),
             blocked: false,
+            completed_state: None,
         },
         Err(e) => err(e),
     }
@@ -133,7 +139,12 @@ async fn exec_set_status(
     };
 
     match tracker.update_issue_state(&ctx.issue_id, state).await {
-        Ok(()) => ok_json(serde_json::json!({ "state": state, "updated": true })),
+        Ok(()) => MissionToolResult {
+            success: true,
+            output: serde_json::json!({ "state": state, "updated": true }).to_string(),
+            blocked: false,
+            completed_state: is_terminal_mission_state(state).then(|| state.to_string()),
+        },
         Err(e) => err(e),
     }
 }
@@ -209,16 +220,25 @@ async fn exec_report_blocked(
         success: true,
         output: serde_json::json!({ "blocked": true, "reason": reason }).to_string(),
         blocked: true,
+        completed_state: None,
     }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
+
+fn is_terminal_mission_state(state: &str) -> bool {
+    matches!(
+        state.to_ascii_lowercase().as_str(),
+        "done" | "canceled" | "cancelled" | "duplicate" | "won't fix"
+    )
+}
 
 fn ok_json(value: Value) -> MissionToolResult {
     MissionToolResult {
         success: true,
         output: value.to_string(),
         blocked: false,
+        completed_state: None,
     }
 }
 
@@ -227,6 +247,7 @@ fn err(e: anyhow::Error) -> MissionToolResult {
         success: false,
         output: serde_json::json!({ "error": e.to_string() }).to_string(),
         blocked: false,
+        completed_state: None,
     }
 }
 
@@ -236,14 +257,57 @@ fn missing_field(field: &str) -> MissionToolResult {
         output: serde_json::json!({ "error": format!("Missing required field: {field}") })
             .to_string(),
         blocked: false,
+        completed_state: None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::mission_control::tracker::{Tracker, TrackerConfig, TrackerIssue};
     use crate::infrastructure::linear::client::LinearClient;
+    use async_trait::async_trait;
     use serde_json::json;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct TestTracker {
+        updated_states: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl Tracker for TestTracker {
+        async fn fetch_candidates(
+            &self,
+            _config: &TrackerConfig,
+        ) -> anyhow::Result<Vec<TrackerIssue>> {
+            Ok(vec![])
+        }
+
+        async fn fetch_issue_states(
+            &self,
+            _issue_ids: &[String],
+        ) -> anyhow::Result<HashMap<String, String>> {
+            Ok(HashMap::new())
+        }
+
+        fn kind(&self) -> &str {
+            "test"
+        }
+
+        async fn update_issue_state(
+            &self,
+            _issue_id: &str,
+            state_name: &str,
+        ) -> anyhow::Result<()> {
+            self.updated_states
+                .lock()
+                .unwrap()
+                .push(state_name.to_string());
+            Ok(())
+        }
+    }
 
     fn test_ctx() -> MissionToolContext {
         MissionToolContext {
@@ -278,7 +342,25 @@ mod tests {
         let result = ok_json(json!({"test": true}));
         assert!(result.success);
         assert!(!result.blocked);
+        assert!(result.completed_state.is_none());
         let output: serde_json::Value = serde_json::from_str(&result.output).unwrap();
         assert_eq!(output["test"], true);
+    }
+
+    #[tokio::test]
+    async fn terminal_mission_status_marks_local_completion() {
+        let tracker = Arc::new(TestTracker::default());
+
+        let result = execute_mission_tool(
+            tracker.as_ref(),
+            &test_ctx(),
+            "mission_set_status",
+            json!({ "state": "Done" }),
+        )
+        .await;
+
+        assert!(result.success);
+        assert_eq!(result.completed_state.as_deref(), Some("Done"));
+        assert_eq!(tracker.updated_states.lock().unwrap().as_slice(), ["Done"]);
     }
 }

@@ -1247,6 +1247,11 @@ pub struct ReportBlockedRequest {
     pub reason: String,
 }
 
+#[derive(Deserialize)]
+pub struct ReportCompletedRequest {
+    pub tracker_state: Option<String>,
+}
+
 /// POST /api/missions/:mission_id/issues/:issue_id/blocked
 ///
 /// Called by mission tools (MCP server or dynamic tool handler) when the
@@ -1287,6 +1292,48 @@ pub async fn report_issue_blocked(
     );
 
     Ok(Json(serde_json::json!({ "blocked": true })))
+}
+
+/// POST /api/missions/:mission_id/issues/:issue_id/complete
+///
+/// Called by mission tools when the agent has successfully moved the tracker
+/// issue into a terminal state like "Done".
+pub async fn report_issue_completed(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path((mission_id, issue_id)): Path<(String, String)>,
+    Json(body): Json<ReportCompletedRequest>,
+) -> ApiResult<serde_json::Value> {
+    let mid = mission_id.clone();
+    let iid = issue_id.clone();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let _ = registry
+        .persist()
+        .send(PersistCommand::MissionIssueUpdateState {
+            mission_id: mid.clone(),
+            issue_id: iid.clone(),
+            orchestration_state: "completed".to_string(),
+            session_id: None,
+            attempt: None,
+            last_error: Some(None),
+            retry_due_at: Some(None),
+            started_at: None,
+            completed_at: Some(Some(now)),
+        })
+        .await;
+
+    crate::runtime::mission_orchestrator::broadcast_mission_delta_by_id(&registry, &mid).await;
+
+    info!(
+        component = "mission_control",
+        event = "issue.completed",
+        mission_id = %mid,
+        issue_id = %iid,
+        tracker_state = ?body.tracker_state,
+        "Agent reported issue completed"
+    );
+
+    Ok(Json(serde_json::json!({ "completed": true })))
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────
