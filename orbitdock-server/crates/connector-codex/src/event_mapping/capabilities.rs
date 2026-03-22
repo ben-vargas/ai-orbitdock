@@ -1,9 +1,8 @@
 use crate::runtime::row_entry;
 use crate::workers::iso_now;
 use codex_protocol::protocol::{
-    GetHistoryEntryResponseEvent, ListCustomPromptsResponseEvent, ListRemoteSkillsResponseEvent,
-    ListSkillsResponseEvent, McpListToolsResponseEvent, McpStartupCompleteEvent,
-    McpStartupUpdateEvent, RemoteSkillDownloadedEvent,
+    GetHistoryEntryResponseEvent, ListCustomPromptsResponseEvent, ListSkillsResponseEvent,
+    McpListToolsResponseEvent, McpStartupCompleteEvent, McpStartupUpdateEvent,
 };
 use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::{ConversationRow, MessageRowContent};
@@ -58,31 +57,6 @@ pub(crate) fn handle_list_skills_response(event: ListSkillsResponseEvent) -> Vec
     }]
 }
 
-pub(crate) fn handle_list_remote_skills_response(
-    event: ListRemoteSkillsResponseEvent,
-) -> Vec<ConnectorEvent> {
-    let skills = event
-        .skills
-        .into_iter()
-        .map(|skill| orbitdock_protocol::RemoteSkillSummary {
-            id: skill.id,
-            name: skill.name,
-            description: skill.description,
-        })
-        .collect();
-    vec![ConnectorEvent::RemoteSkillsList { skills }]
-}
-
-pub(crate) fn handle_remote_skill_downloaded(
-    event: RemoteSkillDownloadedEvent,
-) -> Vec<ConnectorEvent> {
-    vec![ConnectorEvent::RemoteSkillDownloaded {
-        id: event.id,
-        name: event.name,
-        path: event.path.to_string_lossy().to_string(),
-    }]
-}
-
 pub(crate) fn handle_list_custom_prompts_response(
     event_id: &str,
     event: ListCustomPromptsResponseEvent,
@@ -114,6 +88,7 @@ pub(crate) fn handle_list_custom_prompts_response(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -143,6 +118,7 @@ pub(crate) fn handle_get_history_entry_response(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }

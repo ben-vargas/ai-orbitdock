@@ -140,6 +140,10 @@ impl CodexConnector {
                 .await
             }
 
+            EventMsg::GuardianAssessment(e) => {
+                event_mapping::guardian::handle_guardian_assessment(e)
+            }
+
             EventMsg::ExecCommandBegin(e) => {
                 event_mapping::tools::handle_exec_command_begin(e, output_buffers, env_tracker)
                     .await
@@ -395,14 +399,6 @@ impl CodexConnector {
 
             EventMsg::ListSkillsResponse(e) => {
                 event_mapping::capabilities::handle_list_skills_response(e)
-            }
-
-            EventMsg::ListRemoteSkillsResponse(e) => {
-                event_mapping::capabilities::handle_list_remote_skills_response(e)
-            }
-
-            EventMsg::RemoteSkillDownloaded(e) => {
-                event_mapping::capabilities::handle_remote_skill_downloaded(e)
             }
 
             EventMsg::ListCustomPromptsResponse(e) => {

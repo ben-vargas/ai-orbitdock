@@ -20,8 +20,8 @@ use orbitdock_protocol::{
     ApprovalPreview, ApprovalPreviewSegment, ApprovalPreviewType, ApprovalQuestionOption,
     ApprovalQuestionPrompt, ApprovalRequest, ApprovalRiskLevel, ApprovalType, McpAuthStatus,
     McpResource, McpResourceTemplate, McpStartupFailure, McpStartupStatus, McpTool, Provider,
-    RemoteSkillSummary, ServerMessage, SessionStatus, SkillErrorInfo, SkillsListEntry,
-    StateChanges, TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
+    ServerMessage, SessionStatus, SkillErrorInfo, SkillsListEntry, StateChanges, TokenUsage,
+    TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
@@ -139,14 +139,6 @@ pub enum Input {
     SkillsList {
         skills: Vec<SkillsListEntry>,
         errors: Vec<SkillErrorInfo>,
-    },
-    RemoteSkillsList {
-        skills: Vec<RemoteSkillSummary>,
-    },
-    RemoteSkillDownloaded {
-        id: String,
-        name: String,
-        path: String,
     },
     SkillsUpdateAvailable,
     McpToolsList {
@@ -270,10 +262,6 @@ impl From<ConnectorEvent> for Input {
             ConnectorEvent::ThreadNameUpdated(name) => Input::ThreadNameUpdated(name),
             ConnectorEvent::SessionEnded { reason } => Input::SessionEnded { reason },
             ConnectorEvent::SkillsList { skills, errors } => Input::SkillsList { skills, errors },
-            ConnectorEvent::RemoteSkillsList { skills } => Input::RemoteSkillsList { skills },
-            ConnectorEvent::RemoteSkillDownloaded { id, name, path } => {
-                Input::RemoteSkillDownloaded { id, name, path }
-            }
             ConnectorEvent::SkillsUpdateAvailable => Input::SkillsUpdateAvailable,
             ConnectorEvent::McpToolsList {
                 tools,
@@ -662,6 +650,7 @@ pub fn transition(
                     timestamp: Some(now.to_string()),
                     is_streaming: false,
                     images: vec![],
+                    memory_citation: None,
                 }),
             };
             state.rows.push(entry.clone());
@@ -1229,6 +1218,7 @@ pub fn transition(
                     timestamp: Some(now.to_string()),
                     is_streaming: false,
                     images: vec![],
+                    memory_citation: None,
                 }),
             };
             state.rows.push(compact_entry.clone());
@@ -1257,24 +1247,6 @@ pub fn transition(
                 skills,
                 errors,
             })));
-        }
-
-        Input::RemoteSkillsList { skills } => {
-            effects.push(Effect::Emit(Box::new(ServerMessage::RemoteSkillsList {
-                session_id: sid,
-                skills,
-            })));
-        }
-
-        Input::RemoteSkillDownloaded { id, name, path } => {
-            effects.push(Effect::Emit(Box::new(
-                ServerMessage::RemoteSkillDownloaded {
-                    session_id: sid,
-                    id,
-                    name,
-                    path,
-                },
-            )));
         }
 
         Input::SkillsUpdateAvailable => {
@@ -2564,6 +2536,7 @@ mod tests {
                 timestamp: Some("0Z".to_string()),
                 is_streaming: false,
                 images: vec![],
+                memory_citation: None,
             }),
         }
     }
@@ -2580,6 +2553,7 @@ mod tests {
                 timestamp: Some("0Z".to_string()),
                 is_streaming: false,
                 images: vec![],
+                memory_citation: None,
             }),
         }
     }

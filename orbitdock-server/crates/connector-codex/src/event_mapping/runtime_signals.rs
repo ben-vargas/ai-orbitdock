@@ -162,6 +162,7 @@ pub(crate) fn handle_warning(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -188,6 +189,7 @@ pub(crate) async fn handle_model_reroute(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -203,8 +205,10 @@ pub(crate) fn handle_realtime_conversation_realtime(
 ) -> Vec<ConnectorEvent> {
     match event.payload {
         codex_protocol::protocol::RealtimeEvent::SessionUpdated { .. }
+        | codex_protocol::protocol::RealtimeEvent::InputAudioSpeechStarted(_)
         | codex_protocol::protocol::RealtimeEvent::InputTranscriptDelta(_)
         | codex_protocol::protocol::RealtimeEvent::OutputTranscriptDelta(_)
+        | codex_protocol::protocol::RealtimeEvent::ResponseCancelled(_)
         | codex_protocol::protocol::RealtimeEvent::ConversationItemDone { .. } => vec![],
         codex_protocol::protocol::RealtimeEvent::HandoffRequested(handoff) => {
             let Some(content) = realtime_text_from_handoff_request(&handoff) else {
@@ -237,6 +241,7 @@ pub(crate) fn handle_realtime_conversation_realtime(
                 timestamp: Some(iso_now()),
                 is_streaming: false,
                 images: vec![],
+                memory_citation: None,
             }));
             vec![ConnectorEvent::ConversationRowCreated(entry)]
         }
@@ -266,6 +271,7 @@ pub(crate) fn handle_deprecation_notice(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -283,6 +289,7 @@ pub(crate) fn handle_background_event(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -384,6 +391,7 @@ pub(crate) fn handle_stream_error(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }

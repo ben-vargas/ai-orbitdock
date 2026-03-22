@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::types::{
-    ImageInput, MentionInput, PermissionGrantScope, Provider, ReviewCommentStatus,
-    ReviewCommentTag, SkillInput, ToolApprovalDecision,
+    CodexApprovalPolicy, ImageInput, MentionInput, PermissionGrantScope, Provider,
+    ReviewCommentStatus, ReviewCommentTag, SkillInput, ToolApprovalDecision,
 };
 
 fn default_include_snapshot() -> bool {
@@ -90,6 +90,8 @@ pub enum ClientMessage {
     UpdateSessionConfig {
         session_id: String,
         approval_policy: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approval_policy_details: Option<CodexApprovalPolicy>,
         sandbox_mode: Option<String>,
         permission_mode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -120,6 +122,8 @@ pub enum ClientMessage {
         cwd: String,
         model: Option<String>,
         approval_policy: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approval_policy_details: Option<CodexApprovalPolicy>,
         sandbox_mode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         permission_mode: Option<String>,
@@ -153,6 +157,8 @@ pub enum ClientMessage {
         model: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         approval_policy: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approval_policy_details: Option<CodexApprovalPolicy>,
         #[serde(skip_serializing_if = "Option::is_none")]
         sandbox_mode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -180,6 +186,8 @@ pub enum ClientMessage {
         model: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         approval_policy: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approval_policy_details: Option<CodexApprovalPolicy>,
         #[serde(skip_serializing_if = "Option::is_none")]
         sandbox_mode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -245,13 +253,6 @@ pub enum ClientMessage {
         cwds: Vec<String>,
         #[serde(default)]
         force_reload: bool,
-    },
-    ListRemoteSkills {
-        session_id: String,
-    },
-    DownloadRemoteSkill {
-        session_id: String,
-        hazelnut_id: String,
     },
 
     // MCP
@@ -708,31 +709,6 @@ mod tests {
             }
             other => panic!("unexpected variant: {:?}", other),
         }
-    }
-
-    #[test]
-    fn roundtrip_download_remote_skill() {
-        let json = r#"{
-          "type":"download_remote_skill",
-          "session_id":"sess-6",
-          "hazelnut_id":"hz-abc-123"
-        }"#;
-
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse download_remote_skill");
-        match &parsed {
-            ClientMessage::DownloadRemoteSkill {
-                session_id,
-                hazelnut_id,
-            } => {
-                assert_eq!(session_id, "sess-6");
-                assert_eq!(hazelnut_id, "hz-abc-123");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
     }
 
     #[test]
@@ -1415,6 +1391,7 @@ mod tests {
         let message = ClientMessage::UpdateSessionConfig {
             session_id: "sess-1".to_string(),
             approval_policy: Some("on-request".to_string()),
+            approval_policy_details: None,
             sandbox_mode: Some("workspace-write".to_string()),
             permission_mode: Some("default".to_string()),
             collaboration_mode: Some("default".to_string()),

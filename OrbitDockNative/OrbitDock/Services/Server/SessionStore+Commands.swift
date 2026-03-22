@@ -40,7 +40,13 @@ extension SessionStore {
     message: String? = nil,
     interrupt: Bool? = nil
   ) async throws {
-    netLog(.info, cat: .store, "Approve tool", sid: sessionId, data: ["requestId": requestId, "decision": decision.rawValue])
+    netLog(
+      .info,
+      cat: .store,
+      "Approve tool",
+      sid: sessionId,
+      data: ["requestId": requestId, "decision": decision.rawValue]
+    )
     var request = ApprovalsClient.ApproveToolRequest(requestId: requestId, decision: decision)
     request.message = message
     request.interrupt = interrupt
@@ -115,18 +121,22 @@ extension SessionStore {
     let currentRules = observable.permissionRules
 
     let approvalPolicy: String?
+    let approvalPolicyDetails: ServerCodexApprovalPolicy?
     let sandboxMode: String?
-    if case let .codex(currentApprovalPolicy, currentSandboxMode) = currentRules {
+    if case let .codex(currentApprovalPolicy, currentApprovalPolicyDetails, currentSandboxMode) = currentRules {
       approvalPolicy = currentApprovalPolicy
+      approvalPolicyDetails = currentApprovalPolicyDetails
       sandboxMode = currentSandboxMode
     } else {
       approvalPolicy = nil
+      approvalPolicyDetails = nil
       sandboxMode = nil
     }
 
     let request = SessionsClient.TakeoverRequest(
       model: observable.model,
       approvalPolicy: approvalPolicy,
+      approvalPolicyDetails: approvalPolicyDetails,
       sandboxMode: sandboxMode,
       permissionMode: observable.provider == .claude ? observable.permissionMode.rawValue : nil,
       collaborationMode: observable.collaborationMode,
@@ -145,6 +155,7 @@ extension SessionStore {
   func updateSessionConfig(
     _ sessionId: String,
     approvalPolicy: String? = nil,
+    approvalPolicyDetails: ServerCodexApprovalPolicy? = nil,
     sandboxMode: String? = nil,
     permissionMode: String? = nil,
     collaborationMode: String? = nil,
@@ -155,6 +166,7 @@ extension SessionStore {
   ) async throws {
     let config = SessionsClient.UpdateSessionConfigRequest(
       approvalPolicy: approvalPolicy,
+      approvalPolicyDetails: approvalPolicyDetails,
       sandboxMode: sandboxMode,
       permissionMode: permissionMode,
       collaborationMode: collaborationMode,
