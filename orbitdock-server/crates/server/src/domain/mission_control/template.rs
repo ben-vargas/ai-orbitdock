@@ -52,47 +52,48 @@ orchestration:
   max_retries: 3
   stall_timeout: 600
   base_branch: main
-  # state_on_dispatch: "{dispatch_state}"   # tracker state when issue is dispatched
-  # state_on_complete: "{complete_state}"     # tracker state when session completes (PR awaits human review)
+  state_on_dispatch: "{dispatch_state}"
+  state_on_complete: "{complete_state}"
 ---
 
 You are working on {issue_label} `{{{{ issue.identifier }}}}`: {{{{ issue.title }}}}
 
 {{% if attempt > 1 %}}
-This is retry attempt #{{{{ attempt }}}}. Resume from the current workspace state.
+**Retry attempt #{{{{ attempt }}}}** — check the existing branch state and any previous workpad comments before resuming.
 {{% endif %}}
 
-## Issue Context
+## Issue
 
-- Identifier: {{{{ issue.identifier }}}}
-- Title: {{{{ issue.title }}}}
-- Status: {{{{ issue.state }}}}
-- URL: {{{{ issue.url }}}}
+| Field | Value |
+|-------|-------|
+| Identifier | `{{{{ issue.identifier }}}}` |
+| Title | {{{{ issue.title }}}} |
+| Status | {{{{ issue.state }}}} |
+| URL | {{{{ issue.url }}}} |
 
 {{% if issue.description %}}
-## Description
+### Description
 
 {{{{ issue.description }}}}
-{{% else %}}
-No description provided.
 {{% endif %}}
 
-## Git Workflow
+## Workflow
 
-You are working in a git worktree. Your branch is `mission/{{{{ issue.identifier | downcase }}}}`.
-Create a PR targeting `main` when complete.
+You are working in a git worktree on branch `mission/{{{{ issue.identifier | downcase }}}}`.
 
-## Getting Started
+1. **Read project guidelines** — check for AGENTS.md, CLAUDE.md, or similar files first.
+2. **Post your workpad** — use your mission tools to post a plan on the issue before writing code.
+3. **Understand the codebase** — explore the relevant code before making changes.
+4. **Implement** — make focused, minimal changes. Run tests and linters.
+5. **Commit** — keep commits clean and atomic. Update your workpad as you go.
+6. **Create a PR** targeting `main` when complete. Attach it to the issue.
 
-If the repository contains AGENTS.md or CLAUDE.md, read those files first for project-specific guidelines.
-You have full CLI access — use `git`, build tools, test runners, and any project-specific tooling.
+## Rules
 
-## Instructions
-
-1. Work autonomously end-to-end. Do not ask for human follow-up.
-2. Stop early only for true blockers (missing auth, permissions, secrets).
-3. Create a PR when complete and comment on the issue with the PR link.
-4. Keep commits clean and focused.
+- Work autonomously end-to-end. Do not ask for human follow-up.
+- Stop early only for true blockers (missing auth, permissions, secrets).
+- Do not expand scope. File follow-up issues for anything tangential.
+- Keep the workpad updated — it is the primary way humans track your progress.
 "#
     )
 }
@@ -134,6 +135,14 @@ mod tests {
     }
 
     #[test]
+    fn template_has_workflow_structure() {
+        let tmpl = default_mission_template("claude", "linear");
+        assert!(tmpl.contains("## Workflow"));
+        assert!(tmpl.contains("## Rules"));
+        assert!(tmpl.contains("workpad"));
+    }
+
+    #[test]
     fn template_parses_as_valid_mission_file() {
         let tmpl = default_mission_template("claude", "linear");
         let def = crate::domain::mission_control::config::parse_mission_file(&tmpl).unwrap();
@@ -146,5 +155,7 @@ mod tests {
         assert_eq!(def.config.orchestration.max_retries, 3);
         assert_eq!(def.config.orchestration.stall_timeout, 600);
         assert_eq!(def.config.orchestration.base_branch, "main");
+        assert_eq!(def.config.orchestration.state_on_dispatch, "In Progress");
+        assert_eq!(def.config.orchestration.state_on_complete, "In Review");
     }
 }
