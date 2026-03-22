@@ -123,6 +123,21 @@ struct MissionAgentCard: View {
             Text("\(conversation.toolCount) tools active")
           }
           .foregroundStyle(Color.textTertiary)
+        } else if let conversation, let contextLine = conversation.contextLine, !contextLine.isEmpty {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "text.bubble")
+              .font(.system(size: IconScale.xs, weight: .medium))
+            Text(contextLine)
+              .lineLimit(1)
+          }
+          .foregroundStyle(Color.textTertiary)
+        } else if conversation != nil {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "brain")
+              .font(.system(size: IconScale.xs, weight: .medium))
+            Text("Thinking...")
+          }
+          .foregroundStyle(Color.textTertiary)
         } else {
           HStack(spacing: Spacing.xs) {
             Image(systemName: "ellipsis")
