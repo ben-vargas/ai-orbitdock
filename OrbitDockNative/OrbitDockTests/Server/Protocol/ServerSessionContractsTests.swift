@@ -275,4 +275,40 @@ struct ServerSessionContractsTests {
     #expect(shellRow.args.isEmpty)
     #expect(shellRow.command == "git status")
   }
+
+  @Test func conversationBootstrapDecodesStringApprovalPolicyDetails() throws {
+    let data = Data(
+      """
+      {
+        "session": {
+          "id": "session-approval-policy",
+          "provider": "codex",
+          "project_path": "/tmp/orbitdock",
+          "project_name": "OrbitDock",
+          "status": "active",
+          "work_status": "waiting",
+          "codex_config_mode": "custom",
+          "approval_policy": "on-request",
+          "approval_policy_details": "on-request",
+          "token_usage": {
+            "input_tokens": 8,
+            "output_tokens": 13,
+            "cached_tokens": 0,
+            "context_window": 200000
+          },
+          "rows": [],
+          "total_row_count": 0,
+          "has_more_before": false
+        },
+        "total_row_count": 0,
+        "has_more_before": false
+      }
+      """.utf8
+    )
+
+    let bootstrap = try JSONDecoder().decode(ServerConversationBootstrap.self, from: data)
+
+    #expect(bootstrap.session.approvalPolicyDetails == .mode(.onRequest))
+    #expect(bootstrap.session.codexConfigMode == .custom)
+  }
 }

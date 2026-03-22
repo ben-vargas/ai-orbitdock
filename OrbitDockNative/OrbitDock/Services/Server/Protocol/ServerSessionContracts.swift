@@ -67,6 +67,14 @@ enum ServerCodexApprovalPolicy: Codable, Equatable, Hashable, Sendable {
   }
 
   init(from decoder: Decoder) throws {
+    let singleValueContainer = try decoder.singleValueContainer()
+    if let legacyMode = try? singleValueContainer.decode(String.self),
+       let mode = ServerCodexApprovalMode(serverValue: legacyMode)
+    {
+      self = .mode(mode)
+      return
+    }
+
     let container = try decoder.container(keyedBy: CodingKeys.self)
     if let mode = try container.decodeIfPresent(ServerCodexApprovalMode.self, forKey: .mode) {
       self = .mode(mode)
@@ -88,12 +96,30 @@ enum ServerCodexApprovalPolicy: Codable, Equatable, Hashable, Sendable {
   }
 
   func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
     switch self {
       case let .mode(mode):
-        try container.encode(mode, forKey: .mode)
+        var container = encoder.singleValueContainer()
+        try container.encode(mode.legacySummary)
       case let .granular(granular):
+        var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(granular, forKey: .granular)
+    }
+  }
+}
+
+private extension ServerCodexApprovalMode {
+  init?(serverValue: String) {
+    switch serverValue {
+      case "untrusted":
+        self = .untrusted
+      case "on-failure", "on_failure":
+        self = .onFailure
+      case "on-request", "on_request":
+        self = .onRequest
+      case "never":
+        self = .never
+      default:
+        return nil
     }
   }
 }
