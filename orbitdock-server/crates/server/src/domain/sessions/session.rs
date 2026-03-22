@@ -2376,12 +2376,7 @@ fn serialize_with_revision(
 
 /// Get current time as ISO 8601 string
 fn chrono_now() -> String {
-    // Using a simple format for now
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    format!("{}Z", duration.as_secs())
+    chrono::Utc::now().to_rfc3339()
 }
 
 fn normalize_request_id(value: &str) -> &str {
