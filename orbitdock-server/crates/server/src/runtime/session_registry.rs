@@ -75,6 +75,10 @@ pub struct SessionRegistry {
 
     /// Primary claim and WebSocket connection state.
     connections: ConnectionState,
+
+    /// Channel for manual mission trigger requests (HTTP → orchestrator).
+    mission_trigger_tx: mpsc::Sender<String>,
+    mission_trigger_rx: std::sync::Mutex<Option<mpsc::Receiver<String>>>,
 }
 
 impl SessionRegistry {
@@ -116,6 +120,7 @@ impl SessionRegistry {
         };
         #[cfg(not(test))]
         let codex_auth = Arc::new(CodexAuthService::new(list_tx.clone()));
+        let (mission_trigger_tx, mission_trigger_rx) = mpsc::channel(32);
         Self {
             sessions: DashMap::new(),
             connectors: ConnectorRegistry::new(),
@@ -127,6 +132,8 @@ impl SessionRegistry {
             pending_claude_sessions: DashMap::new(),
             shell_service: Arc::new(ShellService::new()),
             connections: ConnectionState::new(is_primary),
+            mission_trigger_tx,
+            mission_trigger_rx: std::sync::Mutex::new(Some(mission_trigger_rx)),
         }
     }
 
@@ -166,6 +173,16 @@ impl SessionRegistry {
 
     pub fn is_orchestrator_running(&self) -> bool {
         self.connections.is_orchestrator_running()
+    }
+
+    /// Send a manual trigger to force an immediate poll for a mission.
+    pub async fn trigger_mission(&self, mission_id: String) {
+        let _ = self.mission_trigger_tx.send(mission_id).await;
+    }
+
+    /// Take the trigger receiver (called once by the orchestrator at startup).
+    pub fn take_mission_trigger_rx(&self) -> Option<mpsc::Receiver<String>> {
+        self.mission_trigger_rx.lock().unwrap().take()
     }
 
     pub fn set_client_primary_claim(

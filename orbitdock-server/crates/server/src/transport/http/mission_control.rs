@@ -1085,6 +1085,32 @@ pub async fn dispatch_mission_issue(
     Ok(Json(response))
 }
 
+// ── Manual trigger endpoint ──────────────────────────────────────────
+
+/// POST /api/missions/:id/trigger
+///
+/// Force an immediate poll for a mission, bypassing the interval gate.
+pub async fn trigger_mission_poll(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path(mission_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    // Validate mission exists
+    let mid = mission_id.clone();
+    let _mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
+        .await?
+        .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+
+    if !registry.is_orchestrator_running() {
+        return Err(bad_request(
+            "orchestrator_not_running",
+            "Orchestrator is not running",
+        ));
+    }
+
+    registry.trigger_mission(mission_id).await;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 // ── Settings write-back endpoint ─────────────────────────────────────
 
 /// PUT /api/missions/:id/settings

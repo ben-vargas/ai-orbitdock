@@ -39,13 +39,30 @@ pub async fn start_mission_orchestrator(registry: Arc<SessionRegistry>, tracker:
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
 
     // Track when each issue was last nudged to avoid spamming idle agents
-    let mut nudge_tracker: HashMap<String, std::time::Instant> = HashMap::new();
+    let mut nudge_tracker: HashMap<String, (std::time::Instant, u32)> = HashMap::new();
 
     // Track when each mission was last polled for per-mission interval gating
     let mut last_poll_at: HashMap<String, std::time::Instant> = HashMap::new();
 
+    // Manual trigger channel — HTTP endpoint sends mission IDs to force immediate poll
+    let mut trigger_rx = registry.take_mission_trigger_rx();
+
     loop {
-        interval.tick().await;
+        // Wait for either the interval tick or a manual trigger
+        let triggered_mission = if let Some(ref mut rx) = trigger_rx {
+            tokio::select! {
+                _ = interval.tick() => None,
+                msg = rx.recv() => msg,
+            }
+        } else {
+            interval.tick().await;
+            None
+        };
+
+        // Clear the poll gate for a manually triggered mission so it runs immediately
+        if let Some(ref mission_id) = triggered_mission {
+            last_poll_at.remove(mission_id);
+        }
 
         if let Err(err) =
             orchestrator_tick(&registry, &tracker, &mut nudge_tracker, &mut last_poll_at).await

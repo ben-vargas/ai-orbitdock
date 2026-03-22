@@ -371,6 +371,10 @@ fn mission_routes() -> Router<Arc<SessionRegistry>> {
             post(super::dispatch_mission_issue),
         )
         .route(
+            "/api/missions/{mission_id}/trigger",
+            post(super::trigger_mission_poll),
+        )
+        .route(
             "/api/server/linear-key",
             get(super::check_linear_key)
                 .post(super::set_linear_key)
