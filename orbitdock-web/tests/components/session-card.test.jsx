@@ -1,53 +1,49 @@
+import assert from 'node:assert/strict'
+import { describe, it, mock } from 'node:test'
 import { fireEvent, render } from '@testing-library/preact'
-import { describe, expect, it, vi } from 'vitest'
 import { SessionCard } from '../../src/components/session/session-card.jsx'
 
+const baseSession = {
+  id: 'sess-1',
+  provider: 'claude',
+  project_path: '/Users/rob/project',
+  status: 'active',
+  work_status: 'working',
+  model: 'claude-opus-4-6',
+  last_activity_at: new Date().toISOString(),
+  custom_name: null,
+  summary: 'Working on the frontend',
+  first_prompt: 'Build a web UI',
+}
+
 describe('SessionCard', () => {
-  const mockSession = {
-    id: 'sess-1',
-    provider: 'claude',
-    project_path: '/Users/rob/project',
-    status: 'active',
-    work_status: 'working',
-    model: 'claude-opus-4-6',
-    last_activity_at: new Date().toISOString(),
-    custom_name: null,
-    summary: 'Working on the frontend',
-    first_prompt: 'Build a web UI',
-  }
+  it('shows the session summary, model, and project', () => {
+    const { getByText, getAllByText } = render(<SessionCard session={baseSession} onClick={() => {}} />)
 
-  it('renders session name from summary', () => {
-    const { getAllByText } = render(<SessionCard session={mockSession} onClick={() => {}} />)
-    // Name appears in the card title and again in the context snippet
-    expect(getAllByText('Working on the frontend').length).toBeGreaterThanOrEqual(1)
+    assert.ok(getAllByText('Working on the frontend').length >= 1)
+    assert.ok(getByText('Opus'))
+    assert.ok(getByText('project'))
   })
 
-  it('falls back to first_prompt when no summary', () => {
-    const session = { ...mockSession, summary: null }
+  it('falls back to first prompt when there is no summary', () => {
+    const session = { ...baseSession, summary: null }
     const { getAllByText } = render(<SessionCard session={session} onClick={() => {}} />)
-    expect(getAllByText('Build a web UI').length).toBeGreaterThanOrEqual(1)
+
+    assert.ok(getAllByText('Build a web UI').length >= 1)
   })
 
-  it('renders model badge with short name', () => {
-    const { getByText } = render(<SessionCard session={mockSession} onClick={() => {}} />)
-    expect(getByText('Opus')).toBeTruthy()
-  })
+  it('navigates when clicked', () => {
+    const handleClick = mock.fn()
+    const { getByRole } = render(<SessionCard session={baseSession} onClick={handleClick} />)
 
-  it('renders project name from path', () => {
-    const { getByText } = render(<SessionCard session={mockSession} onClick={() => {}} />)
-    expect(getByText('project')).toBeTruthy()
-  })
-
-  it('calls onClick when clicked', () => {
-    const handleClick = vi.fn()
-    const { getByRole } = render(<SessionCard session={mockSession} onClick={handleClick} />)
     fireEvent.click(getByRole('button'))
-    expect(handleClick).toHaveBeenCalledOnce()
+    assert.strictEqual(handleClick.mock.callCount(), 1)
   })
 
-  it('renders attention variant for permission status', () => {
-    const session = { ...mockSession, work_status: 'permission' }
+  it('highlights sessions that need user attention', () => {
+    const session = { ...baseSession, work_status: 'permission' }
     const { getByText } = render(<SessionCard session={session} variant="attention" onClick={() => {}} />)
-    expect(getByText('Wants to run a tool')).toBeTruthy()
+
+    assert.ok(getByText('Wants to run a tool'))
   })
 })
