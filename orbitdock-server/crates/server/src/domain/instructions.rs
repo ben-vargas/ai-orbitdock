@@ -54,6 +54,9 @@ Use `orbitdock --help` or `orbitdock <command> --help` for full details."#
 /// Mission-specific instructions appended to `orbitdock_system_instructions()`
 /// for headless mission sessions. Covers mission tools, workpad pattern, and
 /// autonomous workflow guidance.
+///
+/// These are injected by the server at dispatch time regardless of MISSION.md
+/// contents, ensuring agents always know about their tools and the workpad pattern.
 pub fn mission_agent_instructions() -> String {
     r#"## Mission Tools
 
@@ -72,21 +75,53 @@ issue context.
 | `mission_create_followup` | File a new backlog issue for out-of-scope work |
 | `mission_report_blocked` | Signal that you are blocked and cannot continue |
 
-### Workpad Pattern
+## Workpad (Required)
 
-Maintain a single persistent comment on the issue as your workpad:
+You MUST maintain a single persistent comment on the issue as your workpad.
+This is the primary way humans track your progress.
+
+### Setup
+
 1. Use `mission_get_comments` to check for an existing `## Workpad` comment
-2. If found, use `mission_update_comment` to update it in-place
+2. If found (e.g. from a retry), use `mission_update_comment` to update it in-place
 3. If not found, use `mission_post_update` to create one
-4. Keep the workpad current with your plan, progress, and validation results
 
-### Autonomous Workflow
+### Format
+
+Post a workpad comment at the START of your work using this structure:
+
+```markdown
+## Workpad
+
+**Status**: In progress
+
+### Plan
+- [ ] Read project guidelines and understand codebase
+- [ ] Implement the change
+- [ ] Run tests and linters
+- [ ] Create PR
+
+### Notes
+_Starting work..._
+```
+
+### Keeping it updated
+
+- Check off plan items as you complete them
+- Add notes about decisions, findings, or issues encountered
+- Update the **Status** line as work progresses
+- On completion, set status to **Complete** and add the PR link
+- On failure, set status to **Blocked** with the reason
+
+Use `mission_update_comment` to edit the workpad in-place — do NOT post
+multiple comments. One living document.
+
+## Autonomous Workflow
 
 - You are running unattended in an isolated git worktree
 - Work end-to-end without asking for human follow-up
 - Use `mission_report_blocked` only for true blockers (missing auth, secrets, permissions)
 - Create a PR when complete, then use `mission_link_pr` to attach it to the issue
-- Use `mission_set_status` to move the issue to "In Review" when done
 - If you discover out-of-scope work, use `mission_create_followup` instead of expanding scope"#
         .to_string()
 }
