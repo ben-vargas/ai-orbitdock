@@ -1,6 +1,6 @@
 # OrbitDock
 
-Mission control for AI coding agents.
+Run, review, and orchestrate AI coding agents from anywhere.
 
 ![macOS](https://img.shields.io/badge/macOS-15.0+-blue)
 ![iOS](https://img.shields.io/badge/iOS-18.0+-blue)
@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/b1e23968-6196-45b3-8b86-c177b3e59e6d
 
 I don't write code anymore (pretty much) — agents do. My job is reviewing, managing, and
 providing guidance at the right time. But with multiple repos and a bunch of agents running
-across all of them, keeping track of it all was chaos. OrbitDock is how I'm trying to wrangle that.
+across all of them, keeping track of it all was chaos. OrbitDock is how I wrangle that.
 
 A Rust server sits at the center. It creates and runs both Claude Code and Codex sessions
 directly — Codex via embedded codex-core, Claude via the CLI. It also picks up existing Claude
@@ -24,44 +24,65 @@ Code terminal sessions through hooks. Run a server on your laptop, your work mac
 wherever your agents are. The macOS and iOS apps connect to all of them at once, so you get one
 unified view no matter where your sessions are running or what device you're on.
 
-## Beyond basic hooks
+## What it does
 
-Most Claude Code setups pipe hooks into a script and call it a day. OrbitDock goes further.
+**Mission Control.** Point it at a Linear project and agents start working issues on their
+own. OrbitDock pulls eligible issues, creates per-issue git worktrees, picks the right
+provider, and dispatches agents with a prompt template you control. Concurrency limits,
+retry logic, provider failover — all configurable through a repo-local `MISSION.md`. A
+dedicated dashboard shows the full pipeline. Hands-off orchestration until you need to
+step in.
 
 **Bidirectional, not just passive.** Hooks tell you what's happening. OrbitDock lets you act on
 it. Send messages, steer mid-turn, fork conversations, roll back turns — all from the app. You
 can also take over a passive hook-monitored session and convert it to full direct control
 without interrupting it.
 
-**Both providers, one place.** Claude Code and Codex from the same dashboard, same approval
-flow, same review canvas. Pick whichever agent fits the task and manage them the same way.
-
 **Code review that feeds back.** A magit-style diff view shows exactly what the agent changed.
 Add inline comments on specific lines, then send them as structured feedback. The agent gets
 your context and corrects course — no copy-pasting out of a terminal.
+
+**Both providers, one place.** Claude Code and Codex from the same dashboard, same approval
+flow, same review canvas. Pick whichever agent fits the task and manage them the same way.
 
 **Approve from anywhere.** Tool calls, permission requests, and questions don't wait for you to
 be at your desk. The iOS app puts approvals, diffs, and session status in your pocket. Unblock
 an agent from your phone and it keeps going.
 
-**Mission Control.** Point it at a Linear project and it pulls issues, creates per-issue git
-worktrees, dispatches agents automatically, and reports back. Configurable provider strategy,
-retry logic, and a Liquid prompt template so each agent knows what it's working on. Hands-off
-orchestration with human-in-the-loop controls when you need them.
-
 **Multi-server.** Your laptop, your VPS, a Raspberry Pi in a drawer — connect all of them at
 once. Sessions from every endpoint merge into one dashboard so nothing slips through the cracks.
 
+## How it fits together
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                   macOS / iOS / Web app                       │
+│             (connects to all servers at once)                 │
+└──────────┬───────────────────┬───────────────────┬───────────┘
+           │                   │                   │
+  ┌────────▼─────────┐ ┌──────▼───────┐ ┌─────────▼──────────┐
+  │     Laptop        │ │     VPS      │ │   Raspberry Pi      │
+  │                   │ │              │ │                     │
+  │   Rust server     │ │  Rust server │ │    Rust server      │
+  │       │           │ │      │       │ │        │            │
+  │  Claude + Codex   │ │ Claude+Codex │ │   Claude+Codex      │
+  │    sessions       │ │   sessions   │ │     sessions        │
+  └───────────────────┘ └──────────────┘ └─────────────────────┘
+```
+
+Each server runs agents locally and the app merges everything into one dashboard.
+Mission Control can dispatch agents autonomously on any of them.
+
 ## What You Get
 
+- **Mission Control** — Autonomous issue-driven orchestration — point at Linear and agents start working
 - **Run agents from anywhere** — Create Claude and Codex sessions from Mac or iOS, no terminal needed
-- **Live monitoring** — Every session across every project, updating in real time
+- **Direct control** — Send messages, steer mid-turn, approve tools, interrupt, fork, run shell commands
 - **Code review** — Magit-style diffs with inline comments that steer the agent
-- **Approval triage** — Diff previews, risk cues, keyboard shortcuts (y/n/!/N)
-- **Direct control** — Send messages, approve tools, interrupt, run shell commands
-- **Usage tracking** — Rate limit monitoring for Claude and Codex
+- **Approval triage** — Diff previews, risk classification, keyboard shortcuts (y/n/!/N)
 - **Multi-server** — Connect to local, remote, and cloud endpoints at once
-- **Mission Control** — Autonomous issue-driven orchestration via Linear
+- **Usage tracking** — Rate limit monitoring for Claude and Codex
+- **Live monitoring** — Every session across every project, updating in real time
 
 See [FEATURES.md](docs/FEATURES.md) for the full list.
 
@@ -112,7 +133,7 @@ The app auto-connects to the local server.
 
 **Codex** — Open Settings → CODEX CLI → Sign in with ChatGPT (or use API key auth mode).
 
-**Claude Code** — Install the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) and log in. If you skipped hook setup during install, run `orbitdock install-hooks`.
+**Claude Code** — Install the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) and set an API key. OrbitDock picks it up automatically.
 
 ### 5. Create a session
 
@@ -144,7 +165,7 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, reverse pro
 
 - macOS 15.0+ (iOS 18.0+ for mobile)
 - Codex — built in, authenticates with ChatGPT sign-in or API key
-- Claude Code — requires the `claude` CLI installed and logged in
+- Claude Code — requires the `claude` CLI installed with an API key
 - Xcode 16+ and Rust stable toolchain if building from source
 
 ## Documentation
