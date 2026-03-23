@@ -444,26 +444,26 @@ rust-generate-token:
 cli:
 	$(RUST_ENV) "$(RUST_TARGET_DIR)/debug/orbitdock" $(ARGS)
 
-rust-release-darwin:
+rust-release-darwin: web-build
 	$(call package_release,darwin,)
 
-rust-release-linux:
+rust-release-linux: web-build
 	$(call package_release,linux,)
 
 rust-release-linux-all: rust-release-linux-x86_64 rust-release-linux-aarch64
 
-rust-release-linux-x86_64:
+rust-release-linux-x86_64: web-build
 	$(call package_release,linux-x86_64,)
 
-rust-release-linux-aarch64:
+rust-release-linux-aarch64: web-build
 	$(call package_release,linux-aarch64,ORBITDOCK_LINUX_PROFILE_PRESET=$(LINUX_AARCH64_PROFILE_PRESET) ORBITDOCK_LINUX_DOCKER_CARGO_BUILD_JOBS=$(LINUX_AARCH64_DOCKER_JOBS))
 
 rust-release-linux-smoke: rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64
 
-rust-release-linux-smoke-x86_64:
+rust-release-linux-smoke-x86_64: web-build
 	$(call package_release,linux-x86_64,ORBITDOCK_LINUX_PROFILE_PRESET=smoke)
 
-rust-release-linux-smoke-aarch64:
+rust-release-linux-smoke-aarch64: web-build
 	$(call package_release,linux-aarch64,ORBITDOCK_LINUX_PROFILE_PRESET=smoke)
 
 rust-smoke-linux: rust-smoke-linux-x86_64 rust-smoke-linux-aarch64

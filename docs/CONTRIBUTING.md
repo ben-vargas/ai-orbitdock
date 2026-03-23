@@ -87,7 +87,7 @@ echo '{"session_id":"test","cwd":"/tmp","model":"claude-opus-4-6","source":"star
 │   │   │   └── Server/          # Typed clients, EventStream, SessionStore, runtime registry
 │   │   └── Models/              # Data models + protocol types
 │   └── OrbitDockCore/           # Swift Package (shared models)
-├── migrations/                  # Database migrations (SQL)
+├── orbitdock-server/migrations/ # Database migrations (SQL)
 └── plans/                       # Living design docs and roadmaps
 ```
 
@@ -117,9 +117,9 @@ echo '{"session_id":"test","cwd":"/tmp","model":"claude-opus-4-6","source":"star
 
 **WAL mode required** — All SQLite connections owned by the Rust server must use `PRAGMA journal_mode = WAL` and `PRAGMA busy_timeout = 5000`.
 
-**Migrations** — The Rust server owns schema changes. OrbitDock uses `refinery`, and migration files live in `migrations/` with the `VNNN__description.sql` naming convention. When adding a migration:
+**Migrations** — The Rust server owns schema changes. OrbitDock uses `refinery`, and migration files live in `orbitdock-server/migrations/` with the `VNNN__description.sql` naming convention. When adding a migration:
 
-1. Create `migrations/VNNN__description.sql`
+1. Create `orbitdock-server/migrations/VNNN__description.sql`
 2. Update the Rust persistence path if the new schema needs new reads or writes
 3. Update protocol types if the new field needs to reach the app
 4. Run `make rust-test`

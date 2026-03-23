@@ -23,7 +23,7 @@ Claude hooks -> HTTP POST /api/hook -> Rust server -> SQLite
 
 ## Adding A Migration
 
-1. Create `migrations/VNNN__description.sql`
+1. Create `orbitdock-server/migrations/VNNN__description.sql`
 2. Write the SQL change
 3. Update the Rust persistence code if reads or writes change
 4. Update restore and startup hydration when needed
@@ -94,7 +94,7 @@ If the key is lost, encrypted values cannot be recovered.
 - `orbitdock-server/crates/server/src/infrastructure/crypto.rs`
 - `orbitdock-server/crates/server/src/runtime/session_command_handler.rs`
 - `orbitdock-server/crates/server/src/connectors/`
-- `migrations/`
+- `orbitdock-server/migrations/`
 
 ## Related Docs
 

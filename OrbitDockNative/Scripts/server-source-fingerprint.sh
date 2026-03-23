@@ -12,11 +12,11 @@ if ! git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1; then
 fi
 
 server_tree="$(git -C "$REPO_ROOT" rev-parse "${REF}:orbitdock-server")"
-migrations_tree="$(git -C "$REPO_ROOT" rev-parse "${REF}:migrations")"
+migrations_tree="$(git -C "$REPO_ROOT" rev-parse "${REF}:orbitdock-server/migrations")"
 
 dirty_state=""
 if [[ "$REF" == "HEAD" ]]; then
-  dirty_state="$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -- orbitdock-server migrations)"
+  dirty_state="$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -- orbitdock-server orbitdock-server/migrations)"
 fi
 
 fingerprint_input="$(printf '%s\n%s\n--\n%s' "$server_tree" "$migrations_tree" "$dirty_state")"

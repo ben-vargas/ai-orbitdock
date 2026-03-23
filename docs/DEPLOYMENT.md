@@ -108,6 +108,7 @@ make rust-release-linux-aarch64 LINUX_AARCH64_PROFILE_PRESET=release
 ```
 
 Each command writes a `.zip` plus `.sha256` file in `dist/`. Attach those files to the GitHub release.
+The `make rust-release-*` targets run `web-build` first, so the packaged binary embeds the current `orbitdock-web/dist` output.
 Set `ORBITDOCK_LINUX_BUILD_MODE=native|docker|auto` to override Linux build mode (`auto` is default).
 `make rust-release-linux-aarch64` defaults to `release-lowmem` (thin LTO, codegen-units=8) plus `LINUX_AARCH64_DOCKER_JOBS=1` to avoid Docker OOM on local macOS arm64 emulation.
 Set `ORBITDOCK_LINUX_PROFILE_PRESET=smoke` for faster local validation builds (disables release LTO and uses more codegen units).

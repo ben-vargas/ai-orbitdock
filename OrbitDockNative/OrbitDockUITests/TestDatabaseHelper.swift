@@ -22,7 +22,7 @@ enum TestDatabaseHelper {
     let projectRoot = findProjectRoot()
 
     // Run migrations
-    let migrationsPath = projectRoot.appendingPathComponent("migrations")
+    let migrationsPath = projectRoot.appendingPathComponent("orbitdock-server/migrations")
     runMigrations(dbPath: testDbPath, migrationsDir: migrationsPath)
 
     // Run seed data
@@ -49,9 +49,9 @@ enum TestDatabaseHelper {
     // Walk up from the test bundle to find the project root
     var url = Bundle(for: BundleLocator.self).bundleURL
 
-    // Look for the migrations directory
+    // Look for the server migrations directory
     for _ in 0 ..< 10 {
-      let migrationsPath = url.appendingPathComponent("migrations")
+      let migrationsPath = url.appendingPathComponent("orbitdock-server/migrations")
       if FileManager.default.fileExists(atPath: migrationsPath.path) {
         return url
       }
@@ -59,7 +59,7 @@ enum TestDatabaseHelper {
     }
 
     // If we can't find the project root, fail loudly
-    fatalError("Could not find project root (no migrations/ directory found walking up from test bundle)")
+    fatalError("Could not find project root (no orbitdock-server/migrations directory found walking up from test bundle)")
   }
 
   private static func runMigrations(dbPath: String, migrationsDir: URL) {

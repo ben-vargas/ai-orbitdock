@@ -9,7 +9,7 @@ OrbitDock has two main parts:
 - `OrbitDockNative/OrbitDock/` — the macOS and iOS SwiftUI app
 - `orbitdock-server/` — the Rust server, CLI, persistence, and provider integrations
 
-Shared Swift models live in `OrbitDockNative/OrbitDockCore/`. SQL migrations live in `migrations/`.
+Shared Swift models live in `OrbitDockNative/OrbitDockCore/`. SQL migrations live in `orbitdock-server/migrations/`.
 
 ## Where Code Goes
 
@@ -90,7 +90,7 @@ For Claude or Codex integration changes, verify the behavior in a real session w
 
 ## Migrations
 
-Create migrations as `migrations/VNNN__description.sql`.
+Create migrations as `orbitdock-server/migrations/VNNN__description.sql`.
 
 When a schema change affects behavior:
 
