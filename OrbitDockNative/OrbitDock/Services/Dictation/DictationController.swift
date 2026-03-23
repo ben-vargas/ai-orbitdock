@@ -142,8 +142,12 @@ final class LocalDictationController {
   }
 
   func cancel() async {
+    let wasCapturing = state == .recording || state == .requestingPermission
+
     activeStartToken = nil
-    audioCapture.stopStreaming()
+    if wasCapturing {
+      audioCapture.stopStreaming()
+    }
     liveTranscript = ""
     isMicrophonePermissionDenied = false
     state = .idle

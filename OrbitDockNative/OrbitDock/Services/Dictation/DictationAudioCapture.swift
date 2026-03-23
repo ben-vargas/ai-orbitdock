@@ -12,6 +12,8 @@ final class DictationAudioCapture {
   private let engine = AVAudioEngine()
   private var converter: AVAudioConverter?
   private var onSamples: SamplesHandler?
+  private var hasInstalledTap = false
+  private var hasActivatedAudioSession = false
 
   private let dictationInputFormat: AVAudioFormat = .init(
     commonFormat: .pcmFormatFloat32,
@@ -53,10 +55,12 @@ final class DictationAudioCapture {
       guard !samples.isEmpty else { return }
       self.onSamples?(samples)
     }
+    hasInstalledTap = true
 
     engine.prepare()
     do {
       try engine.start()
+      hasActivatedAudioSession = true
     } catch {
       stopStreaming()
       throw DictationError.audioCaptureFailure(message: error.localizedDescription)
@@ -64,8 +68,13 @@ final class DictationAudioCapture {
   }
 
   func stopStreaming() {
-    if engine.inputNode.numberOfInputs > 0 {
+    guard hasInstalledTap || engine.isRunning || onSamples != nil || hasActivatedAudioSession else {
+      return
+    }
+
+    if hasInstalledTap {
       engine.inputNode.removeTap(onBus: 0)
+      hasInstalledTap = false
     }
     if engine.isRunning {
       engine.stop()
@@ -74,8 +83,11 @@ final class DictationAudioCapture {
     onSamples = nil
 
     #if os(iOS)
-      try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+      if hasActivatedAudioSession {
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+      }
     #endif
+    hasActivatedAudioSession = false
   }
 
   private func convertToDictationSamples(_ buffer: AVAudioPCMBuffer) -> [Float] {
