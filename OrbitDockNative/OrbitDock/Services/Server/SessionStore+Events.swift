@@ -172,24 +172,24 @@ extension SessionStore {
       case let .missionsList(missions):
         missionListSnapshot = missions
       case let .missionDelta(missionId, issues, summary):
-        missionDeltaMissionId = missionId
-        missionDeltaSummary = summary
-        missionDeltaIssues = issues
-        missionDeltaRevision &+= 1
-        missionLastTickAt = Date()
+        let obs = mission(missionId)
+        obs.summary = summary
+        obs.issues = issues
+        obs.deltaRevision &+= 1
+        obs.lastTickAt = Date()
       case let .missionHeartbeat(missionId, tickStartedAt, nextTickAt):
-        missionDeltaMissionId = missionId
+        let obs = mission(missionId)
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        missionLastTickAt = iso.date(from: tickStartedAt) ?? {
+        obs.lastTickAt = iso.date(from: tickStartedAt) ?? {
           iso.formatOptions = [.withInternetDateTime]
           return iso.date(from: tickStartedAt)
         }()
-        missionNextTickAt = iso.date(from: nextTickAt) ?? {
+        obs.nextTickAt = iso.date(from: nextTickAt) ?? {
           iso.formatOptions = [.withInternetDateTime]
           return iso.date(from: nextTickAt)
         }()
-        missionHeartbeatRevision &+= 1
+        obs.heartbeatRevision &+= 1
       case let .revision(sessionId, revision):
         lastRevision[sessionId] = revision
     }

@@ -47,11 +47,11 @@ struct MissionShowView: View {
       viewModel.bind(missionId: missionId, endpointId: endpointId, runtimeRegistry: runtimeRegistry)
       await viewModel.refreshDetail()
     }
-    .onChange(of: viewModel.missionDeltaRevision) { _, _ in
-      viewModel.applyLiveMissionDeltaIfNeeded()
+    .onChange(of: viewModel.liveState?.deltaRevision) { _, _ in
+      viewModel.applyLiveDelta()
     }
-    .onChange(of: viewModel.missionHeartbeatRevision) { _, _ in
-      viewModel.applyMissionHeartbeatIfNeeded()
+    .onChange(of: viewModel.liveState?.heartbeatRevision) { _, _ in
+      viewModel.applyLiveHeartbeat()
     }
     .alert(
       "Error",
@@ -60,6 +60,22 @@ struct MissionShowView: View {
       Button("OK", role: .cancel) {}
     } message: {
       Text(viewModel.actionError ?? "")
+    }
+    .sheet(isPresented: $viewModel.showWorktreeCleanup) {
+      MissionWorktreeCleanupSheet(
+        worktrees: viewModel.missionWorktrees,
+        isLoading: viewModel.isLoadingWorktrees,
+        isCleaning: viewModel.isCleaningWorktrees,
+        onCancel: { viewModel.showWorktreeCleanup = false },
+        onConfirm: { ids in
+          Task {
+            await viewModel.cleanupWorktrees(ids: ids)
+            if viewModel.missionWorktrees.isEmpty {
+              viewModel.showWorktreeCleanup = false
+            }
+          }
+        }
+      )
     }
   }
 
@@ -126,6 +142,9 @@ struct MissionShowView: View {
                 onNavigateToSession: { sessionId in
                   let ref = SessionRef(endpointId: endpointId, sessionId: sessionId)
                   router.selectSession(ref, source: .external)
+                },
+                onTransitionIssue: { issueId, target, reason in
+                  await viewModel.transitionIssue(issueId: issueId, targetState: target, reason: reason)
                 }
               )
             case .settings:
@@ -145,7 +164,10 @@ struct MissionShowView: View {
                 missionId: missionId,
                 endpointId: endpointId,
                 http: viewModel.http,
-                isCompact: isCompact
+                isCompact: isCompact,
+                onTransitionIssue: { issueId, target, reason in
+                  await viewModel.transitionIssue(issueId: issueId, targetState: target, reason: reason)
+                }
               )
           }
         }
@@ -157,80 +179,111 @@ struct MissionShowView: View {
   // MARK: - Tab Bar
 
   private var tabBar: some View {
-    HStack(spacing: Spacing.sm) {
+    HStack(spacing: 0) {
       ForEach(MissionTab.allCases, id: \.self) { tab in
+        let isSelected = viewModel.selectedTab == tab
         Button {
           withAnimation(Motion.standard) {
             viewModel.selectedTab = tab
           }
         } label: {
-          HStack(spacing: Spacing.sm_) {
-            Image(systemName: tab.icon)
-              .font(.system(size: IconScale.sm, weight: .semibold))
-            Text(tab.title)
-              .font(.system(size: TypeScale.meta, weight: .semibold))
-            if tab == .issues, !viewModel.issues.isEmpty {
-              Text("\(viewModel.issues.count)")
-                .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-                .foregroundStyle(viewModel.selectedTab == tab ? Color.accent : Color.textQuaternary)
+          VStack(spacing: Spacing.xs) {
+            HStack(spacing: Spacing.sm_) {
+              Image(systemName: tab.icon)
+                .font(.system(size: IconScale.sm, weight: .semibold))
+              Text(tab.title)
+                .font(.system(size: TypeScale.caption, weight: .semibold))
+              if tab == .issues, !viewModel.issues.isEmpty {
+                Text("\(viewModel.issues.count)")
+                  .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+                  .foregroundStyle(isSelected ? Color.accent : Color.textQuaternary)
+                  .padding(.horizontal, Spacing.xs)
+                  .padding(.vertical, 1)
+                  .background(
+                    isSelected
+                      ? Color.accent.opacity(OpacityTier.subtle)
+                      : Color.backgroundTertiary,
+                    in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+                  )
+              }
             }
+            .foregroundStyle(isSelected ? Color.accent : Color.textTertiary)
+
+            // Active indicator line
+            RoundedRectangle(cornerRadius: 1, style: .continuous)
+              .fill(isSelected ? Color.accent : .clear)
+              .frame(height: 2)
           }
-          .foregroundStyle(viewModel.selectedTab == tab ? Color.accent : Color.textSecondary)
-          .padding(.horizontal, Spacing.md)
-          .padding(.vertical, Spacing.sm)
-          .background(
-            Capsule(style: .continuous)
-              .fill(viewModel.selectedTab == tab ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.8))
-          )
-          .overlay(
-            Capsule(style: .continuous)
-              .strokeBorder(viewModel.selectedTab == tab ? Color.surfaceBorder : .clear, lineWidth: 1)
-          )
+          .padding(.horizontal, Spacing.lg)
+          .padding(.top, Spacing.sm)
         }
         .buttonStyle(.plain)
       }
 
       Spacer()
     }
+    .overlay(alignment: .bottom) {
+      Rectangle()
+        .fill(Color.surfaceBorder.opacity(OpacityTier.medium))
+        .frame(height: 1)
+    }
   }
 
   // MARK: - Header
 
   private func missionHeader(_ mission: MissionSummary) -> some View {
-    HStack(alignment: .center, spacing: Spacing.md) {
-      ZStack {
-        Circle()
-          .fill(mission.statusColor.opacity(OpacityTier.light))
-          .frame(width: 32, height: 32)
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      HStack(alignment: .center, spacing: Spacing.md) {
+        // Status orb with animated rings
+        ZStack {
+          if mission.orchestratorStatus == "polling" {
+            Circle()
+              .stroke(mission.statusColor.opacity(OpacityTier.subtle), lineWidth: 1)
+              .frame(width: 36, height: 36)
 
-        Circle()
-          .fill(mission.statusColor)
-          .frame(width: 8, height: 8)
-      }
-
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text(mission.name)
-          .font(.system(size: isCompact ? TypeScale.large : TypeScale.headline, weight: .bold))
-          .foregroundStyle(Color.textPrimary)
-
-        let tagLayout = isCompact
-          ? AnyLayout(WrappingFlowLayout(spacing: Spacing.xs))
-          : AnyLayout(HStackLayout(spacing: Spacing.sm))
-
-        tagLayout {
-          capsuleTag(mission.trackerKind.capitalized, icon: "link")
-          capsuleTag(mission.resolvedProvider.displayName, icon: mission.resolvedProvider.icon)
-          if mission.providerStrategy != "single", mission.secondaryProvider != nil {
-            capsuleTag(
-              mission.providerStrategy.replacingOccurrences(of: "_", with: " ").capitalized,
-              icon: "arrow.triangle.branch"
-            )
+            Circle()
+              .stroke(mission.statusColor.opacity(OpacityTier.light), lineWidth: 1)
+              .frame(width: 28, height: 28)
+              .animation(
+                .easeInOut(duration: 2.0).repeatForever(autoreverses: true),
+                value: mission.orchestratorStatus
+              )
           }
-          statusCapsule(mission)
-        }
-      }
 
-      Spacer()
+          Circle()
+            .fill(mission.statusColor.opacity(OpacityTier.medium))
+            .frame(width: 20, height: 20)
+
+          Circle()
+            .fill(mission.statusColor)
+            .frame(width: 8, height: 8)
+        }
+        .frame(width: 36, height: 36)
+
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          Text(mission.name)
+            .font(.system(size: isCompact ? TypeScale.large : TypeScale.headline, weight: .bold))
+            .foregroundStyle(Color.textPrimary)
+
+          let tagLayout = isCompact
+            ? AnyLayout(WrappingFlowLayout(spacing: Spacing.xs))
+            : AnyLayout(HStackLayout(spacing: Spacing.sm))
+
+          tagLayout {
+            capsuleTag(mission.trackerKind.capitalized, icon: "link")
+            capsuleTag(mission.resolvedProvider.displayName, icon: mission.resolvedProvider.icon)
+            if mission.providerStrategy != "single", mission.secondaryProvider != nil {
+              capsuleTag(
+                mission.providerStrategy.replacingOccurrences(of: "_", with: " ").capitalized,
+                icon: "arrow.triangle.branch"
+              )
+            }
+            statusCapsule(mission)
+          }
+        }
+
+        Spacer()
+      }
     }
   }
 
@@ -238,6 +291,15 @@ struct MissionShowView: View {
 
   private func missionActions(_ mission: MissionSummary) -> some View {
     Menu {
+      Button {
+        viewModel.showWorktreeCleanup = true
+        Task { await viewModel.loadMissionWorktrees() }
+      } label: {
+        Label("Clean Up Worktrees", systemImage: "arrow.3.trianglepath")
+      }
+
+      Divider()
+
       Button(role: .destructive) {
         viewModel.showDeleteConfirmation = true
       } label: {

@@ -16,21 +16,76 @@ struct MissionAgentCard: View {
     conversation?.displayStatus.color ?? issue.orchestrationState.color
   }
 
-  private var providerColor: Color {
-    issue.providerColor
+  private var needsUrgentGlow: Bool {
+    conversation?.displayStatus == .permission || conversation?.displayStatus == .question
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.sm) {
-      issueHeader
-      agentStatusLine
-      telemetryStack
+      // ── Row 1: Identifier + elapsed ──
+      HStack(alignment: .firstTextBaseline) {
+        Text(issue.identifier)
+          .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.accent)
 
+        Spacer()
+
+        if let conversation {
+          TimelineView(.periodic(from: .now, by: 1.0)) { context in
+            if let startedAt = conversation.startedAt {
+              let elapsed = context.date.timeIntervalSince(startedAt)
+              if elapsed > 0 {
+                Text(DashboardFormatters.formatDuration(elapsed))
+                  .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+                  .foregroundStyle(Color.textQuaternary)
+              }
+            }
+          }
+        }
+      }
+
+      // ── Row 2: Title ──
+      Text(issue.title)
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textPrimary)
+        .fixedSize(horizontal: false, vertical: true)
+        .lineLimit(isExpanded ? nil : 2)
+
+      // ── Row 3: Status + provider + model ──
+      HStack(spacing: Spacing.sm_) {
+        if let conversation {
+          SessionStatusBadge(status: conversation.displayStatus, showIcon: true, size: .compact)
+        } else {
+          Text(issue.orchestrationState.displayLabel)
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+            .foregroundStyle(issue.orchestrationState.color)
+        }
+
+        Spacer()
+
+        Text(issue.provider.capitalized)
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(issue.providerColor)
+
+        if let conversation {
+          UnifiedModelBadge(model: conversation.model, provider: conversation.provider, size: .mini)
+        }
+      }
+
+      // ── Row 4: Activity — the hero content ──
+      activityContent
+
+      // ── Expanded detail ──
       if isExpanded {
         expandedContent
       }
+
+      // ── Row 5: Footer — branch + metrics + actions ──
+      footer
     }
-    .padding(Spacing.lg)
+    .padding(.leading, Spacing.md)
+    .padding(.trailing, Spacing.md)
+    .padding(.vertical, Spacing.md)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(cardBackground)
     .contentShape(Rectangle())
@@ -41,189 +96,109 @@ struct MissionAgentCard: View {
     }
   }
 
-  // MARK: - Issue Header
-
-  private var issueHeader: some View {
-    Group {
-      if isCompact {
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text(issue.identifier)
-            .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-            .foregroundStyle(Color.accent)
-
-          Text(issue.title)
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textPrimary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-      } else {
-        HStack(spacing: Spacing.sm_) {
-          Text(issue.identifier)
-            .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
-            .foregroundStyle(Color.accent)
-
-          Text(issue.title)
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textPrimary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-      }
-    }
-  }
-
-  // MARK: - Agent Status Line
-
-  private var agentStatusLine: some View {
-    HStack(spacing: Spacing.sm_) {
-      if let conversation {
-        SessionStatusBadge(status: conversation.displayStatus, showIcon: true, size: .compact)
-      } else {
-        Text(issue.orchestrationState.displayLabel)
-          .font(.system(size: TypeScale.micro, weight: .semibold))
-          .foregroundStyle(issue.orchestrationState.color)
-      }
-
-      Spacer()
-
-      Text(issue.provider.capitalized)
-        .font(.system(size: TypeScale.micro, weight: .semibold))
-        .foregroundStyle(providerColor)
-
-      if let conversation {
-        UnifiedModelBadge(model: conversation.model, provider: conversation.provider, size: .mini)
-      }
-    }
-  }
-
-  // MARK: - Telemetry Stack
-
-  private var telemetryStack: some View {
-    VStack(alignment: .leading, spacing: isCompact ? Spacing.sm_ : Spacing.xxs) {
-      if isCompact {
-        compactActivityRow
-        compactMetricsRow
-      } else {
-        activityRow
-        branchRow
-        metricsRow
-      }
-    }
-  }
-
-  private var activityRow: some View {
-    let isLast = conversation?.branch == nil
-    return HStack(spacing: Spacing.xs) {
-      treeConnector(isLast: isLast)
-
-      Group {
-        if let conversation, conversation.displayStatus == .permission, let tool = conversation.pendingToolName {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "lock.fill")
-              .font(.system(size: IconScale.xs, weight: .bold))
-            Text(tool)
-          }
-          .foregroundStyle(Color.statusPermission)
-        } else if let conversation, conversation.displayStatus == .question {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "questionmark.bubble")
-              .font(.system(size: IconScale.xs, weight: .bold))
-            Text(conversation.pendingQuestion.map { String($0.prefix(60)) } ?? "Question")
-          }
-          .foregroundStyle(Color.statusQuestion)
-        } else if let tool = conversation?.pendingToolName {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "wrench.fill")
-              .font(.system(size: IconScale.xs, weight: .medium))
-            Text(tool)
-          }
-          .foregroundStyle(Color.textTertiary)
-        } else if let conversation, conversation.toolCount > 0 {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "hammer")
-              .font(.system(size: IconScale.xs, weight: .medium))
-            Text("\(conversation.toolCount) tools active")
-          }
-          .foregroundStyle(Color.textTertiary)
-        } else if let conversation, let contextLine = conversation.contextLine, !contextLine.isEmpty {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "text.bubble")
-              .font(.system(size: IconScale.xs, weight: .medium))
-            Text(contextLine)
-              .lineLimit(1)
-          }
-          .foregroundStyle(Color.textTertiary)
-        } else if conversation != nil {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "brain")
-              .font(.system(size: IconScale.xs, weight: .medium))
-            Text("Thinking...")
-          }
-          .foregroundStyle(Color.textTertiary)
-        } else {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "ellipsis")
-              .font(.system(size: IconScale.xs, weight: .medium))
-            Text("Initializing...")
-          }
-          .foregroundStyle(Color.textQuaternary)
-        }
-      }
-      .font(.system(size: TypeScale.micro, weight: .medium))
-    }
-  }
+  // MARK: - Activity Content (Hero)
 
   @ViewBuilder
-  private var branchRow: some View {
-    if let branch = conversation?.branch {
-      HStack(spacing: Spacing.xs) {
-        treeConnector(isLast: false)
-
-        Image(systemName: "arrow.triangle.branch")
-          .font(.system(size: IconScale.xs, weight: .medium))
-          .foregroundStyle(Color.textTertiary)
-
-        Text(branch)
-          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-          .foregroundStyle(Color.textTertiary)
+  private var activityContent: some View {
+    if let conversation, conversation.displayStatus == .permission, let tool = conversation.pendingToolName {
+      // Permission request — urgent, prominent
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: "lock.fill")
+          .font(.system(size: IconScale.sm, weight: .bold))
+        Text(tool)
+          .lineLimit(1)
       }
+      .font(.system(size: TypeScale.caption, weight: .medium))
+      .foregroundStyle(Color.statusPermission)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        Color.statusPermission.opacity(OpacityTier.subtle),
+        in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+      )
+    } else if let conversation, conversation.displayStatus == .question {
+      // Question — urgent, prominent
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: "questionmark.bubble")
+          .font(.system(size: IconScale.sm, weight: .bold))
+        Text(conversation.pendingQuestion.map { String($0.prefix(80)) } ?? "Question")
+          .lineLimit(2)
+      }
+      .font(.system(size: TypeScale.caption, weight: .medium))
+      .foregroundStyle(Color.statusQuestion)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        Color.statusQuestion.opacity(OpacityTier.subtle),
+        in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+      )
+    } else if let tool = conversation?.pendingToolName {
+      // Active tool use
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: "wrench.fill")
+          .font(.system(size: IconScale.xs, weight: .medium))
+        Text(tool)
+          .lineLimit(1)
+      }
+      .font(.system(size: TypeScale.micro, weight: .medium))
+      .foregroundStyle(Color.textSecondary)
+    } else if let contextLine = conversation?.contextLine, !contextLine.isEmpty {
+      // Context line (assistant output)
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: "text.bubble")
+          .font(.system(size: IconScale.xs, weight: .medium))
+        Text(contextLine)
+          .lineLimit(2)
+      }
+      .font(.system(size: TypeScale.micro, weight: .medium))
+      .foregroundStyle(Color.textSecondary)
+    } else if conversation != nil {
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: "brain")
+          .font(.system(size: IconScale.xs, weight: .medium))
+        Text("Thinking...")
+      }
+      .font(.system(size: TypeScale.micro, weight: .medium))
+      .foregroundStyle(Color.textTertiary)
+    } else {
+      HStack(spacing: Spacing.sm_) {
+        ProgressView()
+          .controlSize(.mini)
+        Text("Initializing...")
+      }
+      .font(.system(size: TypeScale.micro, weight: .medium))
+      .foregroundStyle(Color.textQuaternary)
     }
   }
 
-  private var metricsRow: some View {
-    HStack(spacing: Spacing.xs) {
-      treeConnector(isLast: true)
+  // MARK: - Footer
 
-      HStack(spacing: 0) {
-        if let conversation, conversation.toolCount > 0 {
-          Text("\(conversation.toolCount) tools")
-            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
+  private var footer: some View {
+    HStack(spacing: Spacing.sm) {
+      // Branch badge
+      if let branch = conversation?.branch {
+        HStack(spacing: Spacing.xxs) {
+          Image(systemName: "arrow.triangle.branch")
+            .font(.system(size: 8, weight: .medium))
+          Text(branch)
+            .lineLimit(1)
         }
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textQuaternary)
+      }
 
-        if let conversation, conversation.hasTurnDiff {
-          metricSeparator
-          Text("changes")
-            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
+      // Inline metrics
+      if let conversation {
+        if conversation.toolCount > 0 {
+          metricPill(icon: "wrench.fill", value: "\(conversation.toolCount)")
         }
-
-        if let conversation, conversation.activeWorkerCount > 0 {
-          metricSeparator
-          Text("\(conversation.activeWorkerCount) workers")
-            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
+        if conversation.hasTurnDiff {
+          metricPill(icon: "doc.badge.plus", value: "diff")
         }
-
-        TimelineView(.periodic(from: .now, by: 1.0)) { context in
-          if let startedAt = conversation?.startedAt {
-            let elapsed = context.date.timeIntervalSince(startedAt)
-            if elapsed > 0 {
-              metricSeparator
-              Text(DashboardFormatters.formatDuration(elapsed))
-                .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.textQuaternary)
-            }
-          }
+        if conversation.activeWorkerCount > 0 {
+          metricPill(icon: "person.2.fill", value: "\(conversation.activeWorkerCount)")
         }
       }
 
@@ -231,17 +206,15 @@ struct MissionAgentCard: View {
 
       if let sessionId = issue.sessionId {
         Button {
-          Task {
-            await onEndSession?(sessionId)
-          }
+          Task { await onEndSession?(sessionId) }
         } label: {
           Image(systemName: "stop.fill")
             .font(.system(size: 8, weight: .bold))
             .foregroundStyle(Color.feedbackNegative)
-            .padding(Spacing.xs)
+            .frame(width: 22, height: 22)
             .background(
               Color.feedbackNegative.opacity(OpacityTier.subtle),
-              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+              in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
             )
         }
         .buttonStyle(.plain)
@@ -263,12 +236,8 @@ struct MissionAgentCard: View {
 
   @ViewBuilder
   private var expandedContent: some View {
-    Divider().foregroundStyle(Color.surfaceBorder)
-
     VStack(alignment: .leading, spacing: Spacing.sm_) {
-      Text("Latest Context")
-        .font(.system(size: TypeScale.micro, weight: .semibold))
-        .foregroundStyle(Color.textTertiary)
+      Divider().foregroundStyle(Color.surfaceBorder)
 
       if let summary = expandedSummaryText {
         Text(summary)
@@ -276,161 +245,23 @@ struct MissionAgentCard: View {
           .foregroundStyle(Color.textSecondary)
           .fixedSize(horizontal: false, vertical: true)
           .padding(Spacing.sm)
+          .frame(maxWidth: .infinity, alignment: .leading)
           .background(
-            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-              .fill(Color.backgroundTertiary)
+            Color.backgroundTertiary,
+            in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
           )
       } else {
         Text("Session context loading...")
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textQuaternary)
       }
-    }
 
-    if let conversation, let lastMessage = conversation.lastMessage, !lastMessage.isEmpty {
-      Text(lastMessage)
-        .font(.system(size: TypeScale.micro).italic())
-        .foregroundStyle(Color.textTertiary)
-        .lineLimit(2)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    // Open Session button
-    if let sessionId = issue.sessionId {
-      Button {
-        onNavigateToSession(sessionId)
-      } label: {
-        Text("Open Session \u{2192}")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(Color.accent)
-      }
-      .buttonStyle(.plain)
-    }
-  }
-
-  // MARK: - Compact Telemetry (no tree connectors)
-
-  private var compactActivityRow: some View {
-    HStack(spacing: Spacing.xs) {
-      Group {
-        if let conversation, conversation.displayStatus == .permission, let tool = conversation.pendingToolName {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "lock.fill")
-              .font(.system(size: IconScale.xs, weight: .bold))
-            Text(tool)
-              .lineLimit(1)
-          }
-          .foregroundStyle(Color.statusPermission)
-        } else if let conversation, conversation.displayStatus == .question {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "questionmark.bubble")
-              .font(.system(size: IconScale.xs, weight: .bold))
-            Text(conversation.pendingQuestion.map { String($0.prefix(50)) } ?? "Question")
-              .lineLimit(1)
-          }
-          .foregroundStyle(Color.statusQuestion)
-        } else if let tool = conversation?.pendingToolName {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "wrench.fill")
-              .font(.system(size: IconScale.xs, weight: .medium))
-            Text(tool)
-              .lineLimit(1)
-          }
+      if let conversation, let lastMessage = conversation.lastMessage, !lastMessage.isEmpty {
+        Text(lastMessage)
+          .font(.system(size: TypeScale.micro).italic())
           .foregroundStyle(Color.textTertiary)
-        } else if let conversation, let contextLine = conversation.contextLine, !contextLine.isEmpty {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "text.bubble")
-              .font(.system(size: IconScale.xs, weight: .medium))
-            Text(contextLine)
-              .lineLimit(1)
-          }
-          .foregroundStyle(Color.textTertiary)
-        } else if conversation != nil {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "brain")
-              .font(.system(size: IconScale.xs, weight: .medium))
-            Text("Thinking...")
-          }
-          .foregroundStyle(Color.textTertiary)
-        } else {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "ellipsis")
-              .font(.system(size: IconScale.xs, weight: .medium))
-            Text("Initializing...")
-          }
-          .foregroundStyle(Color.textQuaternary)
-        }
-      }
-      .font(.system(size: TypeScale.micro, weight: .medium))
-
-      Spacer()
-    }
-  }
-
-  private var compactMetricsRow: some View {
-    HStack(spacing: Spacing.sm_) {
-      // Branch (compact — just the name, truncated)
-      if let branch = conversation?.branch {
-        HStack(spacing: Spacing.xxs) {
-          Image(systemName: "arrow.triangle.branch")
-            .font(.system(size: 8, weight: .medium))
-          Text(branch)
-            .lineLimit(1)
-        }
-        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-        .foregroundStyle(Color.textQuaternary)
-      }
-
-      // Metrics inline
-      if let conversation, conversation.toolCount > 0 {
-        Text("\(conversation.toolCount) tools")
-          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-          .foregroundStyle(Color.textQuaternary)
-      }
-
-      if let conversation, conversation.hasTurnDiff {
-        Text("changes")
-          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-          .foregroundStyle(Color.textQuaternary)
-      }
-
-      TimelineView(.periodic(from: .now, by: 1.0)) { context in
-        if let startedAt = conversation?.startedAt {
-          let elapsed = context.date.timeIntervalSince(startedAt)
-          if elapsed > 0 {
-            Text(DashboardFormatters.formatDuration(elapsed))
-              .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.textQuaternary)
-          }
-        }
-      }
-
-      Spacer()
-
-      // Actions
-      if let sessionId = issue.sessionId {
-        Button {
-          Task { await onEndSession?(sessionId) }
-        } label: {
-          Image(systemName: "stop.fill")
-            .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(Color.feedbackNegative)
-            .padding(Spacing.xs)
-            .background(
-              Color.feedbackNegative.opacity(OpacityTier.subtle),
-              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-            )
-        }
-        .buttonStyle(.plain)
-
-        Button {
-          onNavigateToSession(sessionId)
-        } label: {
-          Text("Open \u{2192}")
-            .font(.system(size: TypeScale.micro, weight: .semibold))
-            .foregroundStyle(Color.accent)
-        }
-        .buttonStyle(.plain)
+          .lineLimit(3)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
   }
@@ -439,26 +270,26 @@ struct MissionAgentCard: View {
 
   private var cardBackground: some View {
     ZStack(alignment: .leading) {
-      let needsUrgentGlow = conversation?.displayStatus == .permission || conversation?.displayStatus == .question
-
       RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
         .fill(Color.backgroundSecondary)
         .overlay(
           RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
             .strokeBorder(
-              needsUrgentGlow ? cardAccent.opacity(OpacityTier.medium) : Color.clear,
-              lineWidth: 1
+              needsUrgentGlow
+                ? cardAccent.opacity(OpacityTier.medium)
+                : Color.surfaceBorder.opacity(OpacityTier.subtle),
+              lineWidth: needsUrgentGlow ? 1.5 : 0.5
             )
         )
         .shadow(
           color: needsUrgentGlow
             ? cardAccent.opacity(OpacityTier.light)
             : cardAccent.opacity(OpacityTier.subtle),
-          radius: needsUrgentGlow ? 8 : 4,
+          radius: needsUrgentGlow ? 10 : 4,
           y: 2
         )
 
-      // Left edge bar
+      // Left edge accent
       UnevenRoundedRectangle(
         topLeadingRadius: Radius.ml,
         bottomLeadingRadius: Radius.ml,
@@ -470,41 +301,40 @@ struct MissionAgentCard: View {
     }
   }
 
-  // MARK: - Tree Connector
+  // MARK: - Helpers
 
-  private func treeConnector(isLast: Bool) -> some View {
-    Text(isLast ? "\u{2514}" : "\u{251C}")
-      .font(.system(size: TypeScale.micro, design: .monospaced))
-      .foregroundStyle(Color.textQuaternary)
-      .frame(width: 12)
-  }
-
-  private var metricSeparator: some View {
-    Text("  \u{00B7}  ")
-      .font(.system(size: TypeScale.micro, design: .monospaced))
-      .foregroundStyle(Color.textQuaternary)
+  private func metricPill(icon: String, value: String) -> some View {
+    HStack(spacing: Spacing.xxs) {
+      Image(systemName: icon)
+        .font(.system(size: 7, weight: .bold))
+      Text(value)
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+    }
+    .foregroundStyle(Color.textQuaternary)
+    .padding(.horizontal, Spacing.xs)
+    .padding(.vertical, Spacing.xxs)
+    .background(
+      Color.backgroundTertiary.opacity(0.6),
+      in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+    )
   }
 
   private var expandedSummaryText: String? {
     if let question = conversation?.pendingQuestion, !question.isEmpty {
       return question
     }
-
     if let toolName = conversation?.pendingToolName, !toolName.isEmpty {
       if let toolInput = conversation?.pendingToolInput, !toolInput.isEmpty {
         return "\(toolName): \(toolInput)"
       }
       return "Pending tool: \(toolName)"
     }
-
     if let contextLine = conversation?.contextLine, !contextLine.isEmpty {
       return contextLine
     }
-
     if let lastMessage = conversation?.lastMessage, !lastMessage.isEmpty {
       return lastMessage
     }
-
     return nil
   }
 }

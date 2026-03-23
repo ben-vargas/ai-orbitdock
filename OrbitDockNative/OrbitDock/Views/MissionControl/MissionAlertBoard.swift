@@ -9,6 +9,7 @@ struct MissionAlertBoard: View {
   let isCompact: Bool
   let onNavigateToSession: (String) -> Void
   let onRefresh: () async -> Void
+  let onTransitionIssue: (String, OrchestrationState, String?) async -> Void
 
   @State private var actionError: String?
 
@@ -31,16 +32,24 @@ struct MissionAlertBoard: View {
       }
     }
     .padding(Spacing.lg)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .fill(Color.feedbackNegative.opacity(OpacityTier.subtle))
-    )
-    .shadow(color: Color.feedbackNegative.opacity(OpacityTier.subtle), radius: 6, y: 2)
+    .background(alertBackground)
     .alert("Error", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
       Button("OK", role: .cancel) {}
     } message: {
       Text(actionError ?? "")
     }
+  }
+
+  // MARK: - Alert Background
+
+  private var alertBackground: some View {
+    RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+      .fill(Color.feedbackNegative.opacity(OpacityTier.tint))
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .strokeBorder(Color.feedbackNegative.opacity(OpacityTier.subtle), lineWidth: 1)
+      )
+      .shadow(color: Color.feedbackNegative.opacity(0.08), radius: 8, y: 2)
   }
 
   // MARK: - Alert Row
@@ -57,189 +66,141 @@ struct MissionAlertBoard: View {
 
       VStack(alignment: .leading, spacing: Spacing.xs) {
         if isCompact {
-          // Compact: identifier + badge on first line, title below
-          HStack(spacing: Spacing.sm_) {
-            Text(issue.identifier)
-              .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-              .foregroundStyle(alertColor)
-
-            Text(isBlocked ? "Blocked" : "Failed")
-              .font(.system(size: TypeScale.micro, weight: .bold))
-              .foregroundStyle(alertColor)
-              .padding(.horizontal, Spacing.xs)
-              .padding(.vertical, 1)
-              .background(
-                alertColor.opacity(OpacityTier.subtle),
-                in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-              )
-
-            if issue.attempt > 1 {
-              Text("#\(issue.attempt)")
-                .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.feedbackCaution)
-            }
-
-            Spacer()
-
-            if let urlString = issue.url, let url = URL(string: urlString) {
-              Button {
-                _ = Platform.services.openURL(url)
-              } label: {
-                Image(systemName: "arrow.up.right.square")
-                  .font(.system(size: 10, weight: .medium))
-                  .foregroundStyle(Color.accent)
-              }
-              .buttonStyle(.plain)
-            }
-
-            if let sessionId = issue.sessionId {
-              Button {
-                onNavigateToSession(sessionId)
-              } label: {
-                Text("Open \u{2192}")
-                  .font(.system(size: TypeScale.micro, weight: .semibold))
-                  .foregroundStyle(Color.accent)
-              }
-              .buttonStyle(.plain)
-            }
-
-            Button {
-              Task { await retryIssue(issue) }
-            } label: {
-              HStack(spacing: Spacing.xs) {
-                Text("Retry")
-                  .font(.system(size: TypeScale.micro, weight: .semibold))
-                Image(systemName: "arrow.right")
-                  .font(.system(size: 8, weight: .bold))
-              }
-              .foregroundStyle(Color.accent)
-              .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, Spacing.xs)
-              .background(
-                Color.accent.opacity(OpacityTier.subtle),
-                in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-              )
-            }
-            .buttonStyle(.plain)
-          }
-
-          Text(issue.title)
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textPrimary)
-            .fixedSize(horizontal: false, vertical: true)
-
-          if let error = issue.error, !error.isEmpty {
-            Text(error)
-              .font(.system(size: TypeScale.micro))
-              .foregroundStyle(Color.textTertiary)
-              .lineLimit(2)
-          }
+          compactAlertRow(issue, isBlocked: isBlocked, alertColor: alertColor)
         } else {
-          // Desktop: original 3-line layout
-          HStack(spacing: Spacing.sm_) {
-            Text(issue.identifier)
-              .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
-              .foregroundStyle(alertColor)
-
-            Text(issue.title)
-              .font(.system(size: TypeScale.caption))
-              .foregroundStyle(Color.textPrimary)
-              .fixedSize(horizontal: false, vertical: true)
-          }
-
-          HStack(spacing: Spacing.sm_) {
-            Text(isBlocked ? "Blocked" : "Failed")
-              .font(.system(size: TypeScale.micro, weight: .bold))
-              .foregroundStyle(alertColor)
-              .padding(.horizontal, Spacing.xs)
-              .padding(.vertical, 1)
-              .background(
-                alertColor.opacity(OpacityTier.subtle),
-                in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-              )
-
-            if let error = issue.error, !error.isEmpty {
-              Text(error)
-                .font(.system(size: TypeScale.micro))
-                .foregroundStyle(Color.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if issue.attempt > 1 {
-              Text("attempt #\(issue.attempt)")
-                .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.feedbackCaution)
-            }
-          }
-
-          HStack(spacing: Spacing.sm) {
-            Text(issue.provider.capitalized)
-              .font(.system(size: TypeScale.micro, weight: .semibold))
-              .foregroundStyle(issue.providerColor)
-
-            Spacer()
-
-            if let urlString = issue.url, let url = URL(string: urlString) {
-              Button {
-                _ = Platform.services.openURL(url)
-              } label: {
-                Image(systemName: "arrow.up.right.square")
-                  .font(.system(size: 10, weight: .medium))
-                  .foregroundStyle(Color.accent)
-              }
-              .buttonStyle(.plain)
-              .help("Open in tracker")
-            }
-
-            if let sessionId = issue.sessionId {
-              Button {
-                onNavigateToSession(sessionId)
-              } label: {
-                Text("Open \u{2192}")
-                  .font(.system(size: TypeScale.micro, weight: .semibold))
-                  .foregroundStyle(Color.accent)
-              }
-              .buttonStyle(.plain)
-              .help("Open session")
-            }
-
-            Button {
-              Task { await retryIssue(issue) }
-            } label: {
-              HStack(spacing: Spacing.xs) {
-                Text("Retry")
-                  .font(.system(size: TypeScale.micro, weight: .semibold))
-                Image(systemName: "arrow.right")
-                  .font(.system(size: 8, weight: .bold))
-              }
-              .foregroundStyle(Color.accent)
-              .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, Spacing.xs)
-              .background(
-                Color.accent.opacity(OpacityTier.subtle),
-                in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-              )
-            }
-            .buttonStyle(.plain)
-          }
+          desktopAlertRow(issue, isBlocked: isBlocked, alertColor: alertColor)
         }
       }
     }
     .padding(.vertical, Spacing.sm)
   }
 
-  // MARK: - Actions
+  // MARK: - Compact Alert
 
-  private func retryIssue(_ issue: MissionIssueItem) async {
-    guard let http else { return }
-    do {
-      let _: MissionOkResponse = try await http.request(
-        path: "/api/missions/\(missionId)/issues/\(issue.issueId)/retry",
-        method: "POST"
-      )
-      await onRefresh()
-    } catch {
-      actionError = error.localizedDescription
+  private func compactAlertRow(
+    _ issue: MissionIssueItem,
+    isBlocked: Bool,
+    alertColor: Color
+  ) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.xs) {
+      HStack(spacing: Spacing.sm_) {
+        Text(issue.identifier)
+          .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+          .foregroundStyle(alertColor)
+
+        stateBadge(isBlocked ? "Blocked" : "Failed", color: alertColor)
+
+        if issue.attempt > 1 {
+          Text("#\(issue.attempt)")
+            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.feedbackCaution)
+        }
+
+        Spacer()
+
+        if let sessionId = issue.sessionId {
+          Button {
+            onNavigateToSession(sessionId)
+          } label: {
+            Text("Open \u{2192}")
+              .font(.system(size: TypeScale.micro, weight: .semibold))
+              .foregroundStyle(Color.accent)
+          }
+          .buttonStyle(.plain)
+        }
+
+        IssueTransitionMenu(issue: issue) { target, reason in
+          await onTransitionIssue(issue.issueId, target, reason)
+        }
+      }
+
+      Text(issue.title)
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textPrimary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      if let error = issue.error, !error.isEmpty {
+        Text(error)
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.textTertiary)
+          .lineLimit(2)
+      }
     }
+  }
+
+  // MARK: - Desktop Alert
+
+  private func desktopAlertRow(
+    _ issue: MissionIssueItem,
+    isBlocked: Bool,
+    alertColor: Color
+  ) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.xs) {
+      HStack(spacing: Spacing.sm_) {
+        Text(issue.identifier)
+          .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+          .foregroundStyle(alertColor)
+
+        Text(issue.title)
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textPrimary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      HStack(spacing: Spacing.sm_) {
+        stateBadge(isBlocked ? "Blocked" : "Failed", color: alertColor)
+
+        if let error = issue.error, !error.isEmpty {
+          Text(error)
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if issue.attempt > 1 {
+          Text("attempt #\(issue.attempt)")
+            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.feedbackCaution)
+        }
+      }
+
+      HStack(spacing: Spacing.sm) {
+        Text(issue.provider.capitalized)
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(issue.providerColor)
+
+        Spacer()
+
+        if let sessionId = issue.sessionId {
+          Button {
+            onNavigateToSession(sessionId)
+          } label: {
+            Text("Open \u{2192}")
+              .font(.system(size: TypeScale.micro, weight: .semibold))
+              .foregroundStyle(Color.accent)
+          }
+          .buttonStyle(.plain)
+          .help("Open session")
+        }
+
+        IssueTransitionMenu(issue: issue) { target, reason in
+          await onTransitionIssue(issue.issueId, target, reason)
+        }
+      }
+    }
+  }
+
+  // MARK: - Helpers
+
+  private func stateBadge(_ label: String, color: Color) -> some View {
+    Text(label)
+      .font(.system(size: TypeScale.micro, weight: .bold))
+      .foregroundStyle(color)
+      .padding(.horizontal, Spacing.xs)
+      .padding(.vertical, 1)
+      .background(
+        color.opacity(OpacityTier.subtle),
+        in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+      )
   }
 }

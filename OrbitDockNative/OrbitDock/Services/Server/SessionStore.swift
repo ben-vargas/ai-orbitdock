@@ -59,13 +59,7 @@ final class SessionStore {
   // MARK: - Mission Control live updates
 
   var missionListSnapshot: [MissionSummary] = []
-  var missionDeltaMissionId: String?
-  var missionDeltaSummary: MissionSummary?
-  var missionDeltaIssues: [MissionIssueItem] = []
-  var missionDeltaRevision: UInt64 = 0
-  var missionNextTickAt: Date?
-  var missionLastTickAt: Date?
-  var missionHeartbeatRevision: UInt64 = 0
+  @ObservationIgnored var _missionObservables: [String: MissionObservable] = [:]
 
   var codexModels: [ServerCodexModelOption] = []
   var codexAccountStatus: ServerCodexAccountStatus?
@@ -136,6 +130,13 @@ final class SessionStore {
     if let existing = _sessionObservables[id] { return existing }
     let obs = SessionObservable(id: id)
     _sessionObservables[id] = obs
+    return obs
+  }
+
+  func mission(_ id: String) -> MissionObservable {
+    if let existing = _missionObservables[id] { return existing }
+    let obs = MissionObservable(missionId: id)
+    _missionObservables[id] = obs
     return obs
   }
 

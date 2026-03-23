@@ -18,6 +18,7 @@ struct MissionOverviewTab: View {
   let onSelectTab: (MissionTab) -> Void
   let onUpdateMission: (Bool?, Bool?) async -> Void
   let onNavigateToSession: (String) -> Void
+  let onTransitionIssue: (String, OrchestrationState, String?) async -> Void
 
   @State private var isStartingOrchestrator = false
   @State private var actionError: String?
@@ -62,7 +63,7 @@ struct MissionOverviewTab: View {
         onSelectTab: onSelectTab
       )
 
-      // Flight Strip
+      // Command Bar
       MissionFlightStrip(
         mission: mission,
         nextTickAt: nextTickAt,
@@ -73,10 +74,7 @@ struct MissionOverviewTab: View {
         onTriggerPoll: triggerPoll
       )
 
-      // Hero Zone — state-driven content
-      heroZone
-
-      // Alert Board — failed + blocked issues
+      // Alert Board — surfaces failed + blocked issues with urgency
       if !failedIssues.isEmpty || !blockedIssues.isEmpty {
         MissionAlertBoard(
           failedIssues: failedIssues,
@@ -86,9 +84,13 @@ struct MissionOverviewTab: View {
           http: http,
           isCompact: isCompact,
           onNavigateToSession: onNavigateToSession,
-          onRefresh: onRefresh
+          onRefresh: onRefresh,
+          onTransitionIssue: onTransitionIssue
         )
       }
+
+      // Hero Zone — state-driven content
+      heroZone
 
       // Pipeline — queued + completed
       if !queuedIssues.isEmpty || !completedIssues.isEmpty {
@@ -101,7 +103,8 @@ struct MissionOverviewTab: View {
           isCompact: isCompact,
           onNavigateToSession: onNavigateToSession,
           onRefresh: onRefresh,
-          onSelectIssuesTab: { onSelectTab(.issues) }
+          onSelectIssuesTab: { onSelectTab(.issues) },
+          onTransitionIssue: onTransitionIssue
         )
       }
     }
@@ -117,25 +120,20 @@ struct MissionOverviewTab: View {
   @ViewBuilder
   private var heroZone: some View {
     if !runningIssues.isEmpty {
-      // In Flight — Agent Telemetry Cards
       agentDeck
     } else if isPolling, issues.isEmpty {
-      // Scanning — countdown + standing by
       MissionScanningState(
         nextTickAt: nextTickAt,
         lastTickAt: lastTickAt,
         filterContext: filterContextString
       )
     } else if issues.isEmpty {
-      // Docked — no issues at all
       MissionDockedState(
         mission: mission,
         onStartOrchestrator: startOrchestrator,
         onUpdateMission: onUpdateMission
       )
     }
-    // When issues exist but none are running, the pipeline + alert board
-    // are the content — no separate hero zone needed
   }
 
   // MARK: - Agent Deck
@@ -185,7 +183,7 @@ struct MissionOverviewTab: View {
     if !settings.trigger.filters.states.isEmpty {
       parts.append("states: \(settings.trigger.filters.states.joined(separator: ", "))")
     }
-    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
   }
 
   // MARK: - Networking

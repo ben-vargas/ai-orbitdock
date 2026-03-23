@@ -10,6 +10,7 @@ struct MissionPipeline: View {
   let onNavigateToSession: (String) -> Void
   let onRefresh: () async -> Void
   let onSelectIssuesTab: () -> Void
+  let onTransitionIssue: (String, OrchestrationState, String?) async -> Void
 
   @State private var completedExpanded = false
 
@@ -52,11 +53,10 @@ struct MissionPipeline: View {
       // Queue position
       Text("#\(position)")
         .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-        .foregroundStyle(Color.textQuaternary)
+        .foregroundStyle(Color.feedbackCaution.opacity(0.6))
         .frame(width: 20, alignment: .trailing)
 
       if isCompact {
-        // Compact: stack vertically
         VStack(alignment: .leading, spacing: Spacing.xxs) {
           HStack(spacing: Spacing.sm_) {
             Text(issue.identifier)
@@ -65,25 +65,8 @@ struct MissionPipeline: View {
 
             Spacer()
 
-            Text("Queued")
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.textQuaternary)
-              .padding(.horizontal, Spacing.xs)
-              .padding(.vertical, 1)
-              .background(
-                Color.textQuaternary.opacity(OpacityTier.subtle),
-                in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-              )
-
-            if let urlString = issue.url, let url = URL(string: urlString) {
-              Button {
-                _ = Platform.services.openURL(url)
-              } label: {
-                Image(systemName: "arrow.up.right.square")
-                  .font(.system(size: 10, weight: .medium))
-                  .foregroundStyle(Color.accent)
-              }
-              .buttonStyle(.plain)
+            IssueTransitionMenu(issue: issue) { target, reason in
+              await onTransitionIssue(issue.issueId, target, reason)
             }
           }
 
@@ -93,7 +76,6 @@ struct MissionPipeline: View {
             .fixedSize(horizontal: false, vertical: true)
         }
       } else {
-        // Desktop: single row
         HStack(spacing: Spacing.sm_) {
           Text(issue.identifier)
             .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
@@ -106,27 +88,9 @@ struct MissionPipeline: View {
 
           Spacer()
 
-          if let urlString = issue.url, let url = URL(string: urlString) {
-            Button {
-              _ = Platform.services.openURL(url)
-            } label: {
-              Image(systemName: "arrow.up.right.square")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Color.accent)
-            }
-            .buttonStyle(.plain)
-            .help("Open in tracker")
+          IssueTransitionMenu(issue: issue) { target, reason in
+            await onTransitionIssue(issue.issueId, target, reason)
           }
-
-          Text("Queued")
-            .font(.system(size: TypeScale.micro, weight: .medium))
-            .foregroundStyle(Color.textQuaternary)
-            .padding(.horizontal, Spacing.xs)
-            .padding(.vertical, 1)
-            .background(
-              Color.textQuaternary.opacity(OpacityTier.subtle),
-              in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-            )
         }
       }
     }
@@ -154,10 +118,8 @@ struct MissionPipeline: View {
 
       ForEach(visibleIssues) { issue in
         completedRow(issue)
-          .opacity(0.7)
       }
 
-      // Show more / view all button
       if completedIssues.count > 3 {
         Button {
           if completedExpanded {
@@ -184,42 +146,24 @@ struct MissionPipeline: View {
     HStack(spacing: Spacing.sm) {
       // Left edge bar
       RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-        .fill(Color.feedbackPositive)
+        .fill(Color.feedbackPositive.opacity(0.5))
         .frame(width: EdgeBar.width)
 
       if isCompact {
-        // Compact: stack vertically
         VStack(alignment: .leading, spacing: Spacing.xxs) {
           HStack(spacing: Spacing.sm_) {
             Text(issue.identifier)
               .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-              .foregroundStyle(Color.feedbackPositive)
+              .foregroundStyle(Color.feedbackPositive.opacity(0.7))
 
             Spacer()
-
-            Text("Completed")
-              .font(.system(size: TypeScale.micro, weight: .bold))
-              .foregroundStyle(Color.feedbackPositive)
-              .padding(.horizontal, Spacing.xs)
-              .padding(.vertical, 1)
-              .background(
-                Color.feedbackPositive.opacity(OpacityTier.subtle),
-                in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-              )
 
             Text(issue.trackerState)
               .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textQuaternary)
 
-            if let urlString = issue.url, let url = URL(string: urlString) {
-              Button {
-                _ = Platform.services.openURL(url)
-              } label: {
-                Image(systemName: "arrow.up.right.square")
-                  .font(.system(size: 10, weight: .medium))
-                  .foregroundStyle(Color.accent)
-              }
-              .buttonStyle(.plain)
+            IssueTransitionMenu(issue: issue) { target, reason in
+              await onTransitionIssue(issue.issueId, target, reason)
             }
           }
 
@@ -229,11 +173,10 @@ struct MissionPipeline: View {
             .fixedSize(horizontal: false, vertical: true)
         }
       } else {
-        // Desktop: single row
         HStack(spacing: Spacing.sm_) {
           Text(issue.identifier)
             .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-            .foregroundStyle(Color.feedbackPositive)
+            .foregroundStyle(Color.feedbackPositive.opacity(0.7))
 
           Text(issue.title)
             .font(.system(size: TypeScale.caption))
@@ -242,30 +185,12 @@ struct MissionPipeline: View {
 
           Spacer()
 
-          Text("Completed")
-            .font(.system(size: TypeScale.micro, weight: .bold))
-            .foregroundStyle(Color.feedbackPositive)
-            .padding(.horizontal, Spacing.xs)
-            .padding(.vertical, 1)
-            .background(
-              Color.feedbackPositive.opacity(OpacityTier.subtle),
-              in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-            )
-
           Text(issue.trackerState)
             .font(.system(size: TypeScale.micro, weight: .medium))
             .foregroundStyle(Color.textQuaternary)
 
-          if let urlString = issue.url, let url = URL(string: urlString) {
-            Button {
-              _ = Platform.services.openURL(url)
-            } label: {
-              Image(systemName: "arrow.up.right.square")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Color.accent)
-            }
-            .buttonStyle(.plain)
-            .help("Open in tracker")
+          IssueTransitionMenu(issue: issue) { target, reason in
+            await onTransitionIssue(issue.issueId, target, reason)
           }
 
           if issue.sessionId != nil {
@@ -282,6 +207,7 @@ struct MissionPipeline: View {
       RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
         .fill(Color.backgroundSecondary)
     )
+    .opacity(0.65)
     .contentShape(Rectangle())
     .onTapGesture {
       if let sessionId = issue.sessionId {

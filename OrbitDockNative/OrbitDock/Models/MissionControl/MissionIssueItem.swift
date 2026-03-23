@@ -18,6 +18,10 @@ struct MissionIssueItem: Codable, Identifiable, Equatable {
   let lastActivity: String?
   let startedAt: String?
   let completedAt: String?
+  let allowedTransitions: [OrchestrationState]
+  let workStatus: String?
+  let lastMessage: String?
+  let prUrl: String?
 
   enum CodingKeys: String, CodingKey {
     case issueId = "issue_id"
@@ -33,6 +37,60 @@ struct MissionIssueItem: Codable, Identifiable, Equatable {
     case lastActivity = "last_activity"
     case startedAt = "started_at"
     case completedAt = "completed_at"
+    case allowedTransitions = "allowed_transitions"
+    case workStatus = "work_status"
+    case lastMessage = "last_message"
+    case prUrl = "pr_url"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    issueId = try container.decode(String.self, forKey: .issueId)
+    identifier = try container.decode(String.self, forKey: .identifier)
+    title = try container.decode(String.self, forKey: .title)
+    trackerState = try container.decode(String.self, forKey: .trackerState)
+    orchestrationState = try container.decode(OrchestrationState.self, forKey: .orchestrationState)
+    sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+    provider = try container.decode(String.self, forKey: .provider)
+    attempt = try container.decode(UInt32.self, forKey: .attempt)
+    error = try container.decodeIfPresent(String.self, forKey: .error)
+    url = try container.decodeIfPresent(String.self, forKey: .url)
+    lastActivity = try container.decodeIfPresent(String.self, forKey: .lastActivity)
+    startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
+    completedAt = try container.decodeIfPresent(String.self, forKey: .completedAt)
+    allowedTransitions = try container.decodeIfPresent([OrchestrationState].self, forKey: .allowedTransitions) ?? []
+    workStatus = try container.decodeIfPresent(String.self, forKey: .workStatus)
+    lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
+    prUrl = try container.decodeIfPresent(String.self, forKey: .prUrl)
+  }
+
+  /// Extracts a short PR label like "#97" from a full GitHub PR URL.
+  var prLabel: String? {
+    guard let prUrl, let url = URL(string: prUrl) else { return nil }
+    let parts = url.pathComponents
+    // GitHub PR URLs: /owner/repo/pull/123
+    if let pullIndex = parts.firstIndex(of: "pull"),
+       pullIndex + 1 < parts.count {
+      return "PR #\(parts[pullIndex + 1])"
+    }
+    return "PR"
+  }
+
+  /// Human-readable description of what the agent is currently doing.
+  var activitySummary: String? {
+    guard orchestrationState == .running || orchestrationState == .claimed else { return nil }
+    if let msg = lastMessage, !msg.isEmpty {
+      return msg
+    }
+    guard let ws = workStatus else { return nil }
+    switch ws {
+    case "working": return "Working..."
+    case "waiting": return "Thinking..."
+    case "permission": return "Awaiting approval"
+    case "question": return "Has a question"
+    case "reply": return "Waiting for input"
+    default: return nil
+    }
   }
 }
 
@@ -54,6 +112,29 @@ enum OrchestrationState: String, Codable {
       case .completed: "Completed"
       case .failed: "Failed"
       case .blocked: "Blocked"
+    }
+  }
+
+  /// Human-friendly label for transitioning TO this state.
+  var transitionLabel: String {
+    switch self {
+      case .queued: "Reset"
+      case .completed: "Mark Complete"
+      case .failed: "Mark Failed"
+      case .blocked: "Mark Blocked"
+      case .claimed, .running, .retryQueued: displayLabel
+    }
+  }
+
+  /// SF Symbol for the transition action.
+  var transitionIcon: String {
+    switch self {
+      case .queued: "arrow.counterclockwise"
+      case .completed: "checkmark.circle"
+      case .failed: "xmark.circle"
+      case .blocked: "hand.raised"
+      case .claimed, .running: "play.circle"
+      case .retryQueued: "arrow.clockwise"
     }
   }
 }

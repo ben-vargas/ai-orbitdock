@@ -47,28 +47,42 @@ struct MissionFlightStrip: View {
         desktopBody
       }
     }
-    .cosmicCard(cornerRadius: Radius.md, fillColor: .backgroundSecondary, fillOpacity: 1.0, borderOpacity: 1.0)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .fill(Color.backgroundSecondary)
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            .strokeBorder(statusColor.opacity(OpacityTier.subtle), lineWidth: 1)
+        )
+    )
     .overlay(alignment: .top) {
+      // Accent gradient line — status-driven color
       UnevenRoundedRectangle(
         cornerRadii: .init(topLeading: CGFloat(Radius.md), topTrailing: CGFloat(Radius.md)),
         style: .continuous
       )
       .fill(
         LinearGradient(
-          colors: [statusColor.opacity(OpacityTier.medium), .clear],
-          startPoint: .top,
-          endPoint: .bottom
+          colors: [statusColor.opacity(0.6), statusColor.opacity(OpacityTier.light), .clear],
+          startPoint: .leading,
+          endPoint: .trailing
         )
       )
       .frame(height: 2)
     }
+    .themeShadow(Shadow.glow(color: statusColor, intensity: isPolling ? 0.12 : 0.04))
   }
 
-  // MARK: - Desktop Layout (unchanged)
+  // MARK: - Desktop Layout
 
   private var desktopBody: some View {
-    HStack(spacing: Spacing.md) {
+    HStack(spacing: Spacing.lg) {
       statusIndicator
+
+      // Divider
+      Rectangle()
+        .fill(Color.surfaceBorder)
+        .frame(width: 1, height: 20)
 
       MissionPollCountdown(
         nextTickAt: nextTickAt,
@@ -78,20 +92,24 @@ struct MissionFlightStrip: View {
 
       Spacer()
 
-      statCounters
+      instrumentPanel
+
+      // Divider
+      Rectangle()
+        .fill(Color.surfaceBorder)
+        .frame(width: 1, height: 20)
 
       controlButtons
     }
     .padding(.vertical, Spacing.md)
     .padding(.horizontal, Spacing.lg)
-    .frame(minHeight: 40)
+    .frame(minHeight: 44)
   }
 
   // MARK: - Compact Layout
 
   private var compactBody: some View {
     VStack(spacing: Spacing.sm) {
-      // Row 1: Status + controls
       HStack(spacing: Spacing.sm) {
         statusIndicator
 
@@ -100,7 +118,6 @@ struct MissionFlightStrip: View {
         controlButtons
       }
 
-      // Row 2: Countdown + stat counters
       HStack(spacing: Spacing.sm) {
         MissionPollCountdown(
           nextTickAt: nextTickAt,
@@ -110,7 +127,7 @@ struct MissionFlightStrip: View {
 
         Spacer()
 
-        statCounters
+        instrumentPanel
       }
     }
     .padding(.vertical, Spacing.md)
@@ -123,6 +140,18 @@ struct MissionFlightStrip: View {
     HStack(spacing: Spacing.sm_) {
       ZStack {
         if isPolling {
+          // Outer pulse ring
+          Circle()
+            .stroke(statusColor.opacity(OpacityTier.light), lineWidth: 1)
+            .frame(width: 18, height: 18)
+            .scaleEffect(isPolling ? 1.0 : 0.6)
+            .opacity(isPolling ? 1.0 : 0.0)
+            .animation(
+              .easeInOut(duration: 1.8).repeatForever(autoreverses: true),
+              value: isPolling
+            )
+
+          // Inner pulse ring
           Circle()
             .fill(statusColor.opacity(OpacityTier.light))
             .frame(width: 14, height: 14)
@@ -131,11 +160,12 @@ struct MissionFlightStrip: View {
               value: isPolling
             )
         }
+
         Circle()
           .fill(statusColor)
           .frame(width: 6, height: 6)
       }
-      .frame(width: 14, height: 14)
+      .frame(width: 18, height: 18)
 
       Text(statusLabel)
         .font(.system(size: TypeScale.caption, weight: .bold))
@@ -143,36 +173,68 @@ struct MissionFlightStrip: View {
     }
   }
 
-  // MARK: - Stat Counters
+  // MARK: - Instrument Panel (stat counters)
 
-  private var statCounters: some View {
-    HStack(spacing: isCompact ? Spacing.sm : Spacing.md) {
-      inlineStat(icon: "bolt.fill", count: mission.activeCount, color: .statusWorking)
-      inlineStat(icon: "clock.fill", count: mission.queuedCount, color: .feedbackCaution)
-      inlineStat(icon: "checkmark.circle.fill", count: mission.completedCount, color: .feedbackPositive)
-
-      inlineStat(icon: "xmark.circle.fill", count: mission.failedCount, color: .feedbackNegative)
-        .padding(.horizontal, mission.failedCount > 0 ? Spacing.xs : 0)
-        .padding(.vertical, mission.failedCount > 0 ? Spacing.xxs : 0)
-        .background(
-          mission.failedCount > 0
-            ? Color.feedbackNegative.opacity(OpacityTier.subtle)
-            : Color.clear,
-          in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-        )
+  private var instrumentPanel: some View {
+    HStack(spacing: isCompact ? Spacing.sm : Spacing.lg) {
+      gauge(
+        value: mission.activeCount,
+        label: "ACTIVE",
+        icon: "bolt.fill",
+        color: .statusWorking
+      )
+      gauge(
+        value: mission.queuedCount,
+        label: "QUEUE",
+        icon: "clock.fill",
+        color: .feedbackCaution
+      )
+      gauge(
+        value: mission.completedCount,
+        label: "DONE",
+        icon: "checkmark.circle.fill",
+        color: .feedbackPositive
+      )
+      gauge(
+        value: mission.failedCount,
+        label: "ALERT",
+        icon: "xmark.circle.fill",
+        color: .feedbackNegative,
+        isUrgent: mission.failedCount > 0
+      )
     }
   }
 
-  private func inlineStat(icon: String, count: UInt32, color: Color) -> some View {
-    HStack(spacing: Spacing.xxs) {
-      Image(systemName: icon)
-        .font(.system(size: 8, weight: .bold))
-        .foregroundStyle(count > 0 ? color : Color.textQuaternary)
+  private func gauge(
+    value: UInt32,
+    label: String,
+    icon: String,
+    color: Color,
+    isUrgent: Bool = false
+  ) -> some View {
+    VStack(spacing: Spacing.xxs) {
+      HStack(spacing: Spacing.xxs) {
+        Image(systemName: icon)
+          .font(.system(size: 7, weight: .bold))
 
-      Text("\(count)")
-        .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-        .foregroundStyle(count > 0 ? color : Color.textQuaternary)
+        Text("\(value)")
+          .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+      }
+      .foregroundStyle(value > 0 ? color : Color.textQuaternary)
+
+      Text(label)
+        .font(.system(size: 8, weight: .semibold, design: .monospaced))
+        .foregroundStyle(Color.textQuaternary)
+        .tracking(0.5)
     }
+    .padding(.horizontal, isUrgent ? Spacing.xs : 0)
+    .padding(.vertical, isUrgent ? Spacing.xxs : 0)
+    .background(
+      isUrgent
+        ? color.opacity(OpacityTier.subtle)
+        : Color.clear,
+      in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+    )
   }
 
   // MARK: - Control Buttons
@@ -229,10 +291,14 @@ struct MissionFlightStrip: View {
       Image(systemName: icon)
         .font(.system(size: 9, weight: .semibold))
         .foregroundStyle(enabled ? color : Color.textQuaternary)
-        .frame(width: 24, height: 24)
+        .frame(width: 26, height: 26)
         .background(
           RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
             .fill(enabled ? color.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
+            .strokeBorder(enabled ? color.opacity(OpacityTier.subtle) : .clear, lineWidth: 0.5)
         )
     }
     .buttonStyle(.plain)

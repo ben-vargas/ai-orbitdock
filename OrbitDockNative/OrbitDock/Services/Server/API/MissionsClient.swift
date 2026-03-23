@@ -106,6 +106,16 @@ struct MissionsClient: Sendable {
     )
   }
 
+  // MARK: - Mission Worktrees
+
+  func listMissionWorktrees(_ missionId: String) async throws -> [MissionWorktreeItem] {
+    struct Response: Decodable { let worktrees: [MissionWorktreeItem] }
+    let response: Response = try await http.get(
+      "/api/missions/\(requestBuilder.encodePathComponent(missionId))/worktrees"
+    )
+    return response.worktrees
+  }
+
   // MARK: - Mission Settings
 
   func updateSettings(

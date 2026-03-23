@@ -13,9 +13,17 @@ final class MissionControlViewModel {
   var error: String?
   var selectedTab: MissionTab = .overview
   var showDeleteConfirmation = false
+  var showWorktreeCleanup = false
+  var missionWorktrees: [MissionWorktreeItem] = []
+  var isLoadingWorktrees = false
+  var isCleaningWorktrees = false
   var actionError: String?
   var nextTickAt: Date?
   var lastTickAt: Date?
+
+  /// Per-mission observable from SessionStore. NOT @ObservationIgnored so SwiftUI
+  /// can track changes through this reference (e.g. liveState.deltaRevision).
+  private(set) var liveState: MissionObservable?
 
   @ObservationIgnored private weak var runtimeRegistry: ServerRuntimeRegistry?
   @ObservationIgnored private var boundMissionId: String?
@@ -29,6 +37,7 @@ final class MissionControlViewModel {
     self.boundMissionId = missionId
     self.boundEndpointId = endpointId
     self.runtimeRegistry = runtimeRegistry
+    self.liveState = sessionStore?.mission(missionId)
   }
 
   var missionId: String? {
@@ -63,14 +72,6 @@ final class MissionControlViewModel {
       guard conversation.sessionRef.endpointId == endpointId else { return }
       result[conversation.sessionId] = conversation
     }
-  }
-
-  var missionDeltaRevision: UInt64 {
-    sessionStore?.missionDeltaRevision ?? 0
-  }
-
-  var missionHeartbeatRevision: UInt64 {
-    sessionStore?.missionHeartbeatRevision ?? 0
   }
 
   func applyDetail(_ response: MissionDetailResponse) {
@@ -116,6 +117,27 @@ final class MissionControlViewModel {
     }
   }
 
+  func transitionIssue(
+    issueId: String,
+    targetState: OrchestrationState,
+    reason: String? = nil
+  ) async {
+    guard let missionId = boundMissionId, let http else { return }
+    do {
+      var body: [String: String] = ["target_state": targetState.rawValue]
+      if let reason, !reason.isEmpty {
+        body["reason"] = reason
+      }
+      let response: MissionDetailResponse = try await http.post(
+        "/api/missions/\(missionId)/issues/\(issueId)/transition",
+        body: body
+      )
+      applyDetail(response)
+    } catch {
+      actionError = error.localizedDescription
+    }
+  }
+
   func deleteMission() async -> Bool {
     guard let missionId = boundMissionId, let missionsClient else { return false }
     do {
@@ -127,25 +149,52 @@ final class MissionControlViewModel {
     }
   }
 
-  func applyLiveMissionDeltaIfNeeded() {
-    guard let missionId = boundMissionId,
-          let store = sessionStore,
-          store.missionDeltaMissionId == missionId,
-          let deltaSummary = store.missionDeltaSummary
-    else { return }
-
+  func applyLiveDelta() {
+    guard let liveState, let deltaSummary = liveState.summary else { return }
     summary = deltaSummary
-    issues = store.missionDeltaIssues
-    lastTickAt = Date()
+    issues = liveState.issues
+    lastTickAt = liveState.lastTickAt
   }
 
-  func applyMissionHeartbeatIfNeeded() {
-    guard let missionId = boundMissionId,
-          let store = sessionStore,
-          store.missionDeltaMissionId == missionId
-    else { return }
+  func applyLiveHeartbeat() {
+    guard let liveState else { return }
+    nextTickAt = liveState.nextTickAt
+    lastTickAt = liveState.lastTickAt
+  }
 
-    nextTickAt = store.missionNextTickAt
-    lastTickAt = store.missionLastTickAt
+  // MARK: - Worktree Cleanup
+
+  func loadMissionWorktrees() async {
+    guard let missionId = boundMissionId, let missionsClient else { return }
+    isLoadingWorktrees = true
+    do {
+      missionWorktrees = try await missionsClient.listMissionWorktrees(missionId)
+    } catch {
+      actionError = error.localizedDescription
+    }
+    isLoadingWorktrees = false
+  }
+
+  func cleanupWorktrees(ids: Set<String>) async {
+    guard let runtime else { return }
+    isCleaningWorktrees = true
+    let worktreesClient = runtime.clients.worktrees
+    var errors: [String] = []
+    for id in ids {
+      do {
+        try await worktreesClient.removeWorktree(
+          worktreeId: id,
+          force: true,
+          deleteBranch: true
+        )
+      } catch {
+        errors.append(error.localizedDescription)
+      }
+    }
+    isCleaningWorktrees = false
+    if !errors.isEmpty {
+      actionError = errors.joined(separator: "\n")
+    }
+    await loadMissionWorktrees()
   }
 }

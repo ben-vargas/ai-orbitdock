@@ -6,6 +6,7 @@ struct MissionIssuesTab: View {
   let endpointId: UUID
   let http: ServerHTTPClient?
   let isCompact: Bool
+  let onTransitionIssue: (String, OrchestrationState, String?) async -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.lg) {
@@ -109,8 +110,9 @@ struct MissionIssuesTab: View {
           .foregroundStyle(color)
 
         Text(title)
-          .font(.system(size: TypeScale.caption, weight: .bold))
+          .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
           .foregroundStyle(Color.textSecondary)
+          .tracking(0.3)
 
         Text("\(count)")
           .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
@@ -131,7 +133,8 @@ struct MissionIssuesTab: View {
             missionId: missionId,
             endpointId: endpointId,
             http: http,
-            isCompact: isCompact
+            isCompact: isCompact,
+            onTransitionIssue: onTransitionIssue
           )
         }
       }

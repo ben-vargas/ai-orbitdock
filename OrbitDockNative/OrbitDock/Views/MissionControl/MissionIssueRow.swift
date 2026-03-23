@@ -15,6 +15,7 @@ struct MissionIssueRow: View {
   var accentColor: Color = .accent
   var onNavigateToSession: ((String) -> Void)?
   var onRefresh: (() async -> Void)?
+  var onTransitionIssue: ((String, OrchestrationState, String?) async -> Void)?
 
   @Environment(AppRouter.self) private var router
   @State private var actionError: String?
@@ -48,6 +49,10 @@ struct MissionIssueRow: View {
           Text(issue.identifier)
             .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
             .foregroundStyle(accentColor)
+
+          if let prLabel = issue.prLabel {
+            prBadge(prLabel)
+          }
 
           Text(issue.title)
             .font(.system(size: TypeScale.caption))
@@ -178,14 +183,26 @@ struct MissionIssueRow: View {
         }
       }
 
-      if issue.orchestrationState != .queued {
+      if let prUrl = issue.prUrl, let openURL = URL(string: prUrl) {
         Button {
-          Task { await retryIssue() }
+          #if os(macOS)
+            NSWorkspace.shared.open(openURL)
+          #else
+            UIApplication.shared.open(openURL)
+          #endif
         } label: {
-          Label(
-            issue.orchestrationState == .failed ? "Retry" : "Restart",
-            systemImage: "arrow.clockwise"
-          )
+          Label("Open Pull Request", systemImage: "arrow.triangle.pull")
+        }
+      }
+
+      if !issue.allowedTransitions.isEmpty {
+        Divider()
+        ForEach(issue.allowedTransitions, id: \.self) { target in
+          Button {
+            Task { await onTransitionIssue?(issue.issueId, target, nil) }
+          } label: {
+            Label(target.transitionLabel, systemImage: target.transitionIcon)
+          }
         }
       }
     }
@@ -204,6 +221,10 @@ struct MissionIssueRow: View {
           .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
 
+        if let prLabel = issue.prLabel {
+          prBadge(prLabel)
+        }
+
         Text(issue.orchestrationState.displayLabel)
           .font(.system(size: TypeScale.micro, weight: .bold))
           .foregroundStyle(issue.orchestrationState.color)
@@ -213,17 +234,6 @@ struct MissionIssueRow: View {
           .foregroundStyle(Color.textQuaternary)
 
         Spacer()
-
-        if issue.orchestrationState != .queued {
-          Button {
-            Task { await retryIssue() }
-          } label: {
-            Image(systemName: "arrow.clockwise")
-              .font(.system(size: 11, weight: .medium))
-              .foregroundStyle(Color.accent)
-          }
-          .buttonStyle(.plain)
-        }
 
         if issue.sessionId != nil {
           Button {
@@ -235,6 +245,12 @@ struct MissionIssueRow: View {
           }
           .buttonStyle(.plain)
         }
+
+        if let onTransitionIssue {
+          IssueTransitionMenu(issue: issue) { target, reason in
+            await onTransitionIssue(issue.issueId, target, reason)
+          }
+        }
       }
 
       // Row 2: title (full width to wrap properly)
@@ -243,8 +259,8 @@ struct MissionIssueRow: View {
         .foregroundStyle(Color.textPrimary)
         .fixedSize(horizontal: false, vertical: true)
 
-      // Row 3: metadata
-      if issue.attempt > 1 || issue.lastActivity != nil {
+      // Row 3: metadata & activity
+      if issue.attempt > 1 || issue.lastActivity != nil || issue.activitySummary != nil {
         HStack(spacing: Spacing.sm) {
           if issue.attempt > 1 {
             Text("Attempt \(issue.attempt)")
@@ -256,6 +272,14 @@ struct MissionIssueRow: View {
             Text(activity)
               .font(.system(size: TypeScale.micro))
               .foregroundStyle(Color.textTertiary)
+          }
+
+          if let summary = issue.activitySummary {
+            Text(summary)
+              .font(.system(size: TypeScale.micro))
+              .foregroundStyle(Color.textTertiary)
+              .lineLimit(1)
+              .truncationMode(.tail)
           }
         }
       }
@@ -274,6 +298,10 @@ struct MissionIssueRow: View {
           Text(issue.identifier)
             .font(.system(size: TypeScale.caption, weight: .bold))
             .foregroundStyle(Color.textTertiary)
+
+          if let prLabel = issue.prLabel {
+            prBadge(prLabel)
+          }
 
           Text(issue.title)
             .font(.system(size: TypeScale.body))
@@ -300,24 +328,18 @@ struct MissionIssueRow: View {
               .font(.system(size: TypeScale.micro))
               .foregroundStyle(Color.textTertiary)
           }
+
+          if let summary = issue.activitySummary {
+            Text(summary)
+              .font(.system(size: TypeScale.micro))
+              .foregroundStyle(Color.textTertiary)
+              .lineLimit(1)
+              .truncationMode(.tail)
+          }
         }
       }
 
       Spacer()
-
-      if issue.orchestrationState != .queued {
-        Button {
-          Task { await retryIssue() }
-        } label: {
-          Label(
-            issue.orchestrationState == .failed ? "Retry" : "Restart",
-            systemImage: "arrow.clockwise"
-          )
-          .font(.system(size: TypeScale.micro, weight: .medium))
-          .foregroundStyle(Color.accent)
-        }
-        .buttonStyle(.plain)
-      }
 
       if issue.sessionId != nil {
         Button {
@@ -338,6 +360,12 @@ struct MissionIssueRow: View {
             .help(error)
         }
       #endif
+
+      if let onTransitionIssue {
+        IssueTransitionMenu(issue: issue) { target, reason in
+          await onTransitionIssue(issue.issueId, target, reason)
+        }
+      }
     }
   }
 
@@ -366,6 +394,28 @@ struct MissionIssueRow: View {
         Image(systemName: "hand.raised.circle.fill")
           .foregroundStyle(Color.feedbackWarning)
     }
+  }
+
+  private func prBadge(_ label: String) -> some View {
+    Button {
+      if let prUrl = issue.prUrl, let url = URL(string: prUrl) {
+        #if os(macOS)
+          NSWorkspace.shared.open(url)
+        #else
+          UIApplication.shared.open(url)
+        #endif
+      }
+    } label: {
+      HStack(spacing: 2) {
+        Image(systemName: "arrow.triangle.pull")
+          .font(.system(size: 9, weight: .medium))
+        Text(label)
+          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+      }
+      .foregroundStyle(Color.accent)
+    }
+    .buttonStyle(.plain)
+    .help("Open pull request")
   }
 
   // MARK: - Actions
