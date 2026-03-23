@@ -7,6 +7,7 @@ use std::io::Write as IoWrite;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -47,6 +48,8 @@ const LAUNCHD_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>ThrottleInterval</key>
+    <integer>3</integer>
     <key>StandardOutPath</key>
     <string>{{DATA_DIR}}/logs/launchd-stdout.log</string>
     <key>StandardErrorPath</key>
@@ -149,6 +152,10 @@ fn plan_service_install(
 }
 
 fn install_launchd(plan: &ServiceInstallPlan) -> anyhow::Result<()> {
+    let domain = launchd_domain();
+    let label = "com.orbitdock.server";
+    stop_existing_launchd_service(plan, &domain, label)?;
+
     let service_environment = resolve_service_environment();
     let mut environment_variables = vec![("PATH".to_string(), service_environment.path)];
     if let Some(codex_bin) = service_environment.codex_bin {
@@ -169,32 +176,159 @@ fn install_launchd(plan: &ServiceInstallPlan) -> anyhow::Result<()> {
 
     let plist_path = agents_dir.join("com.orbitdock.server.plist");
     write_service_file(&plist_path, &plist)?;
+    validate_launchd_plist(&plist_path)?;
     println!("  Wrote {}", plist_path.display());
 
     if plan.enable {
-        // Unload first in case it's already loaded (ignore errors)
-        let _ = std::process::Command::new("launchctl")
-            .args(["unload", &plist_path.to_string_lossy()])
-            .output();
-
-        let output = std::process::Command::new("launchctl")
-            .args(["load", &plist_path.to_string_lossy()])
+        let bootstrap = std::process::Command::new("launchctl")
+            .args(["bootstrap", &domain, &plist_path.to_string_lossy()])
             .output()?;
 
-        if output.status.success() {
-            println!("  Service loaded and started");
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            println!("  Warning: launchctl load failed: {}", stderr.trim());
+        if !bootstrap.status.success() {
+            let stderr = String::from_utf8_lossy(&bootstrap.stderr);
+            anyhow::bail!("launchctl bootstrap failed: {}", stderr.trim());
         }
+
+        let kickstart_target = format!("{domain}/{label}");
+        let kickstart = std::process::Command::new("launchctl")
+            .args(["kickstart", "-k", &kickstart_target])
+            .output()?;
+
+        if !kickstart.status.success() {
+            let stderr = String::from_utf8_lossy(&kickstart.stderr);
+            anyhow::bail!("launchctl kickstart failed: {}", stderr.trim());
+        }
+
+        wait_for_service_health(Duration::from_secs(5))?;
+        println!("  Service bootstrapped and started");
     } else {
         println!();
         println!("  To enable:");
-        println!("    launchctl load {}", plist_path.display());
+        println!(
+            "    launchctl bootstrap {} {}",
+            launchd_domain(),
+            plist_path.display()
+        );
+        println!(
+            "    launchctl kickstart -k {}/com.orbitdock.server",
+            launchd_domain()
+        );
     }
 
     println!();
     Ok(())
+}
+
+fn stop_existing_launchd_service(
+    plan: &ServiceInstallPlan,
+    domain: &str,
+    label: &str,
+) -> anyhow::Result<()> {
+    let plist_path = dirs::home_dir()
+        .expect("HOME not found")
+        .join("Library/LaunchAgents/com.orbitdock.server.plist");
+    let target = format!("{domain}/{label}");
+
+    let _ = std::process::Command::new("launchctl")
+        .args(["bootout", &target])
+        .output();
+    let _ = std::process::Command::new("launchctl")
+        .args(["bootout", domain, &plist_path.to_string_lossy()])
+        .output();
+
+    wait_for_existing_server_stop(Duration::from_secs(5));
+    remove_stale_pid_file(plan);
+    Ok(())
+}
+
+fn wait_for_existing_server_stop(timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if local_healthcheck_ok() {
+            std::thread::sleep(Duration::from_millis(200));
+            continue;
+        }
+
+        if !server_port_in_use() {
+            break;
+        }
+
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+fn wait_for_service_health(timeout: Duration) -> anyhow::Result<()> {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if local_healthcheck_ok() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+
+    anyhow::bail!("service did not become healthy after launchctl bootstrap")
+}
+
+fn local_healthcheck_ok() -> bool {
+    std::process::Command::new("curl")
+        .args([
+            "-s",
+            "--connect-timeout",
+            "1",
+            "--max-time",
+            "2",
+            "http://127.0.0.1:4000/health",
+        ])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn server_port_in_use() -> bool {
+    std::net::TcpListener::bind("127.0.0.1:4000").is_err()
+}
+
+fn remove_stale_pid_file(plan: &ServiceInstallPlan) {
+    let pid_path = Path::new(&plan.data_dir).join("orbitdock.pid");
+    let Ok(pid_str) = std::fs::read_to_string(&pid_path) else {
+        return;
+    };
+
+    let Ok(pid) = pid_str.trim().parse::<u32>() else {
+        let _ = std::fs::remove_file(&pid_path);
+        return;
+    };
+
+    if pid == 0 || !process_alive(pid) {
+        let _ = std::fs::remove_file(&pid_path);
+    }
+}
+
+fn process_alive(pid: u32) -> bool {
+    unsafe { libc::kill(pid as i32, 0) == 0 }
+}
+
+fn validate_launchd_plist(plist_path: &Path) -> anyhow::Result<()> {
+    let output = std::process::Command::new("plutil")
+        .args(["-lint", &plist_path.to_string_lossy()])
+        .output()?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let detail = stderr.trim();
+    let fallback = stdout.trim();
+    anyhow::bail!(
+        "launchd plist validation failed: {}",
+        if detail.is_empty() { fallback } else { detail }
+    );
+}
+
+fn launchd_domain() -> String {
+    format!("gui/{}", unsafe { libc::geteuid() })
 }
 
 struct ServiceEnvironment {

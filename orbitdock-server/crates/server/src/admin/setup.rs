@@ -86,7 +86,7 @@ pub fn run_setup_wizard(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<(
 
 fn plan_setup(mode: Mode, opts: &SetupOptions) -> SetupPlan {
     let bind = opts.bind.unwrap_or_else(|| match mode {
-        Mode::Local => "127.0.0.1:4000".parse().unwrap(),
+        Mode::Local => "0.0.0.0:4000".parse().unwrap(),
         Mode::Remote => "0.0.0.0:4000".parse().unwrap(),
     });
 
@@ -159,7 +159,7 @@ fn render_setup_summary(plan: &SetupPlan, auth_token_issued: bool) {
 fn prompt_mode() -> anyhow::Result<Mode> {
     println!("  How will you use this server?");
     println!();
-    println!("    1) Local    — runs on this machine, localhost only");
+    println!("    1) Local    — runs on this machine and is reachable on your LAN");
     println!("    2) Remote   — accessible from other machines (generates auth token)");
     println!();
     print!("  Choice [1]: ");
@@ -184,7 +184,7 @@ mod tests {
     use super::{plan_setup, Mode, SetupOptions};
 
     #[test]
-    fn local_setup_plan_defaults_to_localhost() {
+    fn local_setup_plan_defaults_to_lan_bind() {
         let plan = plan_setup(
             Mode::Local,
             &SetupOptions {
@@ -196,8 +196,8 @@ mod tests {
             },
         );
 
-        assert_eq!(plan.bind.to_string(), "127.0.0.1:4000");
-        assert_eq!(plan.init_url, "http://127.0.0.1:4000");
+        assert_eq!(plan.bind.to_string(), "0.0.0.0:4000");
+        assert_eq!(plan.init_url, "http://0.0.0.0:4000");
         assert_eq!(plan.hook_url, None);
         assert!(!plan.should_issue_token);
         assert!(plan.should_install_hooks);

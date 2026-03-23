@@ -171,8 +171,7 @@ fn main() -> anyhow::Result<()> {
             no_web,
         ),
         _ => (
-            cli.bind
-                .unwrap_or_else(|| "127.0.0.1:4000".parse().unwrap()),
+            cli.bind.unwrap_or_else(|| "0.0.0.0:4000".parse().unwrap()),
             None,
             false,
             true,

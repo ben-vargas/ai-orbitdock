@@ -56,6 +56,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
 
     crate::infrastructure::paths::ensure_dirs()?;
     crate::infrastructure::crypto::ensure_key();
+    cleanup_stale_pid_file();
 
     let logging = init_logging(&options.logging)?;
     let run_id = logging.run_id.clone();
@@ -674,6 +675,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         );
 
         write_pid_file();
+        let _pid_guard = PidFileGuard;
 
         let handle = axum_server::Handle::new();
         let shutdown_handle = handle.clone();
@@ -698,6 +700,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         );
 
         write_pid_file();
+        let _pid_guard = PidFileGuard;
 
         axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_signal(shutdown_state, shutdown_persist))
@@ -778,9 +781,44 @@ fn write_pid_file() {
     }
 }
 
+fn cleanup_stale_pid_file() {
+    let pid_path = crate::infrastructure::paths::pid_file_path();
+    let Ok(pid_str) = std::fs::read_to_string(&pid_path) else {
+        return;
+    };
+
+    let Ok(pid) = pid_str.trim().parse::<u32>() else {
+        remove_pid_file();
+        return;
+    };
+
+    if pid == 0 || !process_alive(pid) {
+        warn!(
+            component = "server",
+            event = "server.pid_file.stale_removed",
+            path = %pid_path.display(),
+            stale_pid = pid,
+            "Removed stale PID file before startup"
+        );
+        remove_pid_file();
+    }
+}
+
 fn remove_pid_file() {
     let pid_path = crate::infrastructure::paths::pid_file_path();
     let _ = std::fs::remove_file(&pid_path);
+}
+
+struct PidFileGuard;
+
+impl Drop for PidFileGuard {
+    fn drop(&mut self) {
+        remove_pid_file();
+    }
+}
+
+fn process_alive(pid: u32) -> bool {
+    unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
 async fn shutdown_signal(_state: Arc<SessionRegistry>, _persist_tx: mpsc::Sender<PersistCommand>) {

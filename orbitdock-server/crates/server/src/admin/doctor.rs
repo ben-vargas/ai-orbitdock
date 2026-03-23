@@ -423,17 +423,37 @@ fn check_wal_size() -> Check {
 }
 
 fn check_port() -> Check {
-    // Try to bind port 4000 briefly to see if it's available
+    let health_ok = std::process::Command::new("curl")
+        .args([
+            "-s",
+            "--connect-timeout",
+            "1",
+            "--max-time",
+            "2",
+            "http://127.0.0.1:4000/health",
+        ])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if health_ok {
+        return Check {
+            name: "Port 4000",
+            status: Status::Pass,
+            detail: "health endpoint reachable on localhost".to_string(),
+        };
+    }
+
     match std::net::TcpListener::bind("127.0.0.1:4000") {
         Ok(_) => Check {
             name: "Port 4000",
             status: Status::Pass,
-            detail: "available (server not running)".to_string(),
+            detail: "available".to_string(),
         },
         Err(_) => Check {
             name: "Port 4000",
-            status: Status::Pass,
-            detail: "in use (server likely running)".to_string(),
+            status: Status::Warn,
+            detail: "in use, but health endpoint is unreachable".to_string(),
         },
     }
 }

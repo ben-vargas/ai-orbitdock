@@ -219,6 +219,41 @@ wait_for_local_health() {
   return 1
 }
 
+print_recent_service_logs() {
+  local stdout_log="$INSTALL_ROOT/logs/launchd-stdout.log"
+  local stderr_log="$INSTALL_ROOT/logs/launchd-stderr.log"
+  local showed_logs=0
+
+  if [[ -f "$stderr_log" ]]; then
+    echo ""
+    warn "Recent launchd stderr:"
+    if command -v tail >/dev/null 2>&1; then
+      tail -n 40 "$stderr_log"
+    else
+      cat "$stderr_log"
+    fi
+    showed_logs=1
+  fi
+
+  if [[ -f "$stdout_log" ]]; then
+    echo ""
+    warn "Recent launchd stdout:"
+    if command -v tail >/dev/null 2>&1; then
+      tail -n 40 "$stdout_log"
+    else
+      cat "$stdout_log"
+    fi
+    showed_logs=1
+  fi
+
+  if [[ "$showed_logs" == "1" ]]; then
+    echo ""
+    echo "  Full log files:"
+    echo "    $stderr_log"
+    echo "    $stdout_log"
+  fi
+}
+
 asset_names_for_platform() {
   local os arch
   os="$(uname -s)"
@@ -564,6 +599,7 @@ else
     echo "    orbitdock doctor"
   elif [[ "$SERVICE_ENABLED" == "1" ]]; then
     warn "Background service installed, but the server is not healthy yet."
+    print_recent_service_logs
     echo ""
     echo "  Check:"
     echo "    orbitdock status"

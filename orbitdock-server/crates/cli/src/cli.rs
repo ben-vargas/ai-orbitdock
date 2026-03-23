@@ -48,7 +48,7 @@ pub enum HookForwardType {
 pub enum BinaryCommand {
     /// Start the server (default when no subcommand given)
     Start {
-        #[arg(long, default_value = "127.0.0.1:4000", env = "ORBITDOCK_BIND_ADDR")]
+        #[arg(long, default_value = "0.0.0.0:4000", env = "ORBITDOCK_BIND_ADDR")]
         bind: std::net::SocketAddr,
 
         #[arg(long, env = "ORBITDOCK_AUTH_TOKEN")]
@@ -114,7 +114,7 @@ pub enum BinaryCommand {
 
     /// Generate and install a launchd/systemd service file
     InstallService {
-        #[arg(long, default_value = "127.0.0.1:4000")]
+        #[arg(long, default_value = "0.0.0.0:4000")]
         bind: std::net::SocketAddr,
 
         #[arg(long)]
@@ -1075,6 +1075,22 @@ mod tests {
     fn binary_cli_parses_start_command() {
         let cli = BinaryCli::try_parse_from(["orbitdock", "start", "--bind", "0.0.0.0:4000"])
             .expect("binary cli should parse start");
+
+        match cli.command {
+            Some(BinaryCommand::Start { bind, .. }) => {
+                assert_eq!(
+                    bind,
+                    "0.0.0.0:4000".parse::<std::net::SocketAddr>().unwrap()
+                );
+            }
+            other => panic!("expected start command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn binary_cli_start_defaults_to_lan_bind() {
+        let cli = BinaryCli::try_parse_from(["orbitdock", "start"])
+            .expect("binary cli should parse default start");
 
         match cli.command {
             Some(BinaryCommand::Start { bind, .. }) => {
