@@ -447,6 +447,7 @@ pub struct SessionCreateParams {
     pub mission_id: Option<String>,
     pub issue_identifier: Option<String>,
     pub allow_bypass_permissions: bool,
+    pub worktree_id: Option<String>,
 }
 
 /// Payload for `PersistCommand::ApprovalRequested`, boxed to keep the enum small.

@@ -79,6 +79,7 @@ pub(crate) async fn handle_create_session(
             developer_instructions: request.developer_instructions.clone(),
             mission_id: None,
             issue_identifier: None,
+            worktree_id: None,
             dynamic_tools: Vec::new(),
             allow_bypass_permissions: false,
             codex_config_mode: None,

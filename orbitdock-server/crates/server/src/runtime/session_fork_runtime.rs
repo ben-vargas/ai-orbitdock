@@ -111,6 +111,7 @@ pub(crate) async fn start_claude_fork_session(
                 mission_id: None,
                 issue_identifier: None,
                 allow_bypass_permissions: false,
+                worktree_id: None,
             },
         )))
         .await;
@@ -216,6 +217,7 @@ pub(crate) async fn finalize_codex_fork_session(
                 mission_id: None,
                 issue_identifier: None,
                 allow_bypass_permissions: false,
+                worktree_id: None,
             },
         )))
         .await;

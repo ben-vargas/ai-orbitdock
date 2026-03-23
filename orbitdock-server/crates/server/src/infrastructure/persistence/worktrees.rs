@@ -38,6 +38,22 @@ pub fn load_worktrees_by_repo(db_path: &PathBuf, repo_root: &str) -> Vec<Worktre
         .unwrap_or_default()
 }
 
+pub fn load_all_worktrees(db_path: &PathBuf) -> Vec<WorktreeRow> {
+    let Some(conn) = open_readonly_conn(db_path) else {
+        return Vec::new();
+    };
+    let mut stmt = match conn.prepare(
+        "SELECT id, repo_root, worktree_path, branch, base_branch, status FROM worktrees WHERE status != 'removed'",
+    ) {
+        Ok(statement) => statement,
+        Err(_) => return Vec::new(),
+    };
+    stmt.query_map([], decode_worktree_row)
+        .ok()
+        .map(|rows| rows.filter_map(|row| row.ok()).collect())
+        .unwrap_or_default()
+}
+
 pub fn load_removed_worktree_paths(db_path: &PathBuf) -> HashSet<String> {
     let Some(conn) = open_readonly_conn(db_path) else {
         return HashSet::new();

@@ -381,6 +381,7 @@ mod tests {
                     mission_id: None,
                     issue_identifier: None,
                     allow_bypass_permissions: false,
+                    worktree_id: None,
                 },
             ))],
         )

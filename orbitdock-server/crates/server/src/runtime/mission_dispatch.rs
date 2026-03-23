@@ -110,53 +110,54 @@ pub async fn dispatch_issue(
     let remote_base = format!("origin/{}", ctx.base_branch);
 
     // Create worktree via the runtime helper (also persists the record)
-    let worktree_path = match crate::runtime::worktree_creation::create_tracked_worktree(
-        registry,
-        &ctx.repo_root,
-        &branch_name,
-        Some(&remote_base),
-        orbitdock_protocol::WorktreeOrigin::Agent,
-        ctx.worktree_root_dir.as_deref(),
-        true, // always clean up stale worktrees — if we're dispatching, no active session owns them
-    )
-    .await
-    {
-        Ok(summary) => summary.worktree_path,
-        Err(err) => {
-            warn!(
-                component = "mission_control",
-                event = "dispatch.worktree_failed",
-                mission_id = %mission_id,
-                issue_id = %issue.id,
-                error = %err,
-                "Worktree creation failed, marking issue as failed"
-            );
-            let db_path = registry.db_path().clone();
-            let mid = mission_id.to_string();
-            let iid = issue.id.clone();
-            let err_msg = format!("Worktree creation failed: {err}");
-            let now = chrono::Utc::now().to_rfc3339();
-            let _ = tokio::task::spawn_blocking(move || {
-                let conn = rusqlite::Connection::open(&db_path).ok()?;
-                update_mission_issue_state_sync(
-                    &conn,
-                    &mid,
-                    &iid,
-                    &MissionIssueStateUpdate {
-                        orchestration_state: "failed",
-                        session_id: None,
-                        attempt: Some(attempt),
-                        last_error: Some(Some(&err_msg)),
-                        started_at: None,
-                        completed_at: Some(Some(&now)),
-                    },
-                )
-                .ok()
-            })
-            .await;
-            return Err(anyhow::anyhow!("Worktree creation failed: {err}"));
-        }
-    };
+    let (worktree_path, worktree_id) =
+        match crate::runtime::worktree_creation::create_tracked_worktree(
+            registry,
+            &ctx.repo_root,
+            &branch_name,
+            Some(&remote_base),
+            orbitdock_protocol::WorktreeOrigin::Agent,
+            ctx.worktree_root_dir.as_deref(),
+            true, // always clean up stale worktrees — if we're dispatching, no active session owns them
+        )
+        .await
+        {
+            Ok(summary) => (summary.worktree_path, summary.id),
+            Err(err) => {
+                warn!(
+                    component = "mission_control",
+                    event = "dispatch.worktree_failed",
+                    mission_id = %mission_id,
+                    issue_id = %issue.id,
+                    error = %err,
+                    "Worktree creation failed, marking issue as failed"
+                );
+                let db_path = registry.db_path().clone();
+                let mid = mission_id.to_string();
+                let iid = issue.id.clone();
+                let err_msg = format!("Worktree creation failed: {err}");
+                let now = chrono::Utc::now().to_rfc3339();
+                let _ = tokio::task::spawn_blocking(move || {
+                    let conn = rusqlite::Connection::open(&db_path).ok()?;
+                    update_mission_issue_state_sync(
+                        &conn,
+                        &mid,
+                        &iid,
+                        &MissionIssueStateUpdate {
+                            orchestration_state: "failed",
+                            session_id: None,
+                            attempt: Some(attempt),
+                            last_error: Some(Some(&err_msg)),
+                            started_at: None,
+                            completed_at: Some(Some(&now)),
+                        },
+                    )
+                    .ok()
+                })
+                .await;
+                return Err(anyhow::anyhow!("Worktree creation failed: {err}"));
+            }
+        };
 
     // Write .mcp.json for mission tools (Claude auto-discovers this at startup)
     let tracker_kind = tracker.kind();
@@ -297,6 +298,7 @@ pub async fn dispatch_issue(
         developer_instructions,
         mission_id: Some(mission_id.to_string()),
         issue_identifier: Some(issue.identifier.clone()),
+        worktree_id: Some(worktree_id),
         dynamic_tools,
         allow_bypass_permissions: resolved.allow_bypass_permissions,
         codex_config_mode: None,

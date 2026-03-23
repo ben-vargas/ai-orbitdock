@@ -65,7 +65,7 @@ use usage::{
 #[allow(unused_imports)]
 pub(crate) use worktrees::WorktreeRow;
 pub(crate) use worktrees::{
-    load_removed_worktree_paths, load_worktree_by_id, load_worktrees_by_repo,
+    load_all_worktrees, load_removed_worktree_paths, load_worktree_by_id, load_worktrees_by_repo,
 };
 #[cfg(test)]
 pub(crate) use writer::flush_batch_for_test;
@@ -215,6 +215,7 @@ pub(super) fn execute_command(
                 mission_id,
                 issue_identifier,
                 allow_bypass_permissions,
+                worktree_id,
             } = *params;
             let provider_str = match provider {
                 Provider::Claude => "claude",
@@ -241,15 +242,15 @@ pub(super) fn execute_command(
             });
 
             conn.execute(
-                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, started_at, last_activity_at, last_progress_at, forked_from_session_id, mission_id, issue_identifier, allow_bypass_permissions)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?7, ?7, ?7, ?11, ?23, ?24, ?25, ?26)
+                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, started_at, last_activity_at, last_progress_at, forked_from_session_id, mission_id, issue_identifier, allow_bypass_permissions, worktree_id, is_worktree)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?7, ?7, ?7, ?11, ?23, ?24, ?25, ?26, ?27, ?28)
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
                    branch = COALESCE(?4, branch),
                    model = COALESCE(?5, model),
                     last_activity_at = ?7,
                     last_progress_at = ?7",
-                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, mission_id, issue_identifier, allow_bypass_permissions],
+                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, mission_id, issue_identifier, allow_bypass_permissions, worktree_id, worktree_id.is_some()],
             )?;
         }
 

@@ -126,7 +126,29 @@ pub async fn list_worktrees(
             summaries
         }
     } else {
-        Vec::new()
+        let db_rows = crate::infrastructure::persistence::load_all_worktrees(state.db_path());
+        let mut summaries = Vec::with_capacity(db_rows.len());
+        for row in db_rows {
+            let disk_present =
+                crate::domain::git::repo::worktree_exists_on_disk(&row.worktree_path).await;
+            summaries.push(WorktreeSummary {
+                id: row.id,
+                repo_root: row.repo_root,
+                worktree_path: row.worktree_path,
+                branch: row.branch,
+                base_branch: row.base_branch,
+                status: WorktreeStatus::from_str_opt(&row.status).unwrap_or(WorktreeStatus::Active),
+                active_session_count: 0,
+                total_session_count: 0,
+                created_at: String::new(),
+                last_session_ended_at: None,
+                disk_present,
+                auto_prune: true,
+                custom_name: None,
+                created_by: WorktreeOrigin::User,
+            });
+        }
+        summaries
     };
 
     Ok(Json(WorktreesListResponse {

@@ -64,6 +64,7 @@ pub(crate) struct DirectSessionRequest {
     pub developer_instructions: Option<String>,
     pub mission_id: Option<String>,
     pub issue_identifier: Option<String>,
+    pub worktree_id: Option<String>,
     /// Dynamic tool specs for Codex sessions (mission tools).
     pub dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
     /// When true, pass `--allow-dangerously-skip-permissions` to the Claude CLI,
@@ -102,6 +103,7 @@ struct PersistDirectSessionCreate {
     effort: Option<String>,
     mission_id: Option<String>,
     issue_identifier: Option<String>,
+    worktree_id: Option<String>,
     allow_bypass_permissions: bool,
     codex_config_mode: Option<CodexConfigMode>,
     codex_config_profile: Option<String>,
@@ -185,6 +187,7 @@ async fn persist_direct_session_create(
         effort,
         mission_id,
         issue_identifier,
+        worktree_id,
         allow_bypass_permissions,
         codex_config_mode,
         codex_config_profile,
@@ -218,6 +221,7 @@ async fn persist_direct_session_create(
                 mission_id,
                 issue_identifier,
                 allow_bypass_permissions,
+                worktree_id,
             },
         )))
         .await;
@@ -283,6 +287,7 @@ pub(crate) async fn prepare_persist_direct_session(
             effort: request.effort.clone(),
             mission_id: request.mission_id.clone(),
             issue_identifier: request.issue_identifier.clone(),
+            worktree_id: request.worktree_id.clone(),
             allow_bypass_permissions: request.allow_bypass_permissions,
             codex_config_mode: request.codex_config_mode,
             codex_config_profile: request.codex_config_profile.clone(),
@@ -473,6 +478,7 @@ mod tests {
             developer_instructions: Some("Stay focused".into()),
             mission_id: None,
             issue_identifier: None,
+            worktree_id: None,
             dynamic_tools: Vec::new(),
             allow_bypass_permissions: false,
             codex_config_mode: None,

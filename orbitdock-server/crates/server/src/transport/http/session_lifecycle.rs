@@ -362,6 +362,7 @@ pub async fn create_session(
                 .or(developer_instructions),
             mission_id: None,
             issue_identifier: None,
+            worktree_id: None,
             dynamic_tools: Vec::new(),
             allow_bypass_permissions: body.allow_bypass_permissions,
             codex_config_mode: resolved_codex

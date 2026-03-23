@@ -1496,9 +1496,12 @@ pub async fn list_mission_worktrees(
                 mi.orchestration_state, mi.issue_identifier, mi.issue_title
             FROM mission_issues mi
             JOIN sessions s ON s.id = mi.session_id
-            JOIN worktrees w ON w.id = s.worktree_id
+            JOIN worktrees w ON (
+                (s.worktree_id IS NOT NULL AND s.worktree_id != '' AND w.id = s.worktree_id)
+                OR
+                (COALESCE(s.worktree_id, '') = '' AND w.worktree_path = s.project_path)
+            )
             WHERE mi.mission_id = ?1
-              AND s.worktree_id IS NOT NULL
               AND w.status != 'removed'
             ORDER BY mi.created_at ASC",
         )?;
