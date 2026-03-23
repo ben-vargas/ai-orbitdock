@@ -41,6 +41,28 @@ You are working on Linear issue `{{ issue.identifier }}`: {{ issue.title }}
 ...prompt body...
 ```
 
+## With skills
+
+```yaml
+---
+agent:
+  claude:
+    model: claude-sonnet-4-6
+    skills:
+      - testing-philosophy
+  codex:
+    model: gpt-5.3-codex
+    skills:
+      - testing-philosophy
+      - react-best-practices
+---
+```
+
+Skills listed under `agent.<provider>.skills` are loaded at mission dispatch time. Missing skills are logged and skipped — the mission still dispatches.
+
+- **Codex**: Skills are attached natively to the initial `SendMessage`. Each name resolves to `~/.codex/skills/{name}/SKILL.md`.
+- **Claude**: Skill content is read from `~/.claude/skills/{name}/SKILL.md` and prepended to the initial prompt (Claude has no native `skills` parameter).
+
 ## Priority mode (Claude primary, Codex overflow)
 
 ```yaml
@@ -126,6 +148,7 @@ Disables automatic polling. Issues are only dispatched when manually triggered.
 | `agent.claude` | `permission_mode` | — | Permission mode (plan/default/auto-edit/auto/bypass) |
 | `agent.claude` | `allowed_tools` | `[]` | Only allow these tools |
 | `agent.claude` | `disallowed_tools` | `[]` | Block these tools |
+| `agent.claude` | `skills` | `[]` | Skills to inject into initial prompt (e.g. `[testing-philosophy]`) |
 | `agent.codex` | `model` | — | Codex model ID |
 | `agent.codex` | `effort` | — | Reasoning effort |
 | `agent.codex` | `approval_policy` | — | Approval policy (untrusted/on-failure/on-request/never) |
@@ -135,6 +158,7 @@ Disables automatic polling. Issues are only dispatched when manually triggered.
 | `agent.codex` | `personality` | — | Personality preset |
 | `agent.codex` | `service_tier` | — | Service tier (fast/flex) |
 | `agent.codex` | `developer_instructions` | — | Custom developer instructions |
+| `agent.codex` | `skills` | `[]` | Skills to attach to initial prompt (e.g. `[testing-philosophy]`) |
 | `trigger` | `kind` | `polling` | `polling` or `manual_only` |
 | `trigger` | `interval` | `60` | Polling interval in seconds |
 | `trigger.filters` | `labels` | `[]` | Only issues with these labels |
