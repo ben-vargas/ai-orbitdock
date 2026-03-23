@@ -3,7 +3,7 @@ tracker: github
 provider:
   strategy: single
   primary: claude
-  max_concurrent: 3
+  max_concurrent: 4
 trigger:
   kind: polling
   interval: 30
@@ -73,3 +73,5 @@ You are working in a git worktree on branch `mission/{{ issue.identifier | downc
 - Prefer rebases over merges when syncing with the base branch.
 - **NEVER create merge commits.** Keep mission branches linear.
 - **NEVER merge PRs.** Create the PR, verify CI passes, and address any review feedback — but leave merging to a human.
+- Write detailed PR descriptions: summarize what changed and why, call out new tests, non-obvious decisions, and anything a reviewer wouldn't expect.
+- Use gitmoji in PR titles (e.g. ✨, 🐛, ♻️, 🔧).
