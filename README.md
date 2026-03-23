@@ -117,6 +117,9 @@ and more. If something's wrong, it'll tell you.
 
 Download from [Releases](https://github.com/Robdel12/OrbitDock/releases) and run it.
 
+Want to try the latest iOS build without compiling it yourself? Join the
+[OrbitDock TestFlight](https://testflight.apple.com/join/w4jThqxE).
+
 Or build from source:
 
 ```bash
