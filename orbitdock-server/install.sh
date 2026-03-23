@@ -37,6 +37,7 @@ AUTH_TOKEN="${ORBITDOCK_AUTH_TOKEN:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --server-url)
+      require_flag_value "$1" "${2-}"
       SERVER_URL="$2"
       shift 2
       ;;
@@ -45,6 +46,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --auth-token)
+      require_flag_value "$1" "${2-}"
       AUTH_TOKEN="$2"
       shift 2
       ;;
@@ -65,6 +67,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --version)
+      require_flag_value "$1" "${2-}"
       VERSION="$2"
       shift 2
       ;;
@@ -116,6 +119,16 @@ normalize_tag() {
     echo "$raw"
   else
     echo "v$raw"
+  fi
+}
+
+require_flag_value() {
+  local flag="$1"
+  local value="${2-}"
+
+  if [[ -z "$value" || "$value" == --* ]]; then
+    err "Missing value for $flag"
+    exit 1
   fi
 }
 
@@ -238,6 +251,10 @@ verify_checksum() {
   return 0
 }
 
+checksum_tool_available() {
+  command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1
+}
+
 # ── Install from prebuilt binary ──────────────────────────────────────────
 install_from_release() {
   local asset_name url tmp_dir zip_path checksum_url checksum_file asset_list
@@ -284,14 +301,22 @@ install_from_release() {
     return 1
   fi
 
-  # Verify checksum if available
-  if curl -fsSL "$checksum_url" -o "$tmp_dir/$checksum_file" 2>/dev/null; then
+  if checksum_tool_available; then
+    if ! curl -fsSL "$checksum_url" -o "$tmp_dir/$checksum_file" 2>/dev/null; then
+      err "Unable to download checksum for $asset_name."
+      rm -rf "$tmp_dir"
+      return "$CHECKSUM_MISMATCH_EXIT"
+    fi
+
     if ! verify_checksum "$tmp_dir" "$checksum_file"; then
       err "Checksum verification failed!"
       rm -rf "$tmp_dir"
       return "$CHECKSUM_MISMATCH_EXIT"
     fi
+
     ok "Checksum verified."
+  else
+    warn "No sha256 tool found; installing without checksum verification."
   fi
 
   unzip -qo "$zip_path" -d "$tmp_dir"

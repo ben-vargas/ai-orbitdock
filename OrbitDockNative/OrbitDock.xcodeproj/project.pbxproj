@@ -844,6 +844,7 @@
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = OrbitDock/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -882,6 +883,7 @@
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = OrbitDock/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
