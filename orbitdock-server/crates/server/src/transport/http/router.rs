@@ -343,12 +343,24 @@ fn mission_routes() -> Router<Arc<SessionRegistry>> {
             post(super::retry_mission_issue),
         )
         .route(
+            "/api/missions/{mission_id}/issues/{issue_id}/transition",
+            post(super::transition_mission_issue),
+        )
+        .route(
             "/api/missions/{mission_id}/issues/{issue_id}/blocked",
             post(super::report_issue_blocked),
         )
         .route(
             "/api/missions/{mission_id}/issues/{issue_id}/complete",
             post(super::report_issue_completed),
+        )
+        .route(
+            "/api/missions/{mission_id}/issues/{issue_id}/pr",
+            post(super::set_issue_pr_url),
+        )
+        .route(
+            "/api/missions/{mission_id}/worktrees",
+            get(super::list_mission_worktrees),
         )
         .route(
             "/api/missions/{mission_id}/scaffold",

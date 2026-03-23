@@ -60,10 +60,11 @@ pub use files::{
 pub use mission_control::{
     check_github_key, check_linear_key, create_mission, delete_github_key, delete_linear_key,
     delete_mission, dispatch_mission_issue, get_default_template, get_mission,
-    get_mission_defaults, get_tracker_keys, list_mission_issues, list_missions,
-    migrate_workflow_to_mission, report_issue_blocked, report_issue_completed, retry_mission_issue,
-    scaffold_mission_file, set_github_key, set_linear_key, start_mission_orchestrator_endpoint,
-    trigger_mission_poll, update_mission, update_mission_defaults, update_mission_settings,
+    get_mission_defaults, get_tracker_keys, list_mission_issues, list_mission_worktrees,
+    list_missions, migrate_workflow_to_mission, report_issue_blocked, report_issue_completed,
+    retry_mission_issue, scaffold_mission_file, set_github_key, set_issue_pr_url, set_linear_key,
+    start_mission_orchestrator_endpoint, transition_mission_issue, trigger_mission_poll,
+    update_mission, update_mission_defaults, update_mission_settings,
 };
 pub use permissions::{add_permission_rule, get_permission_rules, remove_permission_rule};
 pub use review_comments::{

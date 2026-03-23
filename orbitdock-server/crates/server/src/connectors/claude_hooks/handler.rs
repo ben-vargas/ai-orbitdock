@@ -1580,6 +1580,7 @@ mod tests {
             pending_approval_id: None,
             started_at: Some(chrono_now()),
             last_activity_at: last_activity_at.map(str::to_string),
+            last_progress_at: last_activity_at.map(str::to_string),
             git_branch: None,
             git_sha: None,
             current_cwd: None,

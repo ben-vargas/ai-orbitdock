@@ -1,6 +1,6 @@
 # OrbitDock Server API
 
-Last updated: 2026-03-19
+Last updated: 2026-03-22
 
 This doc is the route-level contract for OrbitDock's server. It covers every current HTTP endpoint plus the WebSocket entrypoint.
 
@@ -117,6 +117,12 @@ Response:
 Notes:
 
 - Session summaries and list items now include `active_worker_count`, `pending_tool_family`, and `forked_from_session_id`.
+
+#### `GET /api/dashboard/conversations`
+
+Returns aggregated conversation records for the dashboard view. This is a higher-level view than `GET /api/sessions`, grouping sessions by conversation history.
+
+Response: array of `DashboardConversationItem` objects.
 
 #### `GET /api/sessions/{session_id}`
 
@@ -1895,6 +1901,147 @@ Notes:
 
 - Broadcasts `codex_account_updated` to connected WebSocket clients.
 
+### Codex Configuration
+
+#### `POST /api/codex/config/inspect`
+
+Inspects the effective Codex configuration for a given working directory. Resolves settings from user config, project config, and OrbitDock overrides.
+
+Request:
+
+```json
+{
+  "cwd": "/Users/.../repo",
+  "codex_config_source": "user",
+  "model": "o3",
+  "approval_policy": "on-request",
+  "sandbox_mode": "workspace-write"
+}
+```
+
+Only `cwd` is required. Other fields provide overrides for what-if inspection.
+
+Response:
+
+```json
+{
+  "effective_settings": { },
+  "origins": { },
+  "layers": [ ],
+  "warnings": [ ]
+}
+```
+
+#### `GET /api/codex/config/catalog?cwd=<path>`
+
+Returns available config profiles and providers for a given working directory.
+
+Response:
+
+```json
+{
+  "cwd": "/Users/.../repo",
+  "effective_settings": { },
+  "profiles": [ ],
+  "providers": [ ],
+  "warnings": [ ]
+}
+```
+
+#### `GET /api/codex/config/documents?cwd=<path>`
+
+Returns the raw Codex config documents (user-level and project-level) for inspection.
+
+Response:
+
+```json
+{
+  "cwd": "/Users/.../repo",
+  "user": { },
+  "projects": [ ],
+  "warnings": [ ]
+}
+```
+
+#### `POST /api/codex/config/value`
+
+Writes a single config value to a Codex config file.
+
+Request:
+
+```json
+{
+  "cwd": "/Users/.../repo",
+  "key_path": "model",
+  "value": "o3",
+  "merge_strategy": "replace",
+  "file_path": null,
+  "expected_version": null
+}
+```
+
+`merge_strategy` is optional, one of `"replace"` or `"upsert"`. `expected_version` enables optimistic concurrency.
+
+Response:
+
+```json
+{
+  "status": "written",
+  "version": "v2",
+  "file_path": "/Users/.../.codex/config.json"
+}
+```
+
+#### `POST /api/codex/config/batch-write`
+
+Writes multiple config values atomically.
+
+Request:
+
+```json
+{
+  "cwd": "/Users/.../repo",
+  "edits": [
+    { "key_path": "model", "value": "o3", "merge_strategy": "replace" },
+    { "key_path": "approval_policy", "value": "on-request" }
+  ],
+  "file_path": null,
+  "expected_version": null
+}
+```
+
+Response: same shape as `POST /api/codex/config/value`.
+
+### Codex Preferences
+
+#### `GET /api/server/codex-preferences`
+
+Returns the default Codex config source preference.
+
+Response:
+
+```json
+{
+  "default_config_source": "user"
+}
+```
+
+`default_config_source` is one of `"user"` or `"orbitdock"`.
+
+#### `PUT /api/server/codex-preferences`
+
+Updates the default Codex config source preference.
+
+Request:
+
+```json
+{
+  "default_config_source": "orbitdock"
+}
+```
+
+Response: same shape as `GET /api/server/codex-preferences`.
+
 ### Filesystem And Git
 
 #### `POST /api/git/init`
@@ -2178,7 +2325,13 @@ Response:
       "attempt": 1,
       "error": null,
       "url": "https://linear.app/team/issue/ENG-42",
-      "last_activity": "2026-03-16T12:00:00Z"
+      "last_activity": "2026-03-16T12:00:00Z",
+      "started_at": "2026-03-16T11:55:00Z",
+      "completed_at": null,
+      "allowed_transitions": ["queued", "completed", "blocked", "failed"],
+      "work_status": "working",
+      "last_message": "Implementing auth changes...",
+      "pr_url": "https://github.com/owner/repo/pull/97"
     }
   ],
   "settings": {
@@ -2240,6 +2393,9 @@ Notes:
 
 - `settings` is `null` when the mission file cannot be parsed.
 - `orchestration_state` is one of: `queued`, `claimed`, `running`, `retry_queued`, `completed`, `failed`, `blocked`.
+- `work_status` and `last_message` are populated from the live session snapshot when the linked agent is active.
+- `pr_url` is set when the agent links a pull request via `mission_link_pr`.
+- `allowed_transitions` lists the valid target states for admin transition from the current state.
 
 #### `PUT /api/missions/{mission_id}`
 
@@ -2296,6 +2452,66 @@ Notes:
 
 - Increments the attempt counter.
 - Schedules the next retry with exponential backoff (max 300s).
+
+#### `POST /api/missions/{mission_id}/issues/{issue_id}/transition`
+
+Transitions an issue to a new orchestration state. Used for admin state overrides (mark complete, mark failed, reset, etc.).
+
+Request:
+
+```json
+{
+  "target_state": "completed",
+  "reason": "Manually closed — already fixed upstream"
+}
+```
+
+`reason` is optional. `target_state` must be one of the allowed transitions from the issue's current state. See `OrchestrationState.allowed_transitions()`.
+
+Response: `MissionDetailResponse` (same shape as `GET /api/missions/{mission_id}`).
+
+#### `POST /api/missions/{mission_id}/issues/{issue_id}/complete`
+
+Reports that the agent working on this issue has completed successfully. Called by the mission orchestrator or agent tools.
+
+Request:
+
+```json
+{
+  "tracker_state": "In Review"
+}
+```
+
+`tracker_state` is optional — when provided, updates the issue's tracker state label in the database.
+
+Response:
+
+```json
+{"completed": true}
+```
+
+#### `POST /api/missions/{mission_id}/issues/{issue_id}/pr`
+
+Stores a PR URL on a mission issue. Called by the MCP mission tools when an agent links a PR via `mission_link_pr`.
+
+Request:
+
+```json
+{
+  "pr_url": "https://github.com/owner/repo/pull/97"
+}
+```
+
+Response:
+
+```json
+{"ok": true}
+```
+
+Notes:
+
+- Broadcasts a mission delta so connected clients see the PR link immediately.
+- The PR URL is surfaced in the issue row UI alongside the issue identifier.
 
 #### `POST /api/missions/{mission_id}/issues/{issue_id}/blocked`
 
@@ -2439,6 +2655,44 @@ Error responses:
 - `400 bad_request` if tracker API key is not configured or MISSION.md cannot be parsed
 - `404 not_found` if mission or issue not found
 
+#### `POST /api/missions/{mission_id}/trigger`
+
+Triggers an immediate poll cycle for the mission's orchestrator. Useful when you know new issues are available and don't want to wait for the next scheduled tick.
+
+Response:
+
+```json
+{"ok": true}
+```
+
+#### `GET /api/missions/{mission_id}/worktrees`
+
+Returns all worktrees associated with a mission's issues (via the `mission_issues -> sessions -> worktrees` join). Used by the "Clean Up Worktrees" UI.
+
+Response:
+
+```json
+{
+  "worktrees": [
+    {
+      "id": "wt-...",
+      "branch": "mission/eng-42",
+      "worktree_path": "/Users/.../repo/.orbitdock-worktrees/mission/eng-42",
+      "disk_present": true,
+      "orchestration_state": "completed",
+      "issue_identifier": "ENG-42",
+      "issue_title": "Fix auth flow"
+    }
+  ]
+}
+```
+
+Notes:
+
+- Only returns worktrees with status != `"removed"`.
+- `disk_present` is checked live against the filesystem.
+- A single issue may map to multiple worktrees if it was retried.
+
 #### Mission Tools
 
 Dispatched sessions automatically receive 8 `mission_*` tools for tracker interaction (`mission_get_issue`, `mission_post_update`, `mission_update_comment`, `mission_get_comments`, `mission_set_status`, `mission_link_pr`, `mission_create_followup`, `mission_report_blocked`).
@@ -2481,6 +2735,42 @@ Response:
 #### `DELETE /api/server/linear-key`
 
 Removes the stored Linear API key.
+
+Response:
+
+```json
+{"configured": false}
+```
+
+#### `GET /api/server/github-key`
+
+Response:
+
+```json
+{"configured": true}
+```
+
+#### `POST /api/server/github-key`
+
+Stores the GitHub personal access token.
+
+Request:
+
+```json
+{
+  "key": "ghp_..."
+}
+```
+
+Response:
+
+```json
+{"configured": true}
+```
+
+#### `DELETE /api/server/github-key`
+
+Removes the stored GitHub API key.
 
 Response:
 

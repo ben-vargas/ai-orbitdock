@@ -17,6 +17,8 @@ pub struct MissionToolResult {
     /// Present when a successful tool call should also mark the local OrbitDock
     /// mission issue as completed.
     pub completed_state: Option<String>,
+    /// PR URL to persist on the mission issue (set by `mission_link_pr`).
+    pub pr_url: Option<String>,
 }
 
 /// Execute a mission tool call against the tracker API.
@@ -41,6 +43,7 @@ pub async fn execute_mission_tool(
                 .to_string(),
             blocked: false,
             completed_state: None,
+            pr_url: None,
         },
     }
 }
@@ -66,6 +69,7 @@ async fn exec_get_issue(tracker: &dyn Tracker, ctx: &MissionToolContext) -> Miss
             .to_string(),
             blocked: false,
             completed_state: None,
+            pr_url: None,
         },
         Ok(None) => MissionToolResult {
             success: false,
@@ -74,6 +78,7 @@ async fn exec_get_issue(tracker: &dyn Tracker, ctx: &MissionToolContext) -> Miss
                     .to_string(),
             blocked: false,
             completed_state: None,
+            pr_url: None,
         },
         Err(e) => err(e),
     }
@@ -144,6 +149,7 @@ async fn exec_set_status(
             output: serde_json::json!({ "state": state, "updated": true }).to_string(),
             blocked: false,
             completed_state: is_terminal_mission_state(state).then(|| state.to_string()),
+            pr_url: None,
         },
         Err(e) => err(e),
     }
@@ -164,7 +170,13 @@ async fn exec_link_pr(
         .unwrap_or("Pull Request");
 
     match tracker.link_url(&ctx.issue_id, url, title).await {
-        Ok(()) => ok_json(serde_json::json!({ "linked": true, "url": url })),
+        Ok(()) => MissionToolResult {
+            success: true,
+            output: serde_json::json!({ "linked": true, "url": url }).to_string(),
+            blocked: false,
+            completed_state: None,
+            pr_url: Some(url.to_string()),
+        },
         Err(e) => err(e),
     }
 }
@@ -221,6 +233,7 @@ async fn exec_report_blocked(
         output: serde_json::json!({ "blocked": true, "reason": reason }).to_string(),
         blocked: true,
         completed_state: None,
+        pr_url: None,
     }
 }
 
@@ -239,6 +252,7 @@ fn ok_json(value: Value) -> MissionToolResult {
         output: value.to_string(),
         blocked: false,
         completed_state: None,
+        pr_url: None,
     }
 }
 
@@ -248,6 +262,7 @@ fn err(e: anyhow::Error) -> MissionToolResult {
         output: serde_json::json!({ "error": e.to_string() }).to_string(),
         blocked: false,
         completed_state: None,
+        pr_url: None,
     }
 }
 
@@ -258,6 +273,7 @@ fn missing_field(field: &str) -> MissionToolResult {
             .to_string(),
         blocked: false,
         completed_state: None,
+        pr_url: None,
     }
 }
 

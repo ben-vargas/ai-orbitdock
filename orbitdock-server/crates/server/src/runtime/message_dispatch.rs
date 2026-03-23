@@ -477,6 +477,7 @@ pub(crate) async fn dispatch_answer_question(
             status: None,
             work_status: Some(resolved_work_status),
             last_activity_at: None,
+            last_progress_at: None,
         })
         .await;
 
@@ -567,6 +568,7 @@ pub(crate) async fn dispatch_request_permissions_response(
             status: None,
             work_status: Some(resolved_work_status),
             last_activity_at: None,
+            last_progress_at: None,
         })
         .await;
 

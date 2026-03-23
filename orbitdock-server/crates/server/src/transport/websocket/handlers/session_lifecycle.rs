@@ -110,6 +110,7 @@ pub(crate) async fn handle(
             };
 
             let is_claude = prepared.provider == orbitdock_protocol::Provider::Claude;
+            let resume_mission_id = prepared.summary.mission_id.clone();
 
             if prepared.transcript_loaded {
                 info!(
@@ -291,6 +292,17 @@ pub(crate) async fn handle(
                             },
                         )
                         .await;
+
+                        // Mission hook: if this session belongs to a mission,
+                        // update the linked issue back to running
+                        if let Some(ref mid) = resume_mission_id {
+                            crate::runtime::session_mutations::sync_mission_issue_on_resume(
+                                state,
+                                &session_id,
+                                mid,
+                            )
+                            .await;
+                        }
                     }
                     Ok(Ok(Err(e))) => {
                         state.add_session(handle);
@@ -405,6 +417,17 @@ pub(crate) async fn handle(
                             messages = msg_count,
                             "Resumed Codex session with live connector"
                         );
+
+                        // Mission hook: if this session belongs to a mission,
+                        // update the linked issue back to running
+                        if let Some(ref mid) = resume_mission_id {
+                            crate::runtime::session_mutations::sync_mission_issue_on_resume(
+                                state,
+                                &session_id,
+                                mid,
+                            )
+                            .await;
+                        }
                     }
                     Err(error_message) => {
                         // No connector; add as passive actor

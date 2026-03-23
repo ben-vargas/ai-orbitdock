@@ -398,6 +398,75 @@ pub(crate) async fn send_continuation_message(
     }
 }
 
+/// When a session with a mission_id is resumed, update the linked mission issue
+/// back to `running` so mission control reflects reality.
+pub(crate) async fn sync_mission_issue_on_resume(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    mission_id: &str,
+) {
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Find the mission issue linked to this session_id
+    let db_path = state.db_path().clone();
+    let sid = session_id.to_string();
+    let mid = mission_id.to_string();
+    let issue_id = tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path).ok()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT issue_id FROM mission_issues \
+                 WHERE mission_id = ?1 AND session_id = ?2 \
+                 LIMIT 1",
+            )
+            .ok()?;
+        stmt.query_row(rusqlite::params![mid, sid], |row| row.get::<_, String>(0))
+            .ok()
+    })
+    .await
+    .ok()
+    .flatten();
+
+    let Some(issue_id) = issue_id else {
+        tracing::debug!(
+            component = "mission_control",
+            event = "resume_hook.no_linked_issue",
+            session_id = %session_id,
+            mission_id = %mission_id,
+            "No mission issue linked to resumed session"
+        );
+        return;
+    };
+
+    // Update the issue back to running
+    let _ = state
+        .persist()
+        .send(PersistCommand::MissionIssueUpdateState {
+            mission_id: mission_id.to_string(),
+            issue_id: issue_id.clone(),
+            orchestration_state: "running".to_string(),
+            session_id: Some(session_id.to_string()),
+            attempt: None,
+            last_error: Some(None), // clear error
+            retry_due_at: None,
+            started_at: Some(Some(now)),
+            completed_at: Some(None), // clear completed_at
+        })
+        .await;
+
+    // Broadcast updated mission state
+    crate::runtime::mission_orchestrator::broadcast_mission_delta_by_id(state, mission_id).await;
+
+    tracing::info!(
+        component = "mission_control",
+        event = "resume_hook.issue_reactivated",
+        session_id = %session_id,
+        mission_id = %mission_id,
+        issue_id = %issue_id,
+        "Reactivated mission issue on session resume"
+    );
+}
+
 pub(crate) async fn end_failed_direct_session(state: &Arc<SessionRegistry>, session_id: &str) {
     let _ = state
         .persist()

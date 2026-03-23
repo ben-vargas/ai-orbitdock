@@ -312,6 +312,7 @@ impl SessionRegistry {
                     pending_approval_id: snap.pending_approval_id.clone(),
                     started_at: snap.started_at.clone(),
                     last_activity_at: snap.last_activity_at.clone(),
+                    last_progress_at: snap.last_progress_at.clone(),
                     git_branch: snap.git_branch.clone(),
                     git_sha: snap.git_sha.clone(),
                     current_cwd: snap.current_cwd.clone(),

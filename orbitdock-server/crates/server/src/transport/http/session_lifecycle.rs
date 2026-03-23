@@ -566,10 +566,18 @@ pub async fn resume_session(
         Err(error) => return Err(internal("db_error", error.to_string())),
     };
 
+    let resume_mission_id = prepared.summary.mission_id.clone();
     let summary = launch_resumed_session(&state, &session_id, prepared)
         .await
         .map_err(map_resume_error)?
         .summary;
+
+    // Mission hook: if this session belongs to a mission,
+    // update the linked issue back to running
+    if let Some(ref mid) = resume_mission_id {
+        crate::runtime::session_mutations::sync_mission_issue_on_resume(&state, &session_id, mid)
+            .await;
+    }
 
     Ok(Json(ResumeSessionResponse {
         session_id,

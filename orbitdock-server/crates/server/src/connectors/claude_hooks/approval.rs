@@ -159,6 +159,7 @@ pub(crate) async fn resolve_pending_approvals_after_tool_outcome(
                 status: None,
                 work_status: Some(resolution.work_status),
                 last_activity_at: None,
+                last_progress_at: None,
             })
             .await;
 
@@ -226,6 +227,7 @@ mod tests {
             token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
             started_at: None,
             last_activity_at: None,
+            last_progress_at: None,
             revision: 0,
             current_plan: Some("Inspect files".to_string()),
             current_diff: None,

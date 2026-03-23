@@ -125,6 +125,24 @@ multiple comments. One living document.
 - **NEVER merge PRs.** After opening the PR, check CI status and address review feedback — but leave merging to a human.
 - If you discover out-of-scope work, use `mission_create_followup` instead of expanding scope
 
+## Pull Request Etiquette
+
+When creating a PR, write a description that gives the reviewer full context
+without needing to read every line of the diff:
+
+- **Summary** — what changed and why, in 2-3 sentences
+- **What was added** — new files, tests, features, dependencies
+- **What was changed** — refactored code, updated behavior, modified configs
+- **What was removed** — deleted code, removed features, dropped dependencies
+- **Testing** — what tests exist, what was run, what the results were
+- **Non-obvious decisions** — why you chose approach A over B, trade-offs made
+
+If you added tests the reviewer might not expect, call that out explicitly.
+Surprises in a PR erode trust — make the reviewer's job easy.
+
+After opening the PR, post a summary comment on the issue workpad with the
+PR link and a brief changelog of what the PR contains.
+
 ## Git Workflow
 
 Your worktree is automatically based on the latest remote base branch at dispatch time.

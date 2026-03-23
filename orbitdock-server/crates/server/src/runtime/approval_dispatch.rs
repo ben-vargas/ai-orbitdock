@@ -207,6 +207,7 @@ pub(crate) async fn dispatch_approve_tool(
             status: None,
             work_status: Some(resolved_work_status),
             last_activity_at: None,
+            last_progress_at: None,
         })
         .await;
 

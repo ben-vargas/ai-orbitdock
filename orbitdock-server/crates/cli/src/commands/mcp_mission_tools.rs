@@ -154,6 +154,9 @@ async fn handle_tools_call(tracker: &dyn Tracker, ctx: &MissionToolContext, msg:
     if let Some(ref tracker_state) = result.completed_state {
         notify_issue_completed(ctx, tracker_state).await;
     }
+    if let Some(ref pr_url) = result.pr_url {
+        notify_pr_linked(ctx, pr_url).await;
+    }
 
     if result.success {
         json!({
@@ -176,6 +179,21 @@ async fn handle_tools_call(tracker: &dyn Tracker, ctx: &MissionToolContext, msg:
                 "isError": true
             }
         })
+    }
+}
+
+async fn notify_pr_linked(ctx: &MissionToolContext, pr_url: &str) {
+    let config = ClientConfig::from_sources(None, None, true, None);
+    let rest = RestClient::new(&config);
+    let path = format!(
+        "/api/missions/{}/issues/{}/pr",
+        ctx.mission_id, ctx.issue_id
+    );
+
+    let response: RestResult<Value> = rest.post_json(&path, &json!({ "pr_url": pr_url })).await;
+
+    if let RestResult::ConnectionError(message) = response {
+        eprintln!("[orbitdock-mission] Failed to sync PR URL back to OrbitDock: {message}");
     }
 }
 
