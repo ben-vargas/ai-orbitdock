@@ -34,6 +34,7 @@ struct OrbitDockApp: App {
     #if os(macOS)
       WindowGroup {
         OrbitDockWindowRoot(appRuntime: appRuntime)
+          .environment(appRuntime)
           .environment(\.modelPricingService, modelPricingService)
           .frame(minWidth: 1_000, maxWidth: .infinity, minHeight: 700, maxHeight: .infinity)
           .task {
@@ -72,6 +73,7 @@ struct OrbitDockApp: App {
     #else
       WindowGroup {
         OrbitDockWindowRoot(appRuntime: appRuntime)
+          .environment(appRuntime)
           .environment(\.modelPricingService, modelPricingService)
           .task {
             await appRuntime.startIfNeeded()

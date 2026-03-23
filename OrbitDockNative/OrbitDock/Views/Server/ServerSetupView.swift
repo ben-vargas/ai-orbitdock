@@ -16,6 +16,7 @@ enum BeaconPhase {
 }
 
 struct ServerSetupView: View {
+  @Environment(OrbitDockAppRuntime.self) private var appRuntime
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   #if os(macOS)
     @Environment(\.serverManager) private var serverManager
@@ -80,6 +81,9 @@ struct ServerSetupView: View {
         titleSection
 
         connectionForm
+          .frame(maxWidth: 420)
+
+        demoSection
           .frame(maxWidth: 420)
 
         #if os(macOS)
@@ -336,6 +340,42 @@ struct ServerSetupView: View {
     Rectangle()
       .fill(Color.accent.opacity(OpacityTier.light))
       .frame(height: 1)
+  }
+
+  private var demoSection: some View {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      Text("Need a quick look around?")
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(Color.textPrimary)
+
+      Text("Explore a small read-only sample with seeded conversations and dashboard data. Great for App Review or a first pass through the interface.")
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textSecondary)
+
+      Button {
+        appRuntime.enterDemoMode()
+      } label: {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: "play.circle.fill")
+            .font(.system(size: IconScale.md))
+          Text("Explore Demo")
+            .font(.system(size: TypeScale.body, weight: .semibold))
+        }
+        .foregroundStyle(Color.textPrimary)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Spacing.md)
+      }
+      .buttonStyle(.plain)
+    }
+    .padding(Spacing.lg)
+    .background(
+      Color.backgroundSecondary,
+      in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.panelBorder, lineWidth: 1)
+    )
   }
 
   // MARK: - macOS Install Section

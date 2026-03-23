@@ -22,6 +22,8 @@ final class OrbitDockAppRuntime {
   let notificationManager: NotificationManager
   let usageServiceRegistry: UsageServiceRegistry
   let startupCoordinator: ClientStartupCoordinator
+  let demoExperience: DemoModeExperience
+  var isDemoModeEnabled = false
   #if os(macOS)
     let serverManager: ServerManager
   #endif
@@ -33,6 +35,7 @@ final class OrbitDockAppRuntime {
       self.externalNavigationCenter = AppExternalNavigationCenter()
       self.notificationManager = NotificationManager()
       self.usageServiceRegistry = UsageServiceRegistry(runtimeRegistry: runtimeRegistry)
+      self.demoExperience = DemoModeExperience()
       self.serverManager = .live()
       self.startupCoordinator = ClientStartupCoordinator(
         runtimeRegistry: runtimeRegistry,
@@ -46,6 +49,7 @@ final class OrbitDockAppRuntime {
       self.externalNavigationCenter = AppExternalNavigationCenter()
       self.notificationManager = NotificationManager()
       self.usageServiceRegistry = UsageServiceRegistry(runtimeRegistry: runtimeRegistry)
+      self.demoExperience = DemoModeExperience()
       self.startupCoordinator = ClientStartupCoordinator(
         runtimeRegistry: runtimeRegistry,
         shouldConnectServer: AppRuntimeMode.current.shouldConnectServer
@@ -56,5 +60,13 @@ final class OrbitDockAppRuntime {
   func startIfNeeded() async {
     notificationManager.startIfNeeded()
     await startupCoordinator.startIfNeeded()
+  }
+
+  func enterDemoMode() {
+    isDemoModeEnabled = true
+  }
+
+  func exitDemoMode() {
+    isDemoModeEnabled = false
   }
 }

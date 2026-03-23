@@ -1,13 +1,14 @@
 import SwiftUI
 
 struct OrbitDockWindowRoot: View {
+  @Environment(OrbitDockAppRuntime.self) private var environmentAppRuntime
   let appRuntime: OrbitDockAppRuntime
   @State private var appStore: AppStore
   @State private var router = AppRouter()
   @State private var toastManager = ToastManager()
 
   private var shouldShowSetup: Bool {
-    !appRuntime.runtimeRegistry.hasConfiguredEndpoints
+    !appRuntime.isDemoModeEnabled && !appRuntime.runtimeRegistry.hasConfiguredEndpoints
   }
 
   init(appRuntime: OrbitDockAppRuntime) {
@@ -55,6 +56,7 @@ struct OrbitDockWindowRoot: View {
     .environment(appRuntime.runtimeRegistry)
     .environment(appRuntime.usageServiceRegistry)
     .environment(appRuntime.notificationManager)
+    .environment(appRuntime)
     .environment(router)
     .environment(toastManager)
     .environment(appStore)
@@ -71,6 +73,19 @@ struct OrbitDockWindowRoot: View {
     }
     .preferredColorScheme(.dark)
     .toolbar(.hidden)
+    .overlay(alignment: .topTrailing) {
+      if appRuntime.isDemoModeEnabled {
+        demoModeBanner
+          .padding(.top, 18)
+          .padding(.trailing, 18)
+      }
+    }
+    .onAppear {
+      syncDemoSeed()
+    }
+    .onChange(of: environmentAppRuntime.isDemoModeEnabled) { _, _ in
+      syncDemoSeed()
+    }
     .onChange(of: router.route) { oldRoute, newRoute in
       guard oldRoute != newRoute else { return }
 
@@ -122,6 +137,33 @@ struct OrbitDockWindowRoot: View {
 
   // MARK: - Quick Switcher Overlay
 
+  private var demoModeBanner: some View {
+    HStack(spacing: Spacing.sm) {
+      Image(systemName: "sparkles.rectangle.stack")
+        .font(.system(size: IconScale.sm, weight: .semibold))
+      Text("Demo Data")
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+      Button("Exit") {
+        appRuntime.exitDemoMode()
+        router.goToDashboard(source: .unspecified)
+      }
+      .buttonStyle(.plain)
+      .font(.system(size: TypeScale.caption, weight: .semibold))
+      .foregroundStyle(Color.textPrimary)
+    }
+    .foregroundStyle(Color.textPrimary)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .background(
+      Color.backgroundSecondary,
+      in: Capsule(style: .continuous)
+    )
+    .overlay(
+      Capsule(style: .continuous)
+        .stroke(Color.panelBorder, lineWidth: 1)
+    )
+  }
+
   private var quickSwitcherOverlay: some View {
     ZStack {
       Color.black.opacity(0.5)
@@ -162,6 +204,9 @@ struct OrbitDockWindowRoot: View {
   }
 
   private func creationStore() -> SessionStore {
+    if appRuntime.isDemoModeEnabled {
+      return appRuntime.demoExperience.sessionStore
+    }
     let fallback = appRuntime.runtimeRegistry.activeSessionStore
     let preferredEndpointId = router.selectedEndpointId ?? router.selectedSessionRef?.endpointId
     let primaryStore = appRuntime.runtimeRegistry.primarySessionStore(fallback: fallback)
@@ -169,7 +214,19 @@ struct OrbitDockWindowRoot: View {
   }
 
   private func detailSessionStore(for endpointId: UUID) -> SessionStore {
+    if appRuntime.isDemoModeEnabled, endpointId == appRuntime.demoExperience.endpoint.id {
+      return appRuntime.demoExperience.sessionStore
+    }
     let fallback = appRuntime.runtimeRegistry.activeSessionStore
     return appRuntime.runtimeRegistry.sessionStore(for: endpointId, fallback: fallback)
+  }
+
+  private func syncDemoSeed() {
+    if appRuntime.isDemoModeEnabled {
+      appStore.seed(records: appRuntime.demoExperience.rootSessions)
+      appStore.seedDashboardConversations(appRuntime.demoExperience.dashboardConversations)
+      return
+    }
+    appStore.clearPreviewSeed()
   }
 }

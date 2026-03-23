@@ -9,6 +9,7 @@ final class AppStore {
   let runtimeRegistry: ServerRuntimeRegistry
 
   @ObservationIgnored private var previewSessionsByID: [String: RootSessionNode]?
+  @ObservationIgnored private var previewDashboardConversationsByID: [String: DashboardConversationRecord]?
 
   init(runtimeRegistry: ServerRuntimeRegistry) {
     self.runtimeRegistry = runtimeRegistry
@@ -105,7 +106,14 @@ final class AppStore {
   }
 
   func dashboardConversationRecords() -> [DashboardConversationRecord] {
-    runtimeRegistry.aggregatedDashboardConversations
+    if let previewIndex = previewDashboardConversationsByID {
+      return Array(previewIndex.values).sorted { lhs, rhs in
+        let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
+        let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
+        return lhsDate > rhsDate
+      }
+    }
+    return runtimeRegistry.aggregatedDashboardConversations
   }
 
   func recentRecords(limit: Int? = nil) -> [RootSessionNode] {
@@ -131,5 +139,18 @@ final class AppStore {
       index[record.scopedID] = record
     }
     previewSessionsByID = index
+  }
+
+  func seedDashboardConversations(_ records: [DashboardConversationRecord]) {
+    var index: [String: DashboardConversationRecord] = [:]
+    for record in records {
+      index[record.id] = record
+    }
+    previewDashboardConversationsByID = index
+  }
+
+  func clearPreviewSeed() {
+    previewSessionsByID = nil
+    previewDashboardConversationsByID = nil
   }
 }
