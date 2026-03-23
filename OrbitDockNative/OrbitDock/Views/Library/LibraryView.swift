@@ -2,7 +2,7 @@
 //  LibraryView.swift
 //  OrbitDock
 //
-//  Project-centric session archive with explicit provider and endpoint filters.
+//  Session archive with compact toolbar and flat list on mobile.
 //
 
 import SwiftUI
@@ -19,6 +19,7 @@ struct LibraryView: View {
   @State private var providerFilter: ActiveSessionProviderFilter = .all
   @State private var selectedEndpointId: UUID?
   @State private var collapsedGroups: Set<String> = []
+  @State private var showFilterSheet = false
 
   private var layoutMode: DashboardLayoutMode {
     DashboardLayoutMode.current(
@@ -45,28 +46,12 @@ struct LibraryView: View {
     archiveState.endpointFacets
   }
 
-  private var endpointScopedSessions: [RootSessionNode] {
-    archiveState.endpointScopedSessions
-  }
-
-  private var filteredSessions: [RootSessionNode] {
-    archiveState.filteredSessions
-  }
-
   private var summary: LibraryArchiveSummary {
     archiveState.summary
   }
 
-  private var selectedEndpointFacet: LibraryEndpointFacet? {
-    archiveState.selectedEndpointFacet
-  }
-
   private var hasActiveFilters: Bool {
-    !searchText.isEmpty || providerFilter != .all || selectedEndpointFacet != nil
-  }
-
-  private var scopeDescription: String {
-    archiveState.scopeDescription
+    !searchText.isEmpty || providerFilter != .all || selectedEndpointId != nil
   }
 
   private var projectGroups: [LibraryProjectGroup] {
@@ -75,42 +60,49 @@ struct LibraryView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      LibraryHeaderSection(
+      LibraryToolbar(
         layoutMode: layoutMode,
-        scopeDescription: scopeDescription,
         hasActiveFilters: hasActiveFilters,
         summary: summary,
-        selectedEndpointFacet: selectedEndpointFacet,
         endpointFacets: endpointFacets,
         providerScopedSessionCount: providerScopedSessions.count,
         searchText: $searchText,
         sort: $sort,
         providerFilter: $providerFilter,
-        selectedEndpointId: $selectedEndpointId
+        selectedEndpointId: $selectedEndpointId,
+        showFilterSheet: $showFilterSheet
       )
 
       if projectGroups.isEmpty {
         LibraryEmptyState(hasActiveFilters: hasActiveFilters)
       } else {
         ScrollView {
-          LazyVStack(alignment: .leading, spacing: Spacing.lg) {
-            ForEach(projectGroups) { group in
-              LibraryProjectSection(
-                group: group,
-                layoutMode: layoutMode,
-                isCollapsed: collapsedGroups.contains(group.id),
-                selectedEndpointId: selectedEndpointId,
-                onToggleCollapsed: {
-                  withAnimation(Motion.hover) {
-                    if collapsedGroups.contains(group.id) {
-                      collapsedGroups.remove(group.id)
-                    } else {
-                      collapsedGroups.insert(group.id)
-                    }
-                  }
-                },
+          LazyVStack(alignment: .leading, spacing: layoutMode.isPhoneCompact ? Spacing.xs : Spacing.lg) {
+            resultSummaryLine
+
+            if layoutMode.isPhoneCompact {
+              LibraryFlatList(
+                projectGroups: projectGroups,
                 onSelectSession: selectSession
               )
+            } else {
+              ForEach(projectGroups) { group in
+                LibraryProjectSection(
+                  group: group,
+                  layoutMode: layoutMode,
+                  isCollapsed: collapsedGroups.contains(group.id),
+                  onToggleCollapsed: {
+                    withAnimation(Motion.hover) {
+                      if collapsedGroups.contains(group.id) {
+                        collapsedGroups.remove(group.id)
+                      } else {
+                        collapsedGroups.insert(group.id)
+                      }
+                    }
+                  },
+                  onSelectSession: selectSession
+                )
+              }
             }
           }
           .padding(layoutMode.contentPadding)
@@ -118,13 +110,55 @@ struct LibraryView: View {
         .scrollContentBackground(.hidden)
       }
     }
+    .sheet(isPresented: $showFilterSheet) {
+      LibraryFilterSheet(
+        providerFilter: $providerFilter,
+        selectedEndpointId: $selectedEndpointId,
+        endpointFacets: endpointFacets,
+        providerScopedSessionCount: providerScopedSessions.count,
+        onReset: resetFilters
+      )
+      .presentationDetents([.height(320), .medium])
+      .presentationDragIndicator(.visible)
+    }
   }
 
-  // MARK: - Navigation
+  // MARK: - Result Summary
+
+  private var resultSummaryLine: some View {
+    HStack(spacing: Spacing.xs) {
+      Text("\(summary.sessionCount) sessions")
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(Color.textTertiary)
+
+      if !layoutMode.isPhoneCompact, summary.projectCount > 1 {
+        Text("across \(summary.projectCount) projects")
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textQuaternary)
+      }
+
+      if hasActiveFilters {
+        Text("filtered")
+          .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
+          .foregroundStyle(Color.accent)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 2)
+          .background(Color.accent.opacity(OpacityTier.light), in: Capsule())
+      }
+    }
+    .padding(.horizontal, layoutMode.isPhoneCompact ? Spacing.sm : Spacing.md)
+  }
+
+  // MARK: - Actions
 
   private func selectSession(_ session: RootSessionNode) {
     withAnimation(Motion.standard) {
       router.selectSession(session.sessionRef, source: .library)
     }
+  }
+
+  private func resetFilters() {
+    providerFilter = .all
+    selectedEndpointId = nil
   }
 }

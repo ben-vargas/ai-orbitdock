@@ -14,42 +14,6 @@ enum LibraryValueFormatter {
   }
 }
 
-struct LibrarySummaryCard: View {
-  let label: String
-  let value: String
-  let accent: Color
-  let secondary: String
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: Spacing.xxs) {
-      Text(label.uppercased())
-        .font(.system(size: TypeScale.mini, weight: .semibold, design: .rounded))
-        .foregroundStyle(Color.textQuaternary)
-
-      HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-        Text(value)
-          .font(.system(size: TypeScale.body, weight: .bold, design: .rounded))
-          .foregroundStyle(accent)
-
-        Text(secondary)
-          .font(.system(size: TypeScale.micro, weight: .semibold))
-          .foregroundStyle(Color.textTertiary)
-          .lineLimit(1)
-      }
-    }
-    .padding(.horizontal, Spacing.md)
-    .padding(.vertical, Spacing.sm_)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .fill(Color.backgroundPrimary.opacity(0.45))
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .stroke(accent.opacity(0.12), lineWidth: 1)
-        )
-    )
-  }
-}
-
 struct LibraryFilterChip: View {
   let title: String
   var count: Int?

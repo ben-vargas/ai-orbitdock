@@ -4,7 +4,6 @@ struct LibraryProjectSection: View {
   let group: LibraryProjectGroup
   let layoutMode: DashboardLayoutMode
   let isCollapsed: Bool
-  let selectedEndpointId: UUID?
   let onToggleCollapsed: () -> Void
   let onSelectSession: (RootSessionNode) -> Void
 
@@ -15,34 +14,29 @@ struct LibraryProjectSection: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       Button(action: onToggleCollapsed) {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-          LibraryProjectSectionHeader(
-            group: group,
-            sectionState: sectionState,
-            isCollapsed: isCollapsed
-          )
-
-          if !group.endpointFacets.isEmpty {
-            LibraryProjectEndpointFacetRow(
-              facets: group.endpointFacets,
-              selectedEndpointId: selectedEndpointId,
-              hiddenFacetCount: sectionState.hiddenEndpointFacetCount
-            )
-          }
-        }
-        .padding(.horizontal, layoutMode.isPhoneCompact ? Spacing.md : Spacing.lg_)
+        LibraryProjectSectionHeader(
+          group: group,
+          sectionState: sectionState,
+          isCollapsed: isCollapsed
+        )
+        .padding(.horizontal, Spacing.lg_)
         .padding(.vertical, Spacing.md)
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
 
       if !isCollapsed {
-        LibraryProjectSectionContent(
-          group: group,
-          sectionState: sectionState,
-          layoutMode: layoutMode,
-          onSelectSession: onSelectSession
-        )
+        let allSessions = group.liveSessions + group.archivedSessions
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          ForEach(allSessions, id: \.scopedID) { session in
+            FlatSessionRow(
+              session: session,
+              onSelect: { onSelectSession(session) },
+              isAttentionPromoted: session.needsAttention
+            )
+          }
+        }
+        .padding(.horizontal, Spacing.md)
         .padding(.bottom, Spacing.md)
       }
     }
@@ -104,111 +98,6 @@ private struct LibraryProjectBadgeRow: View {
             LibraryInlineStat(text: value, tint: .textTertiary)
         }
       }
-    }
-  }
-}
-
-private struct LibraryProjectEndpointFacetRow: View {
-  let facets: [LibraryEndpointFacet]
-  let selectedEndpointId: UUID?
-  let hiddenFacetCount: Int
-
-  var body: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: Spacing.xs) {
-        ForEach(facets.prefix(3)) { facet in
-          LibraryFilterChip(
-            title: facet.name,
-            count: facet.sessionCount,
-            icon: facet.isConnected ? "network" : "wifi.slash",
-            tint: facet.isConnected ? .accent : .statusPermission,
-            isSelected: selectedEndpointId == facet.endpointId
-          )
-        }
-
-        if hiddenFacetCount > 0 {
-          LibraryFilterChip(
-            title: "+\(hiddenFacetCount)",
-            tint: .textSecondary,
-            isSelected: false
-          )
-        }
-      }
-      .padding(.leading, 20)
-    }
-  }
-}
-
-private struct LibraryProjectSectionContent: View {
-  let group: LibraryProjectGroup
-  let sectionState: LibraryProjectSectionState
-  let layoutMode: DashboardLayoutMode
-  let onSelectSession: (RootSessionNode) -> Void
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: Spacing.md) {
-      if !group.liveSessions.isEmpty {
-        LibraryProjectSubsection(
-          title: "Live Now",
-          count: group.liveSessions.count,
-          tint: .statusWorking,
-          sessions: group.liveSessions,
-          layoutMode: layoutMode,
-          onSelectSession: onSelectSession
-        )
-      }
-
-      if !group.archivedSessions.isEmpty {
-        if !group.liveSessions.isEmpty {
-          Divider()
-            .overlay(Color.surfaceBorder.opacity(OpacityTier.subtle))
-            .padding(.leading, layoutMode.isPhoneCompact ? Spacing.md : Spacing.lg)
-        }
-
-        LibraryProjectSubsection(
-          title: sectionState.archiveSectionTitle,
-          count: group.archivedSessions.count,
-          tint: sectionState.archiveSectionKind == .cachedArchive ? .statusPermission : .textTertiary,
-          sessions: group.archivedSessions,
-          layoutMode: layoutMode,
-          onSelectSession: onSelectSession
-        )
-      }
-    }
-  }
-}
-
-struct LibraryProjectSubsection: View {
-  let title: String
-  let count: Int
-  let tint: Color
-  let sessions: [RootSessionNode]
-  let layoutMode: DashboardLayoutMode
-  let onSelectSession: (RootSessionNode) -> Void
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm_) {
-      HStack(spacing: Spacing.xs) {
-        Text(title.uppercased())
-          .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
-          .foregroundStyle(tint)
-
-        Text("\(count)")
-          .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
-          .foregroundStyle(tint)
-      }
-      .padding(.leading, layoutMode.isPhoneCompact ? Spacing.md : Spacing.lg)
-
-      VStack(alignment: .leading, spacing: Spacing.xxs) {
-        ForEach(sessions, id: \.scopedID) { session in
-          FlatSessionRow(
-            session: session,
-            onSelect: { onSelectSession(session) },
-            isAttentionPromoted: session.needsAttention
-          )
-        }
-      }
-      .padding(.horizontal, layoutMode.isPhoneCompact ? Spacing.sm : Spacing.md)
     }
   }
 }
