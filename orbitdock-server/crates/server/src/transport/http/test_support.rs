@@ -22,6 +22,9 @@ pub(crate) fn new_test_state(is_primary: bool) -> Arc<SessionRegistry> {
 pub(crate) fn ensure_test_db() -> PathBuf {
     ensure_server_test_data_dir();
     let db_path = crate::infrastructure::paths::db_path();
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(db_path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(db_path.with_extension("db-shm"));
     let mut conn = rusqlite::Connection::open(&db_path).expect("open test db");
     crate::infrastructure::migration_runner::run_migrations(&mut conn)
         .expect("run test migrations");

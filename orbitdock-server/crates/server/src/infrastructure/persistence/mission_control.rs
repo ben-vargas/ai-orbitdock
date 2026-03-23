@@ -79,10 +79,11 @@ pub struct MissionIssueRow {
     pub url: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub pr_url: Option<String>,
 }
 
 impl MissionIssueRow {
-    /// Map a row whose SELECT list matches the 17-column mission_issues schema.
+    /// Map a row whose SELECT list matches the 18-column mission_issues schema.
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         Ok(Self {
             id: row.get(0)?,
@@ -102,6 +103,7 @@ impl MissionIssueRow {
             url: row.get(14)?,
             created_at: row.get(15)?,
             updated_at: row.get(16)?,
+            pr_url: row.get(17)?,
         })
     }
 }
@@ -197,7 +199,7 @@ pub fn load_mission_issues(conn: &Connection, mission_id: &str) -> Result<Vec<Mi
         .prepare(
             "SELECT id, mission_id, issue_id, issue_identifier, issue_title, issue_state,
                     orchestration_state, session_id, provider, attempt, last_error,
-                    retry_due_at, started_at, completed_at, url, created_at, updated_at
+                    retry_due_at, started_at, completed_at, url, created_at, updated_at, pr_url
              FROM mission_issues
              WHERE mission_id = ?1
              ORDER BY created_at ASC",
@@ -224,7 +226,7 @@ pub fn load_retry_ready_issues(
         .prepare(
             "SELECT id, mission_id, issue_id, issue_identifier, issue_title, issue_state,
                     orchestration_state, session_id, provider, attempt, last_error,
-                    retry_due_at, started_at, completed_at, url, created_at, updated_at
+                    retry_due_at, started_at, completed_at, url, created_at, updated_at, pr_url
              FROM mission_issues
              WHERE mission_id = ?1
                AND orchestration_state = 'retry_queued'
@@ -240,6 +242,62 @@ pub fn load_retry_ready_issues(
             MissionIssueRow::from_row(row)
         })
         .context("query load_retry_ready_issues")?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+/// Load manually-queued issues that weren't returned by the tracker candidate fetch.
+/// These are issues an admin moved back to `queued` via the transition API.
+pub fn load_manually_queued_issues(
+    conn: &Connection,
+    mission_id: &str,
+    exclude_ids: &[String],
+) -> Result<Vec<MissionIssueRow>> {
+    // Build a set of placeholders for the exclusion list
+    let base_query = "SELECT id, mission_id, issue_id, issue_identifier, issue_title, issue_state,
+                    orchestration_state, session_id, provider, attempt, last_error,
+                    retry_due_at, started_at, completed_at, url, created_at, updated_at
+             FROM mission_issues
+             WHERE mission_id = ?1
+               AND orchestration_state = 'queued'";
+
+    if exclude_ids.is_empty() {
+        let mut stmt = conn
+            .prepare(&format!("{base_query} ORDER BY created_at ASC"))
+            .context("prepare load_manually_queued_issues")?;
+        let rows = stmt
+            .query_map(params![mission_id], MissionIssueRow::from_row)
+            .context("query load_manually_queued_issues")?
+            .filter_map(|r| r.ok())
+            .collect();
+        return Ok(rows);
+    }
+
+    let placeholders: Vec<String> = (0..exclude_ids.len())
+        .map(|i| format!("?{}", i + 2))
+        .collect();
+    let full_query = format!(
+        "{base_query} AND issue_id NOT IN ({}) ORDER BY created_at ASC",
+        placeholders.join(", ")
+    );
+
+    let mut stmt = conn
+        .prepare(&full_query)
+        .context("prepare load_manually_queued_issues")?;
+
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(mission_id.to_string())];
+    for id in exclude_ids {
+        params.push(Box::new(id.clone()));
+    }
+
+    let rows = stmt
+        .query_map(
+            rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
+            MissionIssueRow::from_row,
+        )
+        .context("query load_manually_queued_issues")?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -330,7 +388,7 @@ pub fn load_all_active_mission_issues(conn: &Connection) -> Result<Vec<MissionIs
             "SELECT mi.id, mi.mission_id, mi.issue_id, mi.issue_identifier, mi.issue_title,
                     mi.issue_state, mi.orchestration_state, mi.session_id, mi.provider,
                     mi.attempt, mi.last_error, mi.retry_due_at, mi.started_at,
-                    mi.completed_at, mi.url, mi.created_at, mi.updated_at
+                    mi.completed_at, mi.url, mi.created_at, mi.updated_at, mi.pr_url
              FROM mission_issues mi
              JOIN missions m ON m.id = mi.mission_id
              WHERE m.enabled = 1
