@@ -77,6 +77,7 @@ pub struct TransitionState {
     pub custom_name: Option<String>,
     pub project_path: String,
     pub last_activity_at: Option<String>,
+    pub last_progress_at: Option<String>,
     pub current_turn_id: Option<String>,
     pub turn_count: u64,
     pub turn_diffs: Vec<TurnDiff>,
@@ -350,6 +351,7 @@ pub enum PersistOp {
         status: Option<SessionStatus>,
         work_status: Option<WorkStatus>,
         last_activity_at: Option<String>,
+        last_progress_at: Option<String>,
     },
     SessionEnd {
         id: String,
@@ -511,6 +513,7 @@ pub fn transition(
         Input::TurnStarted => {
             state.phase = WorkPhase::Working;
             state.last_activity_at = Some(now.to_string());
+            state.last_progress_at = Some(now.to_string());
             state.turn_count += 1;
             let turn_id = format!("turn-{}", state.turn_count);
             state.current_turn_id = Some(turn_id.clone());
@@ -520,12 +523,14 @@ pub fn transition(
                 status: None,
                 work_status: Some(WorkStatus::Working),
                 last_activity_at: Some(now.to_string()),
+                last_progress_at: Some(now.to_string()),
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid,
                 changes: Box::new(StateChanges {
                     work_status: Some(WorkStatus::Working),
                     last_activity_at: Some(now.to_string()),
+                    last_progress_at: Some(now.to_string()),
                     current_turn_id: Some(Some(turn_id)),
                     turn_count: Some(state.turn_count),
                     ..Default::default()
@@ -588,6 +593,7 @@ pub fn transition(
                 state.phase = WorkPhase::Idle;
             }
             state.last_activity_at = Some(now.to_string());
+            state.last_progress_at = Some(now.to_string());
             state.current_turn_id = None;
 
             effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
@@ -595,12 +601,14 @@ pub fn transition(
                 status: None,
                 work_status: Some(WorkStatus::Waiting),
                 last_activity_at: Some(now.to_string()),
+                last_progress_at: Some(now.to_string()),
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid,
                 changes: Box::new(StateChanges {
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
+                    last_progress_at: Some(now.to_string()),
                     current_turn_id: Some(None),
                     current_diff: Some(None),
                     cumulative_diff: Some(cumulative),
@@ -622,6 +630,7 @@ pub fn transition(
 
                 state.phase = WorkPhase::Idle;
                 state.last_activity_at = Some(now.to_string());
+                state.last_progress_at = Some(now.to_string());
                 state.current_turn_id = None;
 
                 effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
@@ -629,12 +638,14 @@ pub fn transition(
                     status: None,
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
+                    last_progress_at: Some(now.to_string()),
                 })));
                 effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                     session_id: sid,
                     changes: Box::new(StateChanges {
                         work_status: Some(WorkStatus::Waiting),
                         last_activity_at: Some(now.to_string()),
+                        last_progress_at: Some(now.to_string()),
                         current_turn_id: Some(None),
                         ..Default::default()
                     }),
@@ -645,6 +656,7 @@ pub fn transition(
         Input::Error(msg) => {
             state.phase = WorkPhase::Idle;
             state.last_activity_at = Some(now.to_string());
+            state.last_progress_at = Some(now.to_string());
 
             // Create an error row so the user sees what happened
             let seq = state.rows.last().map(|r| r.sequence + 1).unwrap_or(0);
@@ -682,12 +694,14 @@ pub fn transition(
                 status: None,
                 work_status: Some(WorkStatus::Waiting),
                 last_activity_at: Some(now.to_string()),
+                last_progress_at: Some(now.to_string()),
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid,
                 changes: Box::new(StateChanges {
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
+                    last_progress_at: Some(now.to_string()),
                     ..Default::default()
                 }),
             })));
@@ -710,6 +724,7 @@ pub fn transition(
                 state.rows.push(entry.clone());
                 state.total_row_count = entry.sequence + 1;
                 state.last_activity_at = Some(now.to_string());
+                state.last_progress_at = Some(now.to_string());
 
                 effects.push(Effect::Persist(Box::new(PersistOp::RowAppend {
                     session_id: sid.clone(),
@@ -752,6 +767,8 @@ pub fn transition(
             if let Some(existing) = state.rows.iter_mut().find(|e| e.id() == row_id.as_str()) {
                 *existing = entry.clone();
             }
+            state.last_activity_at = Some(now.to_string());
+            state.last_progress_at = Some(now.to_string());
 
             effects.push(Effect::Persist(Box::new(PersistOp::RowUpsert {
                 session_id: sid.clone(),
@@ -795,6 +812,7 @@ pub fn transition(
                 proposed_amendment: proposed_amendment.clone(),
             };
             state.last_activity_at = Some(now.to_string());
+            state.last_progress_at = Some(now.to_string());
 
             // Use real tool_name from connector when available, fall back to type-based name
             let resolved_tool_name = tool_name.unwrap_or_else(|| match approval_type {
@@ -896,12 +914,14 @@ pub fn transition(
                 state.phase = WorkPhase::Working;
                 state.pending_approval = None;
                 state.last_activity_at = Some(now.to_string());
+                state.last_progress_at = Some(now.to_string());
 
                 effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
                     id: sid.clone(),
                     status: None,
                     work_status: Some(WorkStatus::Working),
                     last_activity_at: Some(now.to_string()),
+                    last_progress_at: Some(now.to_string()),
                 })));
                 effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                     session_id: sid,
@@ -909,6 +929,7 @@ pub fn transition(
                         work_status: Some(WorkStatus::Working),
                         pending_approval: Some(None),
                         last_activity_at: Some(now.to_string()),
+                        last_progress_at: Some(now.to_string()),
                         ..Default::default()
                     }),
                 })));
@@ -1019,6 +1040,7 @@ pub fn transition(
                 reason: reason.clone(),
             };
             state.last_activity_at = Some(now.to_string());
+            state.last_progress_at = Some(now.to_string());
 
             effects.push(Effect::Persist(Box::new(PersistOp::SessionEnd {
                 id: sid.clone(),
@@ -1034,18 +1056,21 @@ pub fn transition(
         Input::UndoStarted { message } => {
             state.phase = WorkPhase::Working;
             state.last_activity_at = Some(now.to_string());
+            state.last_progress_at = Some(now.to_string());
 
             effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
                 id: sid.clone(),
                 status: None,
                 work_status: Some(WorkStatus::Working),
                 last_activity_at: Some(now.to_string()),
+                last_progress_at: Some(now.to_string()),
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid.clone(),
                 changes: Box::new(StateChanges {
                     work_status: Some(WorkStatus::Working),
                     last_activity_at: Some(now.to_string()),
+                    last_progress_at: Some(now.to_string()),
                     ..Default::default()
                 }),
             })));
@@ -1058,18 +1083,21 @@ pub fn transition(
         Input::UndoCompleted { success, message } => {
             state.phase = WorkPhase::Idle;
             state.last_activity_at = Some(now.to_string());
+            state.last_progress_at = Some(now.to_string());
 
             effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
                 id: sid.clone(),
                 status: None,
                 work_status: Some(WorkStatus::Waiting),
                 last_activity_at: Some(now.to_string()),
+                last_progress_at: Some(now.to_string()),
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid.clone(),
                 changes: Box::new(StateChanges {
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
+                    last_progress_at: Some(now.to_string()),
                     ..Default::default()
                 }),
             })));
@@ -1083,18 +1111,21 @@ pub fn transition(
         Input::ThreadRolledBack { num_turns } => {
             state.phase = WorkPhase::Idle;
             state.last_activity_at = Some(now.to_string());
+            state.last_progress_at = Some(now.to_string());
 
             effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
                 id: sid.clone(),
                 status: None,
                 work_status: Some(WorkStatus::Waiting),
                 last_activity_at: Some(now.to_string()),
+                last_progress_at: Some(now.to_string()),
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid.clone(),
                 changes: Box::new(StateChanges {
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
+                    last_progress_at: Some(now.to_string()),
                     ..Default::default()
                 }),
             })));
@@ -1138,6 +1169,7 @@ pub fn transition(
 
             if changed {
                 state.last_activity_at = Some(now.to_string());
+                state.last_progress_at = Some(now.to_string());
 
                 effects.push(Effect::Persist(Box::new(PersistOp::EnvironmentUpdate {
                     session_id: sid.clone(),
@@ -1154,6 +1186,7 @@ pub fn transition(
                         git_branch: Some(state.git_branch.clone()),
                         git_sha: Some(state.git_sha.clone()),
                         last_activity_at: Some(now.to_string()),
+                        last_progress_at: Some(now.to_string()),
                         repository_root: Some(state.repository_root.clone()),
                         is_worktree: Some(state.is_worktree),
                         ..Default::default()
@@ -1196,6 +1229,7 @@ pub fn transition(
         // -- Context management -----------------------------------------------
         Input::ContextCompacted => {
             state.last_activity_at = Some(now.to_string());
+            state.last_progress_at = Some(now.to_string());
             let compacted_usage = TokenUsage {
                 input_tokens: 0,
                 output_tokens: state.token_usage.output_tokens,
@@ -2469,6 +2503,7 @@ mod tests {
             custom_name: None,
             project_path: "/tmp/project".to_string(),
             last_activity_at: None,
+            last_progress_at: None,
             current_turn_id: None,
             turn_count: 0,
             turn_diffs: Vec::new(),
@@ -3067,6 +3102,7 @@ mod tests {
         } else {
             panic!("expected Assistant row");
         }
+        assert_eq!(new_state.last_activity_at.as_deref(), Some(NOW));
         assert_eq!(effects.len(), 2); // Persist + Emit
     }
 

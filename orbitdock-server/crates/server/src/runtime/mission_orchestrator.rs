@@ -15,8 +15,8 @@ use crate::domain::mission_control::config::{parse_mission_file, MissionConfig};
 use crate::domain::mission_control::eligibility::{is_eligible, sort_candidates};
 use crate::domain::mission_control::tracker::Tracker;
 use crate::infrastructure::persistence::mission_control::{
-    load_mission_by_id, load_mission_issues, load_missions, load_retry_ready_issues,
-    MissionIssueRow, MissionRow,
+    load_manually_queued_issues, load_mission_by_id, load_mission_issues, load_missions,
+    load_retry_ready_issues, MissionIssueRow, MissionRow,
 };
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_registry::SessionRegistry;
@@ -408,6 +408,83 @@ async fn process_mission(
         });
     }
 
+    // Dispatch manually-queued issues (admin transitions) not in tracker candidates
+    let candidate_ids: Vec<String> = candidates.iter().map(|c| c.id.clone()).collect();
+    let manually_queued: Vec<MissionIssueRow> = {
+        let path = db_path.clone();
+        let mid = mission.id.clone();
+        let exclude = candidate_ids;
+        tokio::task::spawn_blocking(move || {
+            let conn = rusqlite::Connection::open(&path)?;
+            load_manually_queued_issues(&conn, &mid, &exclude)
+        })
+        .await??
+    };
+
+    for queued_row in manually_queued {
+        if current_running >= workflow.config.provider.max_concurrent {
+            break;
+        }
+
+        let queued_issue = crate::domain::mission_control::tracker::TrackerIssue {
+            id: queued_row.issue_id.clone(),
+            identifier: queued_row.issue_identifier.clone(),
+            title: queued_row.issue_title.clone().unwrap_or_default(),
+            description: None,
+            priority: None,
+            state: queued_row.issue_state.clone().unwrap_or_default(),
+            url: queued_row.url.clone(),
+            labels: vec![],
+            blocked_by: vec![],
+            created_at: Some(queued_row.created_at.clone()),
+        };
+
+        let chosen_provider = choose_provider(&workflow.config, &provider_counts, dispatch_index);
+        current_running += 1;
+        provider_counts.increment(&chosen_provider);
+        dispatch_index += 1;
+
+        let attempt = queued_row.attempt;
+        let registry = registry.clone();
+        let mission_id = mission.id.clone();
+        let provider_str = chosen_provider;
+        let tracker = tracker.clone();
+        let ctx = DispatchContext {
+            repo_root: mission.repo_root.clone(),
+            prompt_template: workflow.prompt_template.clone(),
+            base_branch: workflow.config.orchestration.base_branch.clone(),
+            agent_config: workflow.config.agent.clone(),
+            worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
+            state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
+        };
+
+        tokio::spawn(async move {
+            let result = dispatch_issue(
+                &registry,
+                &mission_id,
+                &queued_issue,
+                &provider_str,
+                &ctx,
+                attempt,
+                &tracker,
+            )
+            .await;
+
+            if let Err(ref err) = result {
+                error!(
+                    component = "mission_control",
+                    event = "dispatch.manual_queue_failed",
+                    mission_id = %mission_id,
+                    issue_id = %queued_issue.id,
+                    error = %err,
+                    "Failed to dispatch manually-queued issue"
+                );
+            }
+
+            broadcast_mission_delta_by_id(&registry, &mission_id).await;
+        });
+    }
+
     // Dispatch retry-ready issues
     let mission_id_retry = mission.id.clone();
     let now_str = chrono::Utc::now().to_rfc3339();
@@ -562,6 +639,20 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
                 }
             };
 
+            // Enrich with live session data if available
+            let (work_status, last_message, last_activity) = row
+                .session_id
+                .as_deref()
+                .and_then(|sid| registry.get_session(sid))
+                .map(|handle| {
+                    let snap = handle.snapshot();
+                    let ws = snap.work_status;
+                    let msg = snap.last_message.clone();
+                    let activity = snap.last_progress_at.clone();
+                    (Some(ws), msg, activity)
+                })
+                .unwrap_or((None, None, None));
+
             MissionIssueItem {
                 issue_id: row.issue_id.clone(),
                 identifier: row.issue_identifier.clone(),
@@ -587,9 +678,13 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
                 attempt: row.attempt,
                 error: row.last_error.clone(),
                 url: row.url.clone(),
-                last_activity: None,
+                last_activity,
                 started_at: row.started_at.clone(),
                 completed_at: row.completed_at.clone(),
+                allowed_transitions: state.allowed_transitions(),
+                work_status,
+                last_message,
+                pr_url: row.pr_url.clone(),
             }
         })
         .collect();

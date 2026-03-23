@@ -13,11 +13,13 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
             status,
             work_status,
             last_activity_at,
+            last_progress_at,
         } => PersistCommand::SessionUpdate {
             id,
             status,
             work_status,
             last_activity_at,
+            last_progress_at,
         },
         PersistOp::SessionEnd { id, reason } => PersistCommand::SessionEnd { id, reason },
         PersistOp::RowAppend { session_id, entry } => PersistCommand::RowAppend {

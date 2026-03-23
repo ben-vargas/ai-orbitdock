@@ -565,6 +565,8 @@ pub struct SessionSummary {
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_progress_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_sha: Option<String>,
@@ -768,6 +770,7 @@ impl SessionSummary {
             claude_integration_mode: self.claude_integration_mode,
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
+            last_progress_at: self.last_progress_at.clone(),
             unread_count: self.unread_count,
             has_turn_diff: self.has_turn_diff,
             pending_tool_name: self.pending_tool_name.clone(),
@@ -808,6 +811,7 @@ impl From<SessionSummary> for SessionListItem {
             claude_integration_mode: summary.claude_integration_mode,
             started_at: summary.started_at,
             last_activity_at: summary.last_activity_at,
+            last_progress_at: summary.last_progress_at,
             unread_count: summary.unread_count,
             has_turn_diff: summary.has_turn_diff,
             pending_tool_name: summary.pending_tool_name,
@@ -972,6 +976,8 @@ pub struct SessionState {
     pub sandbox_mode: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_progress_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub forked_from_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1051,6 +1057,8 @@ pub struct SessionListItem {
     pub claude_integration_mode: Option<ClaudeIntegrationMode>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_progress_at: Option<String>,
     #[serde(default)]
     pub unread_count: u64,
     #[serde(default)]
@@ -1115,6 +1123,7 @@ impl SessionListItem {
             claude_integration_mode: summary.claude_integration_mode,
             started_at: summary.started_at.clone(),
             last_activity_at: summary.last_activity_at.clone(),
+            last_progress_at: summary.last_progress_at.clone(),
             unread_count: summary.unread_count,
             has_turn_diff: summary.has_turn_diff,
             pending_tool_name: summary.pending_tool_name.clone(),
@@ -1266,6 +1275,8 @@ pub struct StateChanges {
     pub codex_config_overrides: Option<Option<CodexSessionOverrides>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_activity_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_progress_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_turn_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1801,6 +1812,53 @@ pub enum OrchestrationState {
     Blocked,
 }
 
+impl OrchestrationState {
+    /// Returns the valid admin transitions from this state.
+    pub fn allowed_transitions(&self) -> Vec<OrchestrationState> {
+        match self {
+            Self::Queued => vec![Self::Completed, Self::Blocked],
+            Self::Claimed => vec![Self::Queued, Self::Completed, Self::Blocked, Self::Failed],
+            Self::Running => vec![Self::Queued, Self::Completed, Self::Blocked, Self::Failed],
+            Self::RetryQueued => vec![Self::Queued, Self::Completed, Self::Blocked],
+            Self::Failed => vec![Self::Queued, Self::Completed],
+            Self::Blocked => vec![Self::Queued, Self::Completed],
+            Self::Completed => vec![Self::Queued],
+        }
+    }
+
+    /// Check if transitioning to the target state is valid.
+    pub fn can_transition_to(&self, target: &Self) -> bool {
+        self.allowed_transitions().contains(target)
+    }
+
+    /// Convert to the DB string representation.
+    pub fn as_db_str(&self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Claimed => "claimed",
+            Self::Running => "running",
+            Self::RetryQueued => "retry_queued",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Blocked => "blocked",
+        }
+    }
+
+    /// Parse from DB string representation.
+    pub fn from_db_str(s: &str) -> Option<Self> {
+        match s {
+            "queued" => Some(Self::Queued),
+            "claimed" => Some(Self::Claimed),
+            "running" => Some(Self::Running),
+            "retry_queued" => Some(Self::RetryQueued),
+            "completed" => Some(Self::Completed),
+            "failed" => Some(Self::Failed),
+            "blocked" => Some(Self::Blocked),
+            _ => None,
+        }
+    }
+}
+
 /// Summary of a configured mission.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MissionSummary {
@@ -1857,6 +1915,18 @@ pub struct MissionIssueItem {
     pub started_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    /// Valid admin transitions from the current state (server-driven UX).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_transitions: Vec<OrchestrationState>,
+    /// Live work status from the linked session (only present for running issues).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_status: Option<WorkStatus>,
+    /// Most recent agent message or activity summary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<String>,
+    /// URL of the linked pull request (set by `mission_link_pr`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr_url: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1995,6 +2065,7 @@ mod tests {
             pending_approval_id: None,
             started_at: None,
             last_activity_at: None,
+            last_progress_at: None,
             git_branch: None,
             git_sha: None,
             current_cwd: None,

@@ -40,6 +40,7 @@ pub(crate) async fn reactivate_passive_and_prepare_subscribe(
                 status: Some(SessionStatus::Active),
                 work_status: Some(WorkStatus::Waiting),
                 last_activity_at: Some(chrono_now()),
+                last_progress_at: None,
             }),
         })
         .await;

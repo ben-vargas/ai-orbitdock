@@ -241,13 +241,14 @@ pub(super) fn execute_command(
             });
 
             conn.execute(
-                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, started_at, last_activity_at, forked_from_session_id, mission_id, issue_identifier, allow_bypass_permissions)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?7, ?7, ?11, ?23, ?24, ?25, ?26)
+                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, started_at, last_activity_at, last_progress_at, forked_from_session_id, mission_id, issue_identifier, allow_bypass_permissions)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?7, ?7, ?7, ?11, ?23, ?24, ?25, ?26)
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
                    branch = COALESCE(?4, branch),
                    model = COALESCE(?5, model),
-                    last_activity_at = ?7",
+                    last_activity_at = ?7,
+                    last_progress_at = ?7",
                 params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, mission_id, issue_identifier, allow_bypass_permissions],
             )?;
         }
@@ -257,6 +258,7 @@ pub(super) fn execute_command(
             status,
             work_status,
             last_activity_at,
+            last_progress_at,
         } => {
             let status_str = status.map(|s| match s {
                 SessionStatus::Active => "active",
@@ -299,6 +301,10 @@ pub(super) fn execute_command(
             if let Some(ref la) = last_activity_at {
                 updates.push("last_activity_at = ?");
                 params_vec.push(la);
+            }
+            if let Some(ref lp) = last_progress_at {
+                updates.push("last_progress_at = ?");
+                params_vec.push(lp);
             }
             if clears_pending {
                 updates.push("pending_tool_name = NULL");
@@ -353,6 +359,7 @@ pub(super) fn execute_command(
             let row_id = entry.id().to_string();
             let row_type = row_type_str(&entry.row);
             let row_data = serde_json::to_string(&entry.row).unwrap_or_else(|_| "{}".to_string());
+            let now = chrono_now();
 
             // Extract content for last_message updates
             let content_text = extract_row_content(&entry.row);
@@ -369,7 +376,7 @@ pub(super) fn execute_command(
                     session_id,
                     row_type,
                     content_text.as_deref().unwrap_or(""),
-                    chrono_now(),
+                    now.clone(),
                     row_data,
                 ],
             )?;
@@ -396,6 +403,17 @@ pub(super) fn execute_command(
                         params![truncated, session_id],
                     );
                 }
+            }
+
+            let _ = conn.execute(
+                "UPDATE sessions SET last_activity_at = ?1 WHERE id = ?2",
+                params![now, session_id],
+            );
+            if !is_user {
+                let _ = conn.execute(
+                    "UPDATE sessions SET last_progress_at = ?1 WHERE id = ?2",
+                    params![now, session_id],
+                );
             }
 
             if !is_user {
@@ -434,6 +452,7 @@ pub(super) fn execute_command(
             let row_data = serde_json::to_string(&entry.row).unwrap_or_else(|_| "{}".to_string());
             let content_text = extract_row_content(&entry.row);
             let is_user = matches!(&entry.row, ConversationRow::User(_));
+            let now = chrono_now();
 
             // DB computes sequence on insert; ON CONFLICT preserves original ordering.
             conn.execute(
@@ -449,7 +468,7 @@ pub(super) fn execute_command(
                     session_id,
                     row_type,
                     content_text.as_deref().unwrap_or(""),
-                    chrono_now(),
+                    now.clone(),
                     row_data,
                 ],
             )?;
@@ -476,6 +495,17 @@ pub(super) fn execute_command(
                         params![truncated, session_id],
                     );
                 }
+            }
+
+            let _ = conn.execute(
+                "UPDATE sessions SET last_activity_at = ?1 WHERE id = ?2",
+                params![now, session_id],
+            );
+            if !is_user {
+                let _ = conn.execute(
+                    "UPDATE sessions SET last_progress_at = ?1 WHERE id = ?2",
+                    params![now, session_id],
+                );
             }
 
             if !is_user && viewer_present {
@@ -786,7 +816,7 @@ pub(super) fn execute_command(
         PersistCommand::ReactivateSession { id } => {
             let now = chrono_now();
             conn.execute(
-                "UPDATE sessions SET status = 'active', work_status = 'waiting', ended_at = NULL, end_reason = NULL, last_activity_at = ?1 WHERE id = ?2",
+                "UPDATE sessions SET status = 'active', work_status = 'waiting', ended_at = NULL, end_reason = NULL, last_activity_at = ?1, last_progress_at = ?1 WHERE id = ?2",
                 params![now, id],
             )?;
         }
@@ -815,9 +845,9 @@ pub(super) fn execute_command(
                     id, project_path, project_name, branch, model, context_label, transcript_path,
                     provider, status, work_status, source, agent_type, permission_mode,
                     claude_integration_mode, terminal_session_id, terminal_app,
-                    started_at, last_activity_at, forked_from_session_id,
+                    started_at, last_activity_at, last_progress_at, forked_from_session_id,
                     repository_root, is_worktree, git_sha
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'claude', 'active', 'waiting', ?8, ?9, ?10, 'passive', ?11, ?12, ?13, ?13, ?14, ?15, ?16, ?17)
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'claude', 'active', 'waiting', ?8, ?9, ?10, 'passive', ?11, ?12, ?13, ?13, ?13, ?14, ?15, ?16, ?17)
                  ON CONFLICT(id) DO UPDATE SET
                     project_path = excluded.project_path,
                     project_name = COALESCE(excluded.project_name, sessions.project_name),
@@ -838,7 +868,8 @@ pub(super) fn execute_command(
                     is_worktree = excluded.is_worktree,
                     git_sha = COALESCE(excluded.git_sha, sessions.git_sha),
                     status = 'active',
-                    last_activity_at = excluded.last_activity_at",
+                    last_activity_at = excluded.last_activity_at,
+                    last_progress_at = excluded.last_progress_at",
                 params![
                     id,
                     project_path,
@@ -1760,6 +1791,17 @@ pub(super) fn execute_command(
                 .map(|v| v as &dyn rusqlite::types::ToSql)
                 .collect();
             conn.execute(&sql, param_refs.as_slice())?;
+        }
+
+        PersistCommand::MissionIssueSetPrUrl {
+            mission_id,
+            issue_id,
+            pr_url,
+        } => {
+            conn.execute(
+                "UPDATE mission_issues SET pr_url = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mission_id = ?2 AND issue_id = ?3",
+                rusqlite::params![pr_url, mission_id, issue_id],
+            )?;
         }
     }
 

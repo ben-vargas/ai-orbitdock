@@ -19,6 +19,7 @@ pub enum PersistCommand {
         status: Option<SessionStatus>,
         work_status: Option<WorkStatus>,
         last_activity_at: Option<String>,
+        last_progress_at: Option<String>,
     },
 
     /// End a session
@@ -395,6 +396,11 @@ pub enum PersistCommand {
         retry_due_at: Option<Option<String>>,
         started_at: Option<Option<String>>,
         completed_at: Option<Option<String>>,
+    },
+    MissionIssueSetPrUrl {
+        mission_id: String,
+        issue_id: String,
+        pr_url: String,
     },
 }
 

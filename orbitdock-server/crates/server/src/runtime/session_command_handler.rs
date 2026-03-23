@@ -37,11 +37,13 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
             status,
             work_status,
             last_activity_at,
+            last_progress_at,
         } => PersistCommand::SessionUpdate {
             id,
             status,
             work_status,
             last_activity_at,
+            last_progress_at,
         },
         PersistOp::SetCustomName { session_id, name } => PersistCommand::SetCustomName {
             session_id,
@@ -283,19 +285,15 @@ pub async fn handle_session_command(
             handle.set_last_tool(tool);
         }
         SessionCommand::SetSubagents { subagents } => {
-            let session_id = handle.id().to_string();
-            let now = chrono_now();
             let merged_subagents = merge_subagent_updates(handle.subagents(), subagents);
             if subagent_lists_match(&merged_subagents, handle.subagents()) {
                 return;
             }
             handle.set_subagents(merged_subagents.clone());
-            handle.set_last_activity_at(Some(now.clone()));
             handle.broadcast(ServerMessage::SessionDelta {
-                session_id,
+                session_id: handle.id().to_string(),
                 changes: Box::new(StateChanges {
                     subagents: Some(merged_subagents),
-                    last_activity_at: Some(now),
                     ..Default::default()
                 }),
             });
@@ -353,7 +351,6 @@ pub async fn handle_session_command(
                 session_id,
                 changes: Box::new(StateChanges {
                     custom_name: Some(name),
-                    last_activity_at: Some(chrono_now()),
                     ..Default::default()
                 }),
             });

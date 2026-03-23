@@ -11,6 +11,7 @@ use crate::infrastructure::persistence::mission_control::{MissionIssueRow, Missi
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_mutations::{end_session, send_continuation_message};
 use crate::runtime::session_registry::SessionRegistry;
+use crate::support::session_time::parse_unix_z;
 
 /// Terminal tracker states — if an issue moves to one of these, stop working.
 const TERMINAL_STATES: &[&str] = &["Done", "Canceled", "Cancelled", "Duplicate", "Won't Fix"];
@@ -27,28 +28,24 @@ pub(crate) fn is_active_orchestration_state(state: &str) -> bool {
     state == "running" || state == "claimed"
 }
 
-/// Determine whether a session has stalled based on the last activity timestamp
+/// Determine whether a session has stalled based on the last progress timestamp
 /// and the configured timeout.
 ///
 /// Returns `Some(elapsed_secs)` if stalled, `None` if not stalled or timestamps
 /// cannot be parsed.
 pub(crate) fn stall_elapsed_secs(
-    last_activity_at: Option<&str>,
-    started_at: Option<&str>,
-    now: chrono::DateTime<chrono::Utc>,
+    last_progress_at: Option<&str>,
+    now_unix_secs: u64,
     stall_timeout_secs: u64,
 ) -> Option<i64> {
     if stall_timeout_secs == 0 {
         return None;
     }
 
-    let parsed = last_activity_at
-        .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
-        .or_else(|| started_at.and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok()))?;
-
-    let elapsed = now - parsed.with_timezone(&chrono::Utc);
-    if elapsed.num_seconds() > stall_timeout_secs as i64 {
-        Some(elapsed.num_seconds())
+    let progress_at = parse_unix_z(last_progress_at)?;
+    let elapsed_secs = now_unix_secs.saturating_sub(progress_at) as i64;
+    if elapsed_secs > stall_timeout_secs as i64 {
+        Some(elapsed_secs)
     } else {
         None
     }
@@ -62,8 +59,9 @@ const NUDGE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(300);
 /// orchestrator will stop nudging and let stall detection handle cleanup.
 const MAX_NUDGE_ATTEMPTS: u32 = 3;
 
-/// Reconcile a mission's running issues:
-/// - Check if tracker state moved to terminal -> mark completed
+/// Reconcile a mission's issues:
+/// - Check if failed/blocked issues resolved in tracker -> mark completed
+/// - Check if running issues' tracker state moved to terminal -> mark completed
 /// - Check if agent session ended -> mark completed/failed
 /// - Check for stalled sessions -> kill + mark failed
 pub async fn reconcile_mission(
@@ -74,19 +72,67 @@ pub async fn reconcile_mission(
     config: &MissionConfig,
     nudge_tracker: &mut HashMap<String, (std::time::Instant, u32)>,
 ) {
+    // Track which issues we've already handled via terminal state detection
+    let mut handled_issue_ids = HashSet::new();
+
+    // ── Pass 0: Recover failed/blocked issues that resolved in tracker ──
+    let stuck_issues: Vec<&MissionIssueRow> = existing_issues
+        .iter()
+        .filter(|i| i.orchestration_state == "failed" || i.orchestration_state == "blocked")
+        .collect();
+
+    if !stuck_issues.is_empty() {
+        let stuck_ids: Vec<String> = stuck_issues.iter().map(|i| i.issue_id.clone()).collect();
+        if let Ok(stuck_states) = tracker.fetch_issue_states(&stuck_ids).await {
+            for issue_row in &stuck_issues {
+                if let Some(tracker_state) = stuck_states.get(&issue_row.issue_id) {
+                    if is_terminal_tracker_state(tracker_state) {
+                        info!(
+                            component = "mission_control",
+                            event = "reconciliation.stuck_issue_resolved",
+                            mission_id = %mission.id,
+                            issue_id = %issue_row.issue_id,
+                            previous_state = %issue_row.orchestration_state,
+                            tracker_state = %tracker_state,
+                            "Failed/blocked issue resolved in tracker, marking completed"
+                        );
+
+                        let _ = registry
+                            .persist()
+                            .send(PersistCommand::MissionIssueUpdateState {
+                                mission_id: mission.id.clone(),
+                                issue_id: issue_row.issue_id.clone(),
+                                orchestration_state: "completed".to_string(),
+                                session_id: None,
+                                attempt: None,
+                                last_error: None,
+                                retry_due_at: None,
+                                started_at: None,
+                                completed_at: Some(Some(chrono::Utc::now().to_rfc3339())),
+                            })
+                            .await;
+
+                        handled_issue_ids.insert(issue_row.issue_id.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Pass 1: Check running issues against tracker ────────────────────
     let running_issues: Vec<&MissionIssueRow> = existing_issues
         .iter()
         .filter(|i| is_active_orchestration_state(&i.orchestration_state))
         .collect();
 
+    if running_issues.is_empty() && handled_issue_ids.is_empty() {
+        return;
+    }
+
     if running_issues.is_empty() {
         return;
     }
 
-    // Track which issues we've already handled via terminal state detection
-    let mut handled_issue_ids = HashSet::new();
-
-    // ── Pass 1: Check if tracker state moved to terminal ───────────────
     let issue_ids: Vec<String> = running_issues.iter().map(|i| i.issue_id.clone()).collect();
     let tracker_states = match tracker.fetch_issue_states(&issue_ids).await {
         Ok(states) => states,
@@ -301,21 +347,20 @@ pub async fn reconcile_mission(
         };
 
         let snap = actor.snapshot();
-        let now = chrono::Utc::now();
+        let now_unix_secs = chrono::Utc::now().timestamp().max(0) as u64;
         let Some(elapsed_secs) = stall_elapsed_secs(
-            snap.last_activity_at.as_deref(),
-            issue_row.started_at.as_deref(),
-            now,
+            snap.last_progress_at.as_deref(),
+            now_unix_secs,
             stall_timeout_secs,
         ) else {
-            if snap.last_activity_at.is_none() && issue_row.started_at.is_none() {
+            if snap.last_progress_at.is_none() {
                 warn!(
                     component = "mission_control",
                     event = "reconciliation.no_valid_timestamp",
                     mission_id = %mission.id,
                     issue_id = %issue_row.issue_id,
                     session_id = %session_id,
-                    "No valid timestamp for stall detection"
+                    "No valid progress timestamp for stall detection"
                 );
             }
             continue;
@@ -335,13 +380,14 @@ pub async fn reconcile_mission(
 
             end_session(registry, session_id).await;
 
+            // Keep session_id so the issue can be resumed from mission control
             let _ = registry
                 .persist()
                 .send(PersistCommand::MissionIssueUpdateState {
                     mission_id: mission.id.clone(),
                     issue_id: issue_row.issue_id.clone(),
                     orchestration_state: "failed".to_string(),
-                    session_id: None,
+                    session_id: Some(session_id.clone()),
                     attempt: None,
                     last_error: Some(Some(format!(
                         "Session stalled after {}s of inactivity",
@@ -433,10 +479,10 @@ mod tests {
 
     #[test]
     fn stall_detected_when_past_timeout() {
-        let now = chrono::Utc::now();
-        let old = (now - chrono::Duration::seconds(600)).to_rfc3339();
+        let now = chrono::Utc::now().timestamp() as u64;
+        let old = format!("{}Z", now - 600);
 
-        let result = stall_elapsed_secs(Some(&old), None, now, 300);
+        let result = stall_elapsed_secs(Some(&old), now, 300);
         assert!(result.is_some());
         let secs = result.unwrap();
         assert!(secs >= 600, "expected >= 600s, got {secs}");
@@ -444,65 +490,33 @@ mod tests {
 
     #[test]
     fn no_stall_when_within_timeout() {
-        let now = chrono::Utc::now();
-        let recent = (now - chrono::Duration::seconds(60)).to_rfc3339();
+        let now = chrono::Utc::now().timestamp() as u64;
+        let recent = format!("{}Z", now - 60);
 
-        let result = stall_elapsed_secs(Some(&recent), None, now, 300);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn stall_falls_back_to_started_at() {
-        let now = chrono::Utc::now();
-        let old = (now - chrono::Duration::seconds(600)).to_rfc3339();
-
-        // last_activity_at is None, should fall back to started_at
-        let result = stall_elapsed_secs(None, Some(&old), now, 300);
-        assert!(result.is_some());
-    }
-
-    #[test]
-    fn stall_prefers_last_activity_over_started_at() {
-        let now = chrono::Utc::now();
-        let recent = (now - chrono::Duration::seconds(60)).to_rfc3339();
-        let old = (now - chrono::Duration::seconds(600)).to_rfc3339();
-
-        // last_activity_at is recent (within timeout), started_at is old
-        // Should use last_activity_at and return None (not stalled)
-        let result = stall_elapsed_secs(Some(&recent), Some(&old), now, 300);
+        let result = stall_elapsed_secs(Some(&recent), now, 300);
         assert!(result.is_none());
     }
 
     #[test]
     fn stall_returns_none_when_no_timestamps() {
-        let now = chrono::Utc::now();
-        let result = stall_elapsed_secs(None, None, now, 300);
+        let now = chrono::Utc::now().timestamp() as u64;
+        let result = stall_elapsed_secs(None, now, 300);
         assert!(result.is_none());
     }
 
     #[test]
     fn stall_returns_none_when_timeout_is_zero() {
-        let now = chrono::Utc::now();
-        let old = (now - chrono::Duration::seconds(600)).to_rfc3339();
+        let now = chrono::Utc::now().timestamp() as u64;
+        let old = format!("{}Z", now - 600);
 
-        let result = stall_elapsed_secs(Some(&old), None, now, 0);
+        let result = stall_elapsed_secs(Some(&old), now, 0);
         assert!(result.is_none());
     }
 
     #[test]
-    fn stall_skips_malformed_last_activity_falls_back() {
-        let now = chrono::Utc::now();
-        let old = (now - chrono::Duration::seconds(600)).to_rfc3339();
-
-        // Malformed last_activity_at, valid started_at
-        let result = stall_elapsed_secs(Some("not-a-date"), Some(&old), now, 300);
-        assert!(result.is_some());
-    }
-
-    #[test]
-    fn stall_returns_none_when_both_timestamps_malformed() {
-        let now = chrono::Utc::now();
-        let result = stall_elapsed_secs(Some("nope"), Some("also-nope"), now, 300);
+    fn stall_returns_none_when_timestamp_malformed() {
+        let now = chrono::Utc::now().timestamp() as u64;
+        let result = stall_elapsed_secs(Some("not-a-timestamp"), now, 300);
         assert!(result.is_none());
     }
 

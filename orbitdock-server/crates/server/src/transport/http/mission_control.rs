@@ -19,6 +19,7 @@ use crate::infrastructure::persistence::{
     load_mission_by_id, load_mission_issues, load_missions_with_counts, MissionIssueRow,
     MissionRow, PersistCommand,
 };
+use crate::runtime::mission_orchestrator::broadcast_mission_delta_by_id;
 use crate::runtime::session_registry::SessionRegistry;
 
 use super::errors::{bad_request, conflict, internal, not_found, ApiResult};
@@ -265,8 +266,15 @@ pub async fn get_mission(
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
     let orchestrator_running = registry.is_orchestrator_running();
-    let response =
-        build_detail_response(&mission, issue_rows, orchestrator_running, None, true).await;
+    let response = build_detail_response(
+        &registry,
+        &mission,
+        issue_rows,
+        orchestrator_running,
+        None,
+        true,
+    )
+    .await;
     Ok(Json(response))
 }
 
@@ -313,8 +321,15 @@ pub async fn update_mission(
     let mid2 = mission_id.clone();
     let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid2)).await?;
     let orchestrator_running = registry.is_orchestrator_running();
-    let response =
-        build_detail_response(&updated, issue_rows, orchestrator_running, None, false).await;
+    let response = build_detail_response(
+        &registry,
+        &updated,
+        issue_rows,
+        orchestrator_running,
+        None,
+        false,
+    )
+    .await;
     Ok(Json(response))
 }
 
@@ -360,7 +375,10 @@ pub async fn list_mission_issues(
     let mid = mission_id.clone();
     let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid)).await?;
 
-    let items: Vec<MissionIssueItem> = issue_rows.into_iter().map(issue_row_to_item).collect();
+    let items: Vec<MissionIssueItem> = issue_rows
+        .into_iter()
+        .map(|row| issue_row_to_item(row, &registry))
+        .collect();
     Ok(Json(items))
 }
 
@@ -454,8 +472,175 @@ pub async fn retry_mission_issue(
     let mid4 = mission_id.clone();
     let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid4)).await?;
     let orchestrator_running = registry.is_orchestrator_running();
-    let response =
-        build_detail_response(&mission, issue_rows, orchestrator_running, None, false).await;
+    let response = build_detail_response(
+        &registry,
+        &mission,
+        issue_rows,
+        orchestrator_running,
+        None,
+        false,
+    )
+    .await;
+    Ok(Json(response))
+}
+
+/// POST /api/missions/:mission_id/issues/:issue_id/transition
+///
+/// Admin state transition endpoint. Validates the transition against the
+/// state machine, applies appropriate side effects, and returns fresh state.
+pub async fn transition_mission_issue(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path((mission_id, issue_id)): Path<(String, String)>,
+    Json(body): Json<TransitionRequest>,
+) -> ApiResult<MissionDetailResponse> {
+    let target = OrchestrationState::from_db_str(&body.target_state).ok_or_else(|| {
+        bad_request(
+            "invalid_state",
+            format!("Unknown orchestration state: {}", body.target_state),
+        )
+    })?;
+
+    let mid = mission_id.clone();
+    let iid = issue_id.clone();
+
+    let issue_row = db_read(&registry, move |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT id, orchestration_state, session_id FROM mission_issues WHERE mission_id = ?1 AND issue_id = ?2",
+        )?;
+        let row = stmt.query_row(params![mid, iid], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        });
+        match row {
+            Ok(r) => Ok(Some(r)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(anyhow::anyhow!(e)),
+        }
+    })
+    .await?;
+
+    let (_row_id, current_state_str, session_id) = issue_row.ok_or_else(|| {
+        not_found(
+            "not_found",
+            format!("Issue {issue_id} not found in mission {mission_id}"),
+        )
+    })?;
+
+    let current_state =
+        OrchestrationState::from_db_str(&current_state_str).unwrap_or(OrchestrationState::Queued);
+
+    if !current_state.can_transition_to(&target) {
+        return Err(bad_request(
+            "invalid_transition",
+            format!(
+                "Cannot transition from {} to {}",
+                current_state_str, body.target_state
+            ),
+        ));
+    }
+
+    // End any active session when leaving an active state
+    if current_state == OrchestrationState::Running || current_state == OrchestrationState::Claimed
+    {
+        if let Some(ref sid) = session_id {
+            crate::runtime::session_mutations::end_session(&registry, sid).await;
+        }
+    }
+
+    // Build the state update based on target
+    let now = chrono::Utc::now().to_rfc3339();
+    let reason = body.reason.clone();
+    let db_path = registry.db_path().clone();
+    let mid2 = mission_id.clone();
+    let iid2 = issue_id.clone();
+    let target_str = target.as_db_str().to_string();
+
+    let _ = tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path).ok()?;
+        use crate::infrastructure::persistence::mission_control::{
+            update_mission_issue_state_sync, MissionIssueStateUpdate,
+        };
+
+        let update = match target {
+            OrchestrationState::Queued => MissionIssueStateUpdate {
+                orchestration_state: &target_str,
+                session_id: None,
+                attempt: Some(0),
+                last_error: Some(None),
+                started_at: Some(None),
+                completed_at: Some(None),
+            },
+            OrchestrationState::Completed => MissionIssueStateUpdate {
+                orchestration_state: &target_str,
+                session_id: None,
+                attempt: None,
+                last_error: Some(None),
+                started_at: None,
+                completed_at: Some(Some(&now)),
+            },
+            OrchestrationState::Failed => MissionIssueStateUpdate {
+                orchestration_state: &target_str,
+                session_id: None,
+                attempt: None,
+                last_error: Some(Some(reason.as_deref().unwrap_or("Manually stopped"))),
+                started_at: None,
+                completed_at: Some(Some(&now)),
+            },
+            OrchestrationState::Blocked => MissionIssueStateUpdate {
+                orchestration_state: &target_str,
+                session_id: None,
+                attempt: None,
+                last_error: Some(Some(reason.as_deref().unwrap_or("Manually blocked"))),
+                started_at: None,
+                completed_at: Some(Some(&now)),
+            },
+            // claimed, running, retry_queued — not valid admin targets
+            _ => return None,
+        };
+
+        update_mission_issue_state_sync(&conn, &mid2, &iid2, &update).ok()
+    })
+    .await;
+
+    info!(
+        component = "mission_control",
+        event = "issue.admin_transition",
+        mission_id = %mission_id,
+        issue_id = %issue_id,
+        from = %current_state_str,
+        to = %body.target_state,
+        reason = ?body.reason,
+        "Admin state transition applied"
+    );
+
+    // Broadcast updated state
+    broadcast_mission_delta_by_id(&registry, &mission_id).await;
+
+    // When re-queuing an issue, trigger an immediate orchestrator tick so it gets picked up now
+    if target == OrchestrationState::Queued {
+        registry.trigger_mission(mission_id.clone()).await;
+    }
+
+    // Return fresh detail
+    let mid3 = mission_id.clone();
+    let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid3))
+        .await?
+        .ok_or_else(|| not_found("not_found", "Mission not found"))?;
+    let mid4 = mission_id.clone();
+    let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid4)).await?;
+    let orchestrator_running = registry.is_orchestrator_running();
+    let response = build_detail_response(
+        &registry,
+        &mission,
+        issue_rows,
+        orchestrator_running,
+        None,
+        false,
+    )
+    .await;
     Ok(Json(response))
 }
 
@@ -529,6 +714,7 @@ pub async fn scaffold_mission_file(
         prompt_template,
     };
     let response = build_detail_response(
+        &registry,
         &mission,
         issue_rows,
         orchestrator_running,
@@ -609,6 +795,7 @@ pub async fn migrate_workflow_to_mission(
         prompt_template,
     };
     let response = build_detail_response(
+        &registry,
         &mission,
         issue_rows,
         orchestrator_running,
@@ -1084,8 +1271,15 @@ pub async fn dispatch_mission_issue(
         .ok_or_else(|| not_found("not_found", "Mission not found"))?;
     let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid4)).await?;
     let orchestrator_running = registry.is_orchestrator_running();
-    let response =
-        build_detail_response(&mission_row, issue_rows, orchestrator_running, None, false).await;
+    let response = build_detail_response(
+        &registry,
+        &mission_row,
+        issue_rows,
+        orchestrator_running,
+        None,
+        false,
+    )
+    .await;
     Ok(Json(response))
 }
 
@@ -1234,6 +1428,7 @@ pub async fn update_mission_settings(
         prompt_template: prompt_tmpl,
     };
     let response = build_detail_response(
+        &registry,
         &mission,
         issue_rows,
         orchestrator_running,
@@ -1244,7 +1439,114 @@ pub async fn update_mission_settings(
     Ok(Json(response))
 }
 
-// ── Mission issue blocked signal ─────────────────────────────────────
+// ── Mission issue PR linking ─────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct SetPrUrlRequest {
+    pub pr_url: String,
+}
+
+/// POST /api/missions/:mission_id/issues/:issue_id/pr
+///
+/// Called by the MCP mission tools when an agent links a PR via `mission_link_pr`.
+/// Stores the PR URL on the mission issue for display in the UI.
+pub async fn set_issue_pr_url(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path((mission_id, issue_id)): Path<(String, String)>,
+    Json(body): Json<SetPrUrlRequest>,
+) -> ApiResult<serde_json::Value> {
+    let _ = registry
+        .persist()
+        .send(PersistCommand::MissionIssueSetPrUrl {
+            mission_id: mission_id.clone(),
+            issue_id: issue_id.clone(),
+            pr_url: body.pr_url.clone(),
+        })
+        .await;
+
+    broadcast_mission_delta_by_id(&registry, &mission_id).await;
+
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+// ── Mission worktree listing ─────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct MissionWorktreeItem {
+    pub id: String,
+    pub branch: String,
+    pub worktree_path: String,
+    pub disk_present: bool,
+    pub orchestration_state: OrchestrationState,
+    pub issue_identifier: String,
+    pub issue_title: String,
+}
+
+/// GET /api/missions/:mission_id/worktrees
+///
+/// Returns all worktrees associated with a mission's issues (via sessions).
+pub async fn list_mission_worktrees(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path(mission_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let rows = db_read(&registry, move |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT
+                w.id, w.branch, w.worktree_path, w.status,
+                mi.orchestration_state, mi.issue_identifier, mi.issue_title
+            FROM mission_issues mi
+            JOIN sessions s ON s.id = mi.session_id
+            JOIN worktrees w ON w.id = s.worktree_id
+            WHERE mi.mission_id = ?1
+              AND s.worktree_id IS NOT NULL
+              AND w.status != 'removed'
+            ORDER BY mi.created_at ASC",
+        )?;
+        let items = stmt
+            .query_map(params![mission_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect::<Vec<_>>();
+        Ok(items)
+    })
+    .await?;
+
+    let mut worktrees = Vec::with_capacity(rows.len());
+    for (id, branch, path, _status, orch_state, identifier, title) in rows {
+        let disk_present = crate::domain::git::repo::worktree_exists_on_disk(&path).await;
+        let orchestration_state =
+            OrchestrationState::from_db_str(&orch_state).unwrap_or(OrchestrationState::Queued);
+        worktrees.push(MissionWorktreeItem {
+            id,
+            branch,
+            worktree_path: path,
+            disk_present,
+            orchestration_state,
+            issue_identifier: identifier,
+            issue_title: title.unwrap_or_default(),
+        });
+    }
+
+    Ok(Json(serde_json::json!({ "worktrees": worktrees })))
+}
+
+// ── Mission issue state transitions ──────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct TransitionRequest {
+    pub target_state: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
 
 #[derive(Deserialize)]
 pub struct ReportBlockedRequest {
@@ -1395,6 +1697,7 @@ fn build_settings_response(mission: &MissionRow) -> Option<MissionSettingsRespon
 /// Set `check_workflow_migration` to `true` only for the detail GET
 /// endpoint — all mutation responses skip the check.
 async fn build_detail_response(
+    registry: &SessionRegistry,
     mission: &MissionRow,
     issue_rows: Vec<MissionIssueRow>,
     orchestrator_running: bool,
@@ -1402,7 +1705,10 @@ async fn build_detail_response(
     check_workflow_migration: bool,
 ) -> MissionDetailResponse {
     let summary = mission_row_to_summary_with_issues(mission, &issue_rows, orchestrator_running);
-    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
+    let issues = issue_rows
+        .into_iter()
+        .map(|row| issue_row_to_item(row, registry))
+        .collect();
 
     let (settings, mission_file_exists) = if let Some(s) = settings_override {
         (Some(s), true)
@@ -1546,17 +1852,11 @@ where
     .map_err(|e| internal("db_error", format!("db: {e}")))
 }
 
-fn issue_row_to_item(row: MissionIssueRow) -> MissionIssueItem {
-    let orchestration_state = match row.orchestration_state.as_str() {
-        "queued" => OrchestrationState::Queued,
-        "claimed" => OrchestrationState::Claimed,
-        "running" => OrchestrationState::Running,
-        "retry_queued" => OrchestrationState::RetryQueued,
-        "completed" => OrchestrationState::Completed,
-        "failed" => OrchestrationState::Failed,
-        "blocked" => OrchestrationState::Blocked,
-        _ => OrchestrationState::Queued,
-    };
+fn issue_row_to_item(row: MissionIssueRow, registry: &SessionRegistry) -> MissionIssueItem {
+    let orchestration_state = OrchestrationState::from_db_str(&row.orchestration_state)
+        .unwrap_or(OrchestrationState::Queued);
+
+    let allowed_transitions = orchestration_state.allowed_transitions();
 
     let provider: Provider = row
         .provider
@@ -1564,6 +1864,20 @@ fn issue_row_to_item(row: MissionIssueRow) -> MissionIssueItem {
         .unwrap_or("claude")
         .parse()
         .unwrap_or(Provider::Claude);
+
+    // Enrich with live session data if available
+    let (work_status, last_message, last_activity) = row
+        .session_id
+        .as_deref()
+        .and_then(|sid| registry.get_session(sid))
+        .map(|handle| {
+            let snap = handle.snapshot();
+            let ws = snap.work_status;
+            let msg = snap.last_message.clone();
+            let activity = snap.last_progress_at.clone();
+            (Some(ws), msg, activity)
+        })
+        .unwrap_or((None, None, None));
 
     MissionIssueItem {
         issue_id: row.issue_id,
@@ -1576,9 +1890,13 @@ fn issue_row_to_item(row: MissionIssueRow) -> MissionIssueItem {
         attempt: row.attempt,
         error: row.last_error,
         url: row.url,
-        last_activity: None,
+        last_activity,
         started_at: row.started_at,
         completed_at: row.completed_at,
+        allowed_transitions,
+        work_status,
+        last_message,
+        pr_url: row.pr_url,
     }
 }
 

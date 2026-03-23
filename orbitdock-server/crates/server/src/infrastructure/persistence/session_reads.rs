@@ -40,6 +40,7 @@ struct ActiveSessionRow {
     codex_thread_id: Option<String>,
     started_at: Option<String>,
     last_activity_at: Option<String>,
+    last_progress_at: Option<String>,
     approval_policy: Option<String>,
     sandbox_mode: Option<String>,
     permission_mode: Option<String>,
@@ -72,6 +73,7 @@ pub struct RestoredSession {
     pub claude_sdk_session_id: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
+    pub last_progress_at: Option<String>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
     pub permission_mode: Option<String>,
@@ -151,8 +153,11 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                    AND codex_integration_mode = 'passive'
                    AND status = 'active'
                    AND COALESCE(work_status, 'waiting') NOT IN ('permission', 'question')
-                   AND datetime(COALESCE(last_activity_at, started_at)) < datetime('now', '-15 minutes')",
-                params![chrono_now()],
+                   AND CAST(REPLACE(last_activity_at, 'Z', '') AS INTEGER) < ?2",
+                params![
+                    chrono_now(),
+                    chrono::Utc::now().timestamp().saturating_sub(15 * 60),
+                ],
             )?;
 
             conn.execute(
@@ -226,7 +231,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
             )?;
 
             let mut stmt = conn.prepare(
-                "SELECT s.id, s.provider, s.status, s.work_status, s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.codex_integration_mode, s.codex_thread_id, s.started_at, s.last_activity_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
+                "SELECT s.id, s.provider, s.status, s.work_status, s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.codex_integration_mode, s.codex_thread_id, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
                         s.pending_tool_name, s.pending_tool_input, s.pending_question,
                         COALESCE(uss.snapshot_input_tokens, s.input_tokens, 0),
                         COALESCE(uss.snapshot_output_tokens, s.output_tokens, 0),
@@ -238,8 +243,12 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                  WHERE s.status = 'active'
                     OR (s.status = 'ended' AND s.end_reason = 'server_shutdown')
                  ORDER BY
-                   datetime(s.last_activity_at) DESC,
-                   datetime(s.started_at) DESC",
+                   COALESCE(
+                     CAST(REPLACE(s.last_progress_at, 'Z', '') AS INTEGER),
+                     CAST(REPLACE(s.last_activity_at, 'Z', '') AS INTEGER),
+                     0
+                   ) DESC,
+                   COALESCE(CAST(REPLACE(s.last_activity_at, 'Z', '') AS INTEGER), 0) DESC",
             )?;
 
             let session_rows: Vec<ActiveSessionRow> = stmt
@@ -260,17 +269,18 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                         codex_thread_id: row.get(12)?,
                         started_at: row.get(13)?,
                         last_activity_at: row.get(14)?,
-                        approval_policy: row.get(15)?,
-                        sandbox_mode: row.get(16)?,
-                        permission_mode: row.get(17)?,
-                        pending_tool_name: row.get(18)?,
-                        pending_tool_input: row.get(19)?,
-                        pending_question: row.get(20)?,
-                        input_tokens: row.get(21)?,
-                        output_tokens: row.get(22)?,
-                        cached_tokens: row.get(23)?,
-                        context_window: row.get(24)?,
-                        token_usage_snapshot_kind_str: row.get(25)?,
+                        last_progress_at: row.get(15)?,
+                        approval_policy: row.get(16)?,
+                        sandbox_mode: row.get(17)?,
+                        permission_mode: row.get(18)?,
+                        pending_tool_name: row.get(19)?,
+                        pending_tool_input: row.get(20)?,
+                        pending_question: row.get(21)?,
+                        input_tokens: row.get(22)?,
+                        output_tokens: row.get(23)?,
+                        cached_tokens: row.get(24)?,
+                        context_window: row.get(25)?,
+                        token_usage_snapshot_kind_str: row.get(26)?,
                     })
                 })?
                 .filter_map(|row| row.ok())
@@ -295,6 +305,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     codex_thread_id,
                     started_at,
                     last_activity_at,
+                    last_progress_at,
                     approval_policy,
                     sandbox_mode,
                     permission_mode,
@@ -553,6 +564,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     claude_sdk_session_id,
                     started_at,
                     last_activity_at,
+                    last_progress_at,
                     approval_policy,
                     sandbox_mode,
                     permission_mode,
@@ -623,7 +635,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             )?;
 
             let mut stmt = conn.prepare(
-                "SELECT s.id, s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.started_at, s.last_activity_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
+                "SELECT s.id, s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
                         s.pending_tool_name, s.pending_tool_input, s.pending_question,
                         COALESCE(uss.snapshot_input_tokens, s.input_tokens, 0),
                         COALESCE(uss.snapshot_output_tokens, s.output_tokens, 0),
@@ -657,19 +669,20 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                         row.get::<_, Option<String>>(13)?,
                         row.get::<_, Option<String>>(14)?,
                         row.get::<_, Option<String>>(15)?,
-                        row.get::<_, i64>(16)?,
+                        row.get::<_, Option<String>>(16)?,
                         row.get::<_, i64>(17)?,
                         row.get::<_, i64>(18)?,
                         row.get::<_, i64>(19)?,
-                        row.get::<_, String>(20)?,
-                        row.get::<_, Option<String>>(21)?,
+                        row.get::<_, i64>(20)?,
+                        row.get::<_, String>(21)?,
                         row.get::<_, Option<String>>(22)?,
                         row.get::<_, Option<String>>(23)?,
                         row.get::<_, Option<String>>(24)?,
                         row.get::<_, Option<String>>(25)?,
                         row.get::<_, Option<String>>(26)?,
                         row.get::<_, Option<String>>(27)?,
-                        row.get::<_, String>(28)?,
+                        row.get::<_, Option<String>>(28)?,
+                        row.get::<_, String>(29)?,
                     ))
                 })
                 .optional()?;
@@ -685,6 +698,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 summary,
                 started_at,
                 last_activity_at,
+                last_progress_at,
                 approval_policy,
                 sandbox_mode,
                 permission_mode,
@@ -877,6 +891,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 claude_sdk_session_id,
                 started_at,
                 last_activity_at,
+                last_progress_at,
                 approval_policy,
                 sandbox_mode,
                 permission_mode,

@@ -58,6 +58,7 @@ fn ensure_session_control_plane_columns(conn: &Connection) -> anyhow::Result<()>
     ensure_column(conn, "sessions", "personality", "TEXT")?;
     ensure_column(conn, "sessions", "service_tier", "TEXT")?;
     ensure_column(conn, "sessions", "developer_instructions", "TEXT")?;
+    ensure_column(conn, "sessions", "last_progress_at", "TEXT")?;
     ensure_column(
         conn,
         "sessions",
@@ -302,6 +303,7 @@ mod tests {
             "personality",
             "service_tier",
             "developer_instructions",
+            "last_progress_at",
             "allow_bypass_permissions",
         ] {
             assert!(
@@ -384,5 +386,33 @@ mod tests {
             })
             .expect("count refinery history rows");
         assert_eq!(migration_count, expected_migration_count);
+    }
+
+    #[test]
+    fn backfills_last_progress_at_from_last_activity_at() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                last_activity_at TEXT
+            );
+            INSERT INTO sessions (id, last_activity_at) VALUES ('session-1', '123Z');",
+        )
+        .expect("seed pre-migration schema");
+
+        conn.execute_batch(include_str!(
+            "../../../../migrations/V033__last_progress_at.sql"
+        ))
+        .expect("apply V033 migration");
+
+        let last_progress_at: Option<String> = conn
+            .query_row(
+                "SELECT last_progress_at FROM sessions WHERE id = 'session-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read progress timestamp");
+
+        assert_eq!(last_progress_at.as_deref(), Some("123Z"));
     }
 }

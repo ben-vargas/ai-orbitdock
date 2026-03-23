@@ -21,6 +21,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info};
 
 use crate::connectors::jsonl_tailer::JsonlTailer;
+use crate::domain::conversation_semantics::upgrade_row;
 use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::session_naming::name_from_first_prompt;
 use crate::infrastructure::persistence::{is_direct_thread_owned_async, PersistCommand};
@@ -476,13 +477,15 @@ impl WatcherRuntime {
 
         for row in rows {
             actor
-                .send(SessionCommand::AddRowAndBroadcast {
-                    entry: ConversationRowEntry {
-                        session_id: session_id.to_string(),
-                        sequence: 0,
-                        turn_id: None,
-                        row,
-                    },
+                .send(SessionCommand::ProcessEvent {
+                    event: crate::domain::sessions::transition::Input::RowCreated(
+                        ConversationRowEntry {
+                            session_id: session_id.to_string(),
+                            sequence: 0,
+                            turn_id: None,
+                            row: upgrade_row(Provider::Codex, row),
+                        },
+                    ),
                 })
                 .await;
         }
@@ -734,7 +737,7 @@ impl WatcherRuntime {
             seq
         };
 
-        let row = crate::domain::conversation_semantics::upgrade_row(Provider::Codex, row);
+        let row = upgrade_row(Provider::Codex, row);
 
         let entry = ConversationRowEntry {
             session_id: session_id.clone(),
@@ -748,7 +751,9 @@ impl WatcherRuntime {
         };
 
         actor
-            .send(SessionCommand::AddRowAndBroadcast { entry })
+            .send(SessionCommand::ProcessEvent {
+                event: crate::domain::sessions::transition::Input::RowCreated(entry),
+            })
             .await;
     }
 
@@ -859,7 +864,9 @@ impl WatcherRuntime {
 
         if let Some(actor) = self.app_state.get_session(session_id) {
             actor
-                .send(SessionCommand::AddRowAndBroadcast { entry })
+                .send(SessionCommand::ProcessEvent {
+                    event: crate::domain::sessions::transition::Input::RowCreated(entry),
+                })
                 .await;
         }
     }

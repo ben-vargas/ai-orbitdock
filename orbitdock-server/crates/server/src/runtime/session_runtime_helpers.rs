@@ -191,6 +191,7 @@ pub(crate) async fn mark_session_working_after_send(
                 status: None,
                 work_status: Some(WorkStatus::Working),
                 last_activity_at: Some(now),
+                last_progress_at: None,
             }),
         })
         .await;
@@ -367,17 +368,22 @@ pub(crate) async fn sync_transcript_messages(
     match plan.message_sync_decision {
         TranscriptMessageSyncDecision::AppendNewMessages => {
             // Upsert existing rows that got results attached by the transcript parser.
-            // UpsertRowAndBroadcast handles persistence internally.
             for entry in plan.updated_rows {
                 actor
-                    .send(SessionCommand::UpsertRowAndBroadcast { entry })
+                    .send(SessionCommand::ProcessEvent {
+                        event: crate::domain::sessions::transition::Input::RowUpdated {
+                            row_id: entry.id().to_string(),
+                            entry,
+                        },
+                    })
                     .await;
             }
 
-            // AddRowAndBroadcast handles persistence internally.
             for entry in plan.new_rows {
                 actor
-                    .send(SessionCommand::AddRowAndBroadcast { entry })
+                    .send(SessionCommand::ProcessEvent {
+                        event: crate::domain::sessions::transition::Input::RowCreated(entry),
+                    })
                     .await;
             }
         }

@@ -368,6 +368,7 @@ pub struct SessionSnapshot {
     pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
+    pub last_progress_at: Option<String>,
     pub revision: u64,
     pub current_plan: Option<String>,
     pub current_diff: Option<String>,
@@ -462,6 +463,7 @@ pub struct SessionHandle {
     turn_diffs: Vec<TurnDiff>,
     started_at: Option<String>,
     last_activity_at: Option<String>,
+    last_progress_at: Option<String>,
     forked_from_session_id: Option<String>,
     git_branch: Option<String>,
     git_sha: Option<String>,
@@ -562,6 +564,7 @@ pub struct SessionRestoreData {
     pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
+    pub last_progress_at: Option<String>,
     pub rows: Vec<ConversationRowEntry>,
     pub current_diff: Option<String>,
     pub current_plan: Option<String>,
@@ -776,6 +779,7 @@ impl SessionHandle {
             token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
             started_at: Some(now.clone()),
             last_activity_at: Some(now.clone()),
+            last_progress_at: Some(now.clone()),
             revision: 0,
             current_plan: None,
             current_diff: None,
@@ -834,7 +838,8 @@ impl SessionHandle {
             turn_count: 0,
             turn_diffs: Vec::new(),
             started_at: Some(now.clone()),
-            last_activity_at: Some(now),
+            last_activity_at: Some(now.clone()),
+            last_progress_at: Some(now),
             forked_from_session_id: None,
             git_branch: None,
             git_sha: None,
@@ -919,6 +924,7 @@ impl SessionHandle {
             terminal_app,
             approval_version,
             unread_count,
+            last_progress_at,
         } = data;
         let (broadcast_tx, _) = broadcast::channel(broadcast_capacity());
         let snapshot = SessionSnapshot {
@@ -960,6 +966,7 @@ impl SessionHandle {
             token_usage_snapshot_kind,
             started_at: started_at.clone(),
             last_activity_at: last_activity_at.clone(),
+            last_progress_at: last_progress_at.clone(),
             revision: 0,
             current_plan: current_plan.clone(),
             current_diff: current_diff.clone(),
@@ -1022,6 +1029,7 @@ impl SessionHandle {
             turn_diffs,
             started_at,
             last_activity_at,
+            last_progress_at,
             forked_from_session_id: None,
             git_branch,
             git_sha,
@@ -1140,6 +1148,7 @@ impl SessionHandle {
                 .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
+            last_progress_at: self.last_progress_at.clone(),
             git_branch: self.git_branch.clone(),
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
@@ -1217,6 +1226,7 @@ impl SessionHandle {
             sandbox_mode: self.sandbox_mode.clone(),
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
+            last_progress_at: self.last_progress_at.clone(),
             forked_from_session_id: self.forked_from_session_id.clone(),
             revision: Some(self.revision),
             current_turn_id: self.current_turn_id.clone(),
@@ -1298,7 +1308,6 @@ impl SessionHandle {
     /// Set the custom name for this session
     pub fn set_custom_name(&mut self, name: Option<String>) {
         self.custom_name = name;
-        self.last_activity_at = Some(chrono_now());
     }
 
     /// Get custom name
@@ -1535,7 +1544,6 @@ impl SessionHandle {
         if status == SessionStatus::Ended {
             self.clear_pending_approvals();
         }
-        self.last_activity_at = Some(chrono_now());
     }
 
     /// Set started_at timestamp
@@ -1554,7 +1562,6 @@ impl SessionHandle {
         if status == WorkStatus::Ended {
             self.clear_pending_approvals();
         }
-        self.last_activity_at = Some(chrono_now());
     }
 
     /// Get work status
@@ -1565,7 +1572,6 @@ impl SessionHandle {
     /// Set last tool name
     pub fn set_last_tool(&mut self, tool: Option<String>) {
         self.last_tool = tool;
-        self.last_activity_at = Some(chrono_now());
     }
 
     /// Get last tool name
@@ -1581,6 +1587,7 @@ impl SessionHandle {
 
     /// Add a conversation row
     pub fn add_row(&mut self, mut entry: ConversationRowEntry) -> ConversationRowEntry {
+        let counts_as_progress = is_non_user_row(&entry);
         if entry.sequence == 0
             && self
                 .rows
@@ -1596,7 +1603,12 @@ impl SessionHandle {
         self.rows.push(entry.clone());
         self.total_row_count = self.total_row_count.saturating_add(1);
         self.trim_retained_rows();
-        self.last_activity_at = Some(chrono_now());
+        let now = chrono_now();
+        self.last_activity_at = Some(now.clone());
+        if counts_as_progress {
+            self.last_progress_at = Some(now);
+        }
+        self.refresh_snapshot();
         entry
     }
 
@@ -1609,6 +1621,7 @@ impl SessionHandle {
     /// was evicted from the retained window (already counted).
     pub fn upsert_row(&mut self, mut entry: ConversationRowEntry) -> ConversationRowEntry {
         let entry_id = entry.id().to_string();
+        let counts_as_progress = is_non_user_row(&entry);
         if let Some(pos) = self.rows.iter().position(|r| r.id() == entry_id) {
             // Preserve the existing sequence
             if entry.sequence == 0 {
@@ -1619,7 +1632,12 @@ impl SessionHandle {
             if pos == self.rows.len() - 1 {
                 self.newest_synced_row_id = Some(entry_id);
             }
-            self.last_activity_at = Some(chrono_now());
+            let now = chrono_now();
+            self.last_activity_at = Some(now.clone());
+            if counts_as_progress {
+                self.last_progress_at = Some(now);
+            }
+            self.refresh_snapshot();
             entry
         } else {
             // Row not in retained window — may be evicted rather than new.
@@ -1641,7 +1659,12 @@ impl SessionHandle {
                 self.total_row_count = self.rows.len() as u64;
             }
             self.trim_retained_rows();
-            self.last_activity_at = Some(chrono_now());
+            let now = chrono_now();
+            self.last_activity_at = Some(now.clone());
+            if counts_as_progress {
+                self.last_progress_at = Some(now);
+            }
+            self.refresh_snapshot();
             entry
         }
     }
@@ -1680,6 +1703,7 @@ impl SessionHandle {
         self.rows = rows;
         self.streaming_row_emit_at.clear();
         self.trim_retained_rows();
+        self.last_progress_at = Some(chrono_now());
     }
 
     pub fn should_emit_streaming_row_update(&mut self, upserted: &[RowEntrySummary]) -> bool {
@@ -2124,6 +2148,9 @@ impl SessionHandle {
         if let Some(ref last_activity_at) = changes.last_activity_at {
             self.last_activity_at = Some(last_activity_at.clone());
         }
+        if let Some(ref last_progress_at) = changes.last_progress_at {
+            self.last_progress_at = Some(last_progress_at.clone());
+        }
         if let Some(ref token_usage) = changes.token_usage {
             self.token_usage = token_usage.clone();
         }
@@ -2225,6 +2252,7 @@ impl SessionHandle {
             token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
+            last_progress_at: self.last_progress_at.clone(),
             revision: self.revision,
             current_plan: self.current_plan.clone(),
             current_diff: self.current_diff.clone(),
@@ -2350,6 +2378,7 @@ impl SessionHandle {
             custom_name: self.custom_name.clone(),
             project_path: self.project_path.clone(),
             last_activity_at: self.last_activity_at.clone(),
+            last_progress_at: self.last_progress_at.clone(),
             current_turn_id: self.current_turn_id.clone(),
             turn_count: self.turn_count,
             turn_diffs: self.turn_diffs.clone(),
@@ -2374,6 +2403,7 @@ impl SessionHandle {
         self.current_plan = state.current_plan;
         self.custom_name = state.custom_name;
         self.last_activity_at = state.last_activity_at;
+        self.last_progress_at = state.last_progress_at;
         self.current_turn_id = state.current_turn_id;
         self.turn_count = state.turn_count;
         self.turn_diffs = state.turn_diffs;
@@ -2427,9 +2457,8 @@ fn serialize_with_revision(
     serde_json::to_string(&val)
 }
 
-/// Get current time as ISO 8601 string
 fn chrono_now() -> String {
-    chrono::Utc::now().to_rfc3339()
+    crate::support::session_time::chrono_now()
 }
 
 fn normalize_request_id(value: &str) -> &str {
@@ -2439,6 +2468,8 @@ fn normalize_request_id(value: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::support::session_time::parse_unix_z;
+    use orbitdock_protocol::conversation_contracts::MessageRowContent;
 
     fn pending_approval_session() -> SessionHandle {
         SessionHandle::new(
@@ -2446,6 +2477,23 @@ mod tests {
             Provider::Claude,
             "/repo".to_string(),
         )
+    }
+
+    fn user_entry(session_id: &str, row_id: &str, content: &str) -> ConversationRowEntry {
+        ConversationRowEntry {
+            session_id: session_id.to_string(),
+            sequence: 0,
+            turn_id: None,
+            row: ConversationRow::User(MessageRowContent {
+                id: row_id.to_string(),
+                content: content.to_string(),
+                turn_id: None,
+                timestamp: None,
+                is_streaming: false,
+                images: vec![],
+                memory_citation: None,
+            }),
+        }
     }
 
     #[test]
@@ -2550,5 +2598,42 @@ mod tests {
 
         assert_eq!(session.approval_version(), version_after_first);
         assert_eq!(session.pending_approvals.len(), 1);
+    }
+
+    #[test]
+    fn metadata_setters_do_not_mutate_activity_timestamps() {
+        let mut session = pending_approval_session();
+        let original_last_activity_at = session.last_activity_at.clone();
+        let original_last_progress_at = session.last_progress_at.clone();
+
+        session.set_custom_name(Some("Renamed".to_string()));
+        session.set_status(SessionStatus::Active);
+        session.set_work_status(WorkStatus::Working);
+        session.set_last_tool(Some("Read".to_string()));
+
+        assert_eq!(session.last_activity_at, original_last_activity_at);
+        assert_eq!(session.last_progress_at, original_last_progress_at);
+    }
+
+    #[test]
+    fn imperative_row_mutations_use_unix_z_progress_timestamps() {
+        let mut session = pending_approval_session();
+        let row = user_entry("session-1", "user-1", "hello");
+
+        session.add_row(row);
+
+        assert!(parse_unix_z(session.last_activity_at.as_deref()).is_some());
+        assert!(parse_unix_z(session.last_progress_at.as_deref()).is_some());
+    }
+
+    #[test]
+    fn user_rows_update_activity_without_advancing_progress() {
+        let mut session = pending_approval_session();
+        let original_last_progress_at = session.last_progress_at.clone();
+
+        session.add_row(user_entry("session-1", "user-1", "hello"));
+
+        assert!(parse_unix_z(session.last_activity_at.as_deref()).is_some());
+        assert_eq!(session.last_progress_at, original_last_progress_at);
     }
 }

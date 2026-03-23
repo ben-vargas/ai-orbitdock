@@ -28,7 +28,8 @@ fn setup_test_db() -> (Connection, std::path::PathBuf, tempfile::TempDir) {
            last_message TEXT,
            unread_count INTEGER NOT NULL DEFAULT 0,
            started_at TEXT,
-           last_activity_at TEXT
+           last_activity_at TEXT,
+           last_progress_at TEXT
          );
 
          CREATE TABLE IF NOT EXISTS messages (
@@ -279,4 +280,68 @@ fn row_append_ignore_deduplicates_by_id() {
         rows[0].sequence, 0,
         "first insert wins with INSERT OR IGNORE"
     );
+}
+
+#[test]
+fn user_row_append_does_not_advance_last_progress() {
+    let (conn, db_path, _dir) = setup_test_db();
+    conn.execute(
+        "UPDATE sessions SET last_progress_at = '100Z', last_activity_at = '100Z' WHERE id = 'test-session'",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let batch = vec![PersistCommand::RowAppend {
+        session_id: "test-session".to_string(),
+        viewer_present: false,
+        sequence_tx: None,
+        entry: user_entry("user-row", 0),
+    }];
+
+    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+    let conn = Connection::open(&db_path).unwrap();
+    let (last_activity_at, last_progress_at): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT last_activity_at, last_progress_at FROM sessions WHERE id = 'test-session'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+
+    assert_ne!(last_activity_at.as_deref(), Some("100Z"));
+    assert_eq!(last_progress_at.as_deref(), Some("100Z"));
+}
+
+#[test]
+fn assistant_row_append_advances_last_progress() {
+    let (conn, db_path, _dir) = setup_test_db();
+    conn.execute(
+        "UPDATE sessions SET last_progress_at = '100Z', last_activity_at = '100Z' WHERE id = 'test-session'",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let batch = vec![PersistCommand::RowAppend {
+        session_id: "test-session".to_string(),
+        viewer_present: false,
+        sequence_tx: None,
+        entry: assistant_entry("assistant-row", 0),
+    }];
+
+    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+    let conn = Connection::open(&db_path).unwrap();
+    let (last_activity_at, last_progress_at): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT last_activity_at, last_progress_at FROM sessions WHERE id = 'test-session'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+
+    assert_ne!(last_activity_at.as_deref(), Some("100Z"));
+    assert_ne!(last_progress_at.as_deref(), Some("100Z"));
 }

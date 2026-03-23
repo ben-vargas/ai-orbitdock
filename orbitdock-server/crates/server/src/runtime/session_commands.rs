@@ -17,6 +17,7 @@ pub enum PersistOp {
         status: Option<SessionStatus>,
         work_status: Option<WorkStatus>,
         last_activity_at: Option<String>,
+        last_progress_at: Option<String>,
     },
     SetCustomName {
         session_id: String,
