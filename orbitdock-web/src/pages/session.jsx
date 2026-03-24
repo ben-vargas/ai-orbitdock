@@ -302,6 +302,7 @@ const SessionPage = () => {
 
   const isEnded = session?.status === 'ended' || session?.work_status === 'ended'
   const isWorking = session?.work_status === 'working'
+  const isSteerable = session?.steerable ?? false
   const isPassive = session?.work_status === 'reply' || session?.work_status === 'ended'
   const showTakeover = session?.status === 'active' && isPassive
   const showWorktreeBanner = isEnded && session?.is_worktree && !!session?.worktree_id
@@ -353,9 +354,12 @@ const SessionPage = () => {
     })
   }
 
-  const handleSteer = (content) => {
-    http.post(`/api/sessions/${sessionId}/steer`, { content }).catch((err) => {
+  const handleSteer = (payload) => {
+    const body = { content: payload.content || '' }
+    if (payload.images?.length) body.images = payload.images
+    http.post(`/api/sessions/${sessionId}/steer`, body).catch((err) => {
       console.warn('[session] steer failed:', err.message)
+      addToast({ title: 'Steer failed', body: err.message, type: 'error' })
     })
   }
 
@@ -485,6 +489,7 @@ const SessionPage = () => {
           onEnd={handleEnd}
           disabled={isEnded}
           isWorking={isWorking}
+          isSteerable={isSteerable}
           isPending={isPending}
           isEnded={isEnded}
           isConnected={connectionState.value === 'connected'}
