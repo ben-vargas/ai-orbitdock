@@ -152,7 +152,7 @@ struct MarkdownProseAttributedStringBuilderTests {
     #expect(rendered == "Intro paragraph.\n\n\u{00A0}\u{00A0}• First\n\u{00A0}\u{00A0}• Second\n\nOutro paragraph.")
   }
 
-  @Test func proseBuilderUsesSecondaryColorForDeeperHeadings() {
+  @Test func proseBuilderUsesPrimaryColorForH3Headings() {
     let blocks: [MarkdownBlock] = [
       .heading(level: 3, text: "Subsection")
     ]
@@ -161,7 +161,7 @@ struct MarkdownProseAttributedStringBuilderTests {
     let colorDescription = firstForegroundColorDescription(in: attributed, matching: "Subsection")
 
     #expect(colorDescription != nil)
-    #expect(colorDescription == normalizedDescription(Color.textSecondary))
+    #expect(colorDescription == normalizedDescription(Color.textPrimary))
   }
 
   @Test func repeatedBuildsStayStableAcrossCacheHits() {

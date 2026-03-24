@@ -9,19 +9,12 @@
 /* Begin PBXBuildFile section */
 		800E82332F492F37007CADF5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 800E82322F492F37007CADF5 /* Markdown */; };
 		800E84212F492FC4007CADF5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 800E82342F492F38007CADF5 /* Markdown */; };
-		80BCDA942F3113B700D91F91 /* Vizzly in Frameworks */ = {isa = PBXBuildFile; productRef = 80BCDA932F3113B700D91F91 /* Vizzly */; };
+
 		8F4F5A9C2FE7A3A100A1B2C3 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 8F4F5A9B2FE7A3A100A1B2C3 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
 		800E7CC32F46B778007CADF5 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 80BCD0B82F2C834F00D91F91 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 800E7CB52F46B778007CADF5;
-			remoteInfo = "OrbitDock iOS";
-		};
-		800E7CCD2F46B778007CADF5 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 80BCD0B82F2C834F00D91F91 /* Project object */;
 			proxyType = 1;
@@ -35,22 +28,13 @@
 			remoteGlobalIDString = 80BCD0BF2F2C834F00D91F91;
 			remoteInfo = OrbitDock;
 		};
-		80BCD0D82F2C834F00D91F91 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 80BCD0B82F2C834F00D91F91 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 80BCD0BF2F2C834F00D91F91;
-			remoteInfo = OrbitDock;
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		800E7CB62F46B778007CADF5 /* OrbitDock iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "OrbitDock iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		800E7CC22F46B778007CADF5 /* OrbitDock iOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "OrbitDock iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		800E7CCC2F46B778007CADF5 /* OrbitDock iOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "OrbitDock iOSUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		80BCD0C02F2C834F00D91F91 /* OrbitDock.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrbitDock.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		80BCD0CD2F2C834F00D91F91 /* OrbitDockTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrbitDockTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		80BCD0D72F2C834F00D91F91 /* OrbitDockUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrbitDockUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -76,11 +60,6 @@
 			path = "OrbitDock iOSTests";
 			sourceTree = "<group>";
 		};
-		800E7CCF2F46B778007CADF5 /* OrbitDock iOSUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "OrbitDock iOSUITests";
-			sourceTree = "<group>";
-		};
 		80BCD0C22F2C834F00D91F91 /* OrbitDock */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -95,11 +74,6 @@
 			path = OrbitDockTests;
 			sourceTree = "<group>";
 		};
-		80BCD0DA2F2C834F00D91F91 /* OrbitDockUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = OrbitDockUITests;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -112,13 +86,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		800E7CBF2F46B778007CADF5 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		800E7CC92F46B778007CADF5 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -141,14 +108,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		80BCD0D42F2C834F00D91F91 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				80BCDA942F3113B700D91F91 /* Vizzly in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -157,9 +116,7 @@
 			children = (
 				80BCD0C22F2C834F00D91F91 /* OrbitDock */,
 				80BCD0D02F2C834F00D91F91 /* OrbitDockTests */,
-				80BCD0DA2F2C834F00D91F91 /* OrbitDockUITests */,
 				800E7CC52F46B778007CADF5 /* OrbitDock iOSTests */,
-				800E7CCF2F46B778007CADF5 /* OrbitDock iOSUITests */,
 				80BCD0C12F2C834F00D91F91 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -169,10 +126,8 @@
 			children = (
 				80BCD0C02F2C834F00D91F91 /* OrbitDock.app */,
 				80BCD0CD2F2C834F00D91F91 /* OrbitDockTests.xctest */,
-				80BCD0D72F2C834F00D91F91 /* OrbitDockUITests.xctest */,
 				800E7CB62F46B778007CADF5 /* OrbitDock iOS.app */,
 				800E7CC22F46B778007CADF5 /* OrbitDock iOSTests.xctest */,
-				800E7CCC2F46B778007CADF5 /* OrbitDock iOSUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -226,29 +181,6 @@
 			productReference = 800E7CC22F46B778007CADF5 /* OrbitDock iOSTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		800E7CCB2F46B778007CADF5 /* OrbitDock iOSUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 800E7CDA2F46B778007CADF5 /* Build configuration list for PBXNativeTarget "OrbitDock iOSUITests" */;
-			buildPhases = (
-				800E7CC82F46B778007CADF5 /* Sources */,
-				800E7CC92F46B778007CADF5 /* Frameworks */,
-				800E7CCA2F46B778007CADF5 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				800E7CCE2F46B778007CADF5 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				800E7CCF2F46B778007CADF5 /* OrbitDock iOSUITests */,
-			);
-			name = "OrbitDock iOSUITests";
-			packageProductDependencies = (
-			);
-			productName = "OrbitDock iOSUITests";
-			productReference = 800E7CCC2F46B778007CADF5 /* OrbitDock iOSUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 		80BCD0BF2F2C834F00D91F91 /* OrbitDock */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 80BCD0E12F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "OrbitDock" */;
@@ -297,30 +229,6 @@
 			productReference = 80BCD0CD2F2C834F00D91F91 /* OrbitDockTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		80BCD0D62F2C834F00D91F91 /* OrbitDockUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 80BCD0E72F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "OrbitDockUITests" */;
-			buildPhases = (
-				80BCD0D32F2C834F00D91F91 /* Sources */,
-				80BCD0D42F2C834F00D91F91 /* Frameworks */,
-				80BCD0D52F2C834F00D91F91 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				80BCD0D92F2C834F00D91F91 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				80BCD0DA2F2C834F00D91F91 /* OrbitDockUITests */,
-			);
-			name = OrbitDockUITests;
-			packageProductDependencies = (
-				80BCDA932F3113B700D91F91 /* Vizzly */,
-			);
-			productName = OrbitDockUITests;
-			productReference = 80BCD0D72F2C834F00D91F91 /* OrbitDockUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -338,18 +246,10 @@
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = 800E7CB52F46B778007CADF5;
 					};
-					800E7CCB2F46B778007CADF5 = {
-						CreatedOnToolsVersion = 26.2;
-						TestTargetID = 800E7CB52F46B778007CADF5;
-					};
 					80BCD0BF2F2C834F00D91F91 = {
 						CreatedOnToolsVersion = 26.2;
 					};
 					80BCD0CC2F2C834F00D91F91 = {
-						CreatedOnToolsVersion = 26.2;
-						TestTargetID = 80BCD0BF2F2C834F00D91F91;
-					};
-					80BCD0D62F2C834F00D91F91 = {
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = 80BCD0BF2F2C834F00D91F91;
 					};
@@ -366,7 +266,6 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				80BCD8482F3058A100D91F91 /* XCLocalSwiftPackageReference "OrbitDockCore" */,
-				80BCDA922F3113B700D91F91 /* XCRemoteSwiftPackageReference "cli" */,
 				800E82312F492F37007CADF5 /* XCRemoteSwiftPackageReference "swift-markdown" */,
 				8F4F5A9A2FE7A39C00A1B2C3 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
@@ -377,10 +276,8 @@
 			targets = (
 				80BCD0BF2F2C834F00D91F91 /* OrbitDock */,
 				80BCD0CC2F2C834F00D91F91 /* OrbitDockTests */,
-				80BCD0D62F2C834F00D91F91 /* OrbitDockUITests */,
 				800E7CB52F46B778007CADF5 /* OrbitDock iOS */,
 				800E7CC12F46B778007CADF5 /* OrbitDock iOSTests */,
-				800E7CCB2F46B778007CADF5 /* OrbitDock iOSUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -503,20 +400,10 @@
 			target = 800E7CB52F46B778007CADF5 /* OrbitDock iOS */;
 			targetProxy = 800E7CC32F46B778007CADF5 /* PBXContainerItemProxy */;
 		};
-		800E7CCE2F46B778007CADF5 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 800E7CB52F46B778007CADF5 /* OrbitDock iOS */;
-			targetProxy = 800E7CCD2F46B778007CADF5 /* PBXContainerItemProxy */;
-		};
 		80BCD0CF2F2C834F00D91F91 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 80BCD0BF2F2C834F00D91F91 /* OrbitDock */;
 			targetProxy = 80BCD0CE2F2C834F00D91F91 /* PBXContainerItemProxy */;
-		};
-		80BCD0D92F2C834F00D91F91 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 80BCD0BF2F2C834F00D91F91 /* OrbitDock */;
-			targetProxy = 80BCD0D82F2C834F00D91F91 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -651,53 +538,6 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OrbitDock iOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OrbitDock iOS";
-				VALIDATE_PRODUCT = YES;
-			};
-			name = Release;
-		};
-		800E7CDB2F46B778007CADF5 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = J658W2V76T;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDock-iOSUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = "OrbitDock iOS";
-			};
-			name = Debug;
-		};
-		800E7CDC2F46B778007CADF5 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = J658W2V76T;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDock-iOSUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = "OrbitDock iOS";
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
@@ -954,46 +794,6 @@
 			};
 			name = Release;
 		};
-		80BCD0E82F2C834F00D91F91 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = J658W2V76T;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDockUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = OrbitDock;
-			};
-			name = Debug;
-		};
-		80BCD0E92F2C834F00D91F91 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = J658W2V76T;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDockUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = OrbitDock;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1011,15 +811,6 @@
 			buildConfigurations = (
 				800E7CD82F46B778007CADF5 /* Debug */,
 				800E7CD92F46B778007CADF5 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		800E7CDA2F46B778007CADF5 /* Build configuration list for PBXNativeTarget "OrbitDock iOSUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				800E7CDB2F46B778007CADF5 /* Debug */,
-				800E7CDC2F46B778007CADF5 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -1051,15 +842,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		80BCD0E72F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "OrbitDockUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				80BCD0E82F2C834F00D91F91 /* Debug */,
-				80BCD0E92F2C834F00D91F91 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -1076,14 +858,6 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.7.3;
-			};
-		};
-		80BCDA922F3113B700D91F91 /* XCRemoteSwiftPackageReference "cli" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/vizzly-testing/cli";
-			requirement = {
-				branch = main;
-				kind = branch;
 			};
 		};
 		8F4F5A9A2FE7A39C00A1B2C3 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
@@ -1106,11 +880,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 800E82312F492F37007CADF5 /* XCRemoteSwiftPackageReference "swift-markdown" */;
 			productName = Markdown;
-		};
-		80BCDA932F3113B700D91F91 /* Vizzly */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 80BCDA922F3113B700D91F91 /* XCRemoteSwiftPackageReference "cli" */;
-			productName = Vizzly;
 		};
 		8F4F5A9B2FE7A3A100A1B2C3 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;

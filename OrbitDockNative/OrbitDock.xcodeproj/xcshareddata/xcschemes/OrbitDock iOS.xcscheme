@@ -41,17 +41,6 @@
                ReferencedContainer = "container:OrbitDock.xcodeproj">
             </BuildableReference>
          </TestableReference>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "800E7CCB2F46B778007CADF5"
-               BuildableName = "OrbitDock iOSUITests.xctest"
-               BlueprintName = "OrbitDock iOSUITests"
-               ReferencedContainer = "container:OrbitDock.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

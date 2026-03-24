@@ -54,8 +54,7 @@ enum MarkdownTypography {
 
   static func headingColor(level: Int) -> Color {
     switch level {
-      case 1, 2: .textPrimary
-      case 3: .textSecondary
+      case 1, 2, 3: .textPrimary
       default: .textSecondary
     }
   }
@@ -229,7 +228,7 @@ enum MarkdownTypography {
 
       // Content right after a heading → tight coupling
       case (.heading, _):
-        return style == .thinking ? 4 : 6
+        return style == .thinking ? 4 : 8
 
       // Thematic breaks get extra breathing room
       case (_, .thematicBreak), (.thematicBreak, _):
