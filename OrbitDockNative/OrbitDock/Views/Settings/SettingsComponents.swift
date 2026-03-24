@@ -7,18 +7,32 @@ struct SettingsSidebarButton: View {
   let isSelected: Bool
   let action: () -> Void
 
+  @State private var isHovering = false
+
+  private var fillColor: Color {
+    if isSelected { return Color.surfaceSelected }
+    if isHovering { return Color.surfaceHover }
+    return Color.clear
+  }
+
+  private var borderColor: Color {
+    if isSelected { return Color.surfaceBorder }
+    if isHovering { return Color.panelBorder.opacity(0.5) }
+    return Color.clear
+  }
+
   var body: some View {
     Button(action: action) {
       HStack(spacing: Spacing.md_) {
         Image(systemName: icon)
           .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(isSelected ? Color.accent : Color.textTertiary)
+          .foregroundStyle(isSelected ? Color.accent : isHovering ? Color.textSecondary : Color.textTertiary)
           .frame(width: 18)
 
         VStack(alignment: .leading, spacing: Spacing.xxs) {
           Text(title)
             .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
+            .foregroundStyle(isSelected || isHovering ? Color.textPrimary : Color.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
           Text(subtitle)
             .font(.system(size: TypeScale.micro, weight: .medium))
@@ -28,16 +42,31 @@ struct SettingsSidebarButton: View {
       }
       .padding(.horizontal, Spacing.lg_)
       .padding(.vertical, Spacing.md_)
+      .contentShape(Rectangle())
       .background(
         RoundedRectangle(cornerRadius: 9, style: .continuous)
-          .fill(isSelected ? Color.surfaceSelected : Color.clear)
+          .fill(fillColor)
       )
       .overlay(
         RoundedRectangle(cornerRadius: 9, style: .continuous)
-          .strokeBorder(isSelected ? Color.surfaceBorder : Color.clear, lineWidth: 1)
+          .strokeBorder(borderColor, lineWidth: 1)
       )
     }
     .buttonStyle(.plain)
+    .onHover { isHovering = $0 }
+    #if os(macOS)
+    .onContinuousHover { phase in
+      switch phase {
+        case .active:
+          NSCursor.pointingHand.push()
+        case .ended:
+          NSCursor.pop()
+      }
+    }
+    #endif
+    .animation(Motion.hover, value: isHovering)
+    .accessibilityLabel("\(title), \(subtitle)")
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 }
 

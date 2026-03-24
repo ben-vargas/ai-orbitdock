@@ -57,8 +57,8 @@ struct SessionStatusConsistencyTests {
       workStatus: .waiting,
       attentionReason: .awaitingPermission
     ))
-    #expect(NotificationManager.attentionMessage(for: permissionSession) == "Needs approval to continue.")
-    #expect(NotificationManager.completionMessage(for: permissionSession) == "Finished work in project.")
+    #expect(NotificationCoordinator.attentionMessage(for: permissionSession) == "Needs approval to continue.")
+    #expect(NotificationCoordinator.completionMessage(for: permissionSession) == "Finished work in project.")
 
     let questionSession = makeRootSessionNode(from: Session(
       id: "question-body",
@@ -71,8 +71,8 @@ struct SessionStatusConsistencyTests {
       workStatus: .waiting,
       attentionReason: .awaitingQuestion
     ))
-    #expect(NotificationManager.attentionMessage(for: questionSession) == "Has a question for you.")
-    #expect(NotificationManager.completionMessage(for: questionSession) == "Finished work in project.")
+    #expect(NotificationCoordinator.attentionMessage(for: questionSession) == "Has a question for you.")
+    #expect(NotificationCoordinator.completionMessage(for: questionSession) == "Finished work in project.")
 
     let replySession = makeRootSessionNode(from: Session(
       id: "reply-body",
@@ -85,8 +85,8 @@ struct SessionStatusConsistencyTests {
       workStatus: .working,
       attentionReason: .awaitingReply
     ))
-    #expect(NotificationManager.attentionMessage(for: replySession) == "Is waiting for your reply.")
-    #expect(NotificationManager.completionMessage(for: replySession) == "Finished work in project.")
+    #expect(NotificationCoordinator.attentionMessage(for: replySession) == "Is waiting for your reply.")
+    #expect(NotificationCoordinator.completionMessage(for: replySession) == "Finished work in project.")
   }
 
   @Test func workingTrackingUsesDisplayStatus() {
@@ -101,7 +101,7 @@ struct SessionStatusConsistencyTests {
       workStatus: .working,
       attentionReason: .none
     ))
-    #expect(NotificationManager.shouldTrackAsWorking(activeWorkingSession))
+    #expect(NotificationCoordinator.shouldTrackAsWorking(activeWorkingSession))
 
     let replySession = makeRootSessionNode(from: Session(
       id: "reply",
@@ -114,7 +114,7 @@ struct SessionStatusConsistencyTests {
       workStatus: .working,
       attentionReason: .awaitingReply
     ))
-    #expect(!NotificationManager.shouldTrackAsWorking(replySession))
+    #expect(!NotificationCoordinator.shouldTrackAsWorking(replySession))
   }
 
   @Test func passiveCodexSessionsDoNotParticipateInNotifications() {
@@ -134,6 +134,6 @@ struct SessionStatusConsistencyTests {
 
     #expect(passiveCodex.isPassiveCodex)
     #expect(!passiveCodex.allowsUserNotifications)
-    #expect(!NotificationManager.shouldTrackAsWorking(passiveCodex))
+    #expect(!NotificationCoordinator.shouldTrackAsWorking(passiveCodex))
   }
 }

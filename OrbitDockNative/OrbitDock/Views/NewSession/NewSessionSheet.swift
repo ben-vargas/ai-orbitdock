@@ -270,6 +270,7 @@ struct NewSessionSheet: View {
           worktreeError: $model.worktreeError,
           selectedPath: model.selectedPath,
           selectedPathIsGit: model.selectedPathIsGit,
+          style: .embedded,
           onGitInit: { initGitAndEnableWorktree() }
         )
       },
@@ -413,6 +414,7 @@ struct NewSessionSheet: View {
       statusByEndpointId: runtimeRegistry.displayConnectionStatusByEndpointId,
       serverPrimaryByEndpointId: runtimeRegistry.serverPrimaryByEndpointId,
       selectedEndpointId: $model.selectedEndpointId,
+      style: .embedded,
       onReconnect: { endpointId in
         runtimeRegistry.reconnect(endpointId: endpointId)
       }
@@ -431,6 +433,8 @@ struct NewSessionSheet: View {
         selectedPath: $model.selectedPath,
         selectedPathIsGit: $model.selectedPathIsGit,
         endpointId: model.selectedEndpointId
+        ,
+        style: .embedded
       )
     #endif
   }

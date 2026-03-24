@@ -113,23 +113,21 @@ struct ToastView: View {
 
 struct ToastContainer: View {
   @Environment(AppRouter.self) private var router
-  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-
-  let toastManager: ToastManager
+  @Environment(NotificationCoordinator.self) private var coordinator
 
   var body: some View {
     VStack(alignment: .trailing, spacing: Spacing.sm) {
-      ForEach(toastManager.toasts.prefix(3)) { toast in
+      ForEach(coordinator.toasts.prefix(3)) { toast in
         ToastView(
           toast: toast,
           onTap: {
             withAnimation(Motion.standard) {
               router.navigateToSession(scopedID: toast.sessionId)
             }
-            toastManager.dismiss(toast)
+            coordinator.dismiss(toast)
           },
           onDismiss: {
-            toastManager.dismiss(toast)
+            coordinator.dismiss(toast)
           }
         )
         .transition(.asymmetric(
@@ -141,7 +139,7 @@ struct ToastContainer: View {
     .padding(.horizontal, Spacing.lg)
     .padding(.top, 48)
     .padding(.bottom, Spacing.lg)
-    .animation(Motion.gentle, value: toastManager.toasts)
+    .animation(Motion.gentle, value: coordinator.toasts)
   }
 }
 

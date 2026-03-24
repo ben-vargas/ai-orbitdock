@@ -9,6 +9,7 @@ struct OrbitDockApp: App {
   #if os(macOS)
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
   #else
+    @UIApplicationDelegateAdaptor(iOSAppDelegate.self) var appDelegate
     @Environment(\.scenePhase) private var scenePhase
   #endif
   @State private var appRuntime: OrbitDockAppRuntime
@@ -34,6 +35,8 @@ struct OrbitDockApp: App {
         modelPricingService: modelPricingService,
         appUpdater: appUpdater
       )
+    #else
+      appDelegate.configure(appRuntime: appRuntime)
     #endif
   }
 
@@ -60,7 +63,7 @@ struct OrbitDockApp: App {
           .environment(appRuntime.runtimeRegistry.activeSessionStore)
           .environment(\.modelPricingService, modelPricingService)
           .environment(appRuntime.runtimeRegistry)
-          .environment(appRuntime.notificationManager)
+          .environment(appRuntime.notificationCoordinator)
           .preferredColorScheme(.dark)
       }
 
@@ -87,6 +90,7 @@ struct OrbitDockApp: App {
           }
       }
       .onChange(of: scenePhase) { _, newPhase in
+        appRuntime.focusTracker.update(scenePhase: newPhase)
         switch newPhase {
           case .active:
             appRuntime.runtimeRegistry.resumeFromBackgroundIfNeeded()
@@ -134,6 +138,49 @@ struct OrbitDockWindowCommands: Commands {
   }
 }
 
+#if os(iOS)
+  class iOSAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    private var appRuntime: OrbitDockAppRuntime?
+
+    func configure(appRuntime: OrbitDockAppRuntime) {
+      self.appRuntime = appRuntime
+    }
+
+    func application(
+      _ application: UIApplication,
+      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+      guard !AppRuntimeMode.isRunningTestsProcess else { return true }
+      appRuntime?.notificationCoordinator.configureCategories(delegate: self)
+      return true
+    }
+
+    func userNotificationCenter(
+      _ center: UNUserNotificationCenter,
+      willPresent notification: UNNotification,
+      withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+      completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(
+      _ center: UNUserNotificationCenter,
+      didReceive response: UNNotificationResponse,
+      withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+      let userInfo = response.notification.request.content.userInfo
+      if let sessionId = userInfo["sessionId"] as? String {
+        appRuntime?.externalNavigationCenter.submitSessionSelection(
+          sessionId: sessionId,
+          endpointId: nil
+        )
+      }
+
+      completionHandler()
+    }
+  }
+#endif
+
 #if os(macOS)
   class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private var appRuntime: OrbitDockAppRuntime?
@@ -155,7 +202,7 @@ struct OrbitDockWindowCommands: Commands {
       NSApp.appearance = NSAppearance(named: .darkAqua)
       guard !AppRuntimeMode.isRunningTestsProcess else { return }
       AppFileLogger.shared.start()
-      appRuntime?.notificationManager.configureAppSessionNotifications(delegate: self)
+      appRuntime?.notificationCoordinator.configureCategories(delegate: self)
       appUpdater?.start()
     }
 
@@ -179,6 +226,15 @@ struct OrbitDockWindowCommands: Commands {
       withCompletionHandler completionHandler: @escaping () -> Void
     ) {
       NSApp.activate(ignoringOtherApps: true)
+
+      let userInfo = response.notification.request.content.userInfo
+      if let sessionId = userInfo["sessionId"] as? String {
+        appRuntime?.externalNavigationCenter.submitSessionSelection(
+          sessionId: sessionId,
+          endpointId: nil
+        )
+      }
+
       completionHandler()
     }
   }

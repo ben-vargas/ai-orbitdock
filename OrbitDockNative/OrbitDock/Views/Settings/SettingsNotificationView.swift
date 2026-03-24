@@ -2,9 +2,10 @@ import SwiftUI
 import UserNotifications
 
 struct NotificationSettingsView: View {
-  @Environment(NotificationManager.self) private var notificationManager
+  @Environment(NotificationCoordinator.self) private var notificationCoordinator
   @AppStorage("notificationsEnabled") private var notificationsEnabled = true
   @AppStorage("notifyOnWorkComplete") private var notifyOnWorkComplete = true
+  @AppStorage("showInAppToasts") private var showInAppToasts = true
   @AppStorage("notificationSound") private var notificationSound = "default"
   #if os(iOS)
     @AppStorage("hapticFeedbackLevel") private var hapticFeedbackLevel = AppHapticLevel.minimal.rawValue
@@ -60,6 +61,24 @@ struct NotificationSettingsView: View {
               .disabled(!notificationsEnabled)
 
               Text("Alert when a session stops working and is ready for input.")
+                .font(.system(size: TypeScale.meta))
+                .foregroundStyle(Color.textTertiary)
+            }
+            .opacity(notificationsEnabled ? 1 : 0.5)
+
+            Divider()
+              .foregroundStyle(Color.panelBorder)
+
+            VStack(alignment: .leading, spacing: Spacing.sm_) {
+              Toggle(isOn: $showInAppToasts) {
+                Text("Show In-App Toasts")
+                  .font(.system(size: TypeScale.body))
+              }
+              .toggleStyle(.switch)
+              .tint(Color.accent)
+              .disabled(!notificationsEnabled)
+
+              Text("Show toast banners when a session needs attention while you're using OrbitDock.")
                 .font(.system(size: TypeScale.meta))
                 .foregroundStyle(Color.textTertiary)
             }
@@ -182,6 +201,6 @@ struct NotificationSettingsView: View {
   }
 
   private func sendTestNotification() {
-    notificationManager.sendTestNotification(soundID: notificationSound)
+    notificationCoordinator.sendTestNotification(soundID: notificationSound)
   }
 }

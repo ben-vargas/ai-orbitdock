@@ -5,7 +5,7 @@ struct OrbitDockWindowRoot: View {
   let appRuntime: OrbitDockAppRuntime
   @State private var appStore: AppStore
   @State private var router = AppRouter()
-  @State private var toastManager = ToastManager()
+  @State private var externalNavWindowID = UUID()
 
   private var shouldShowSetup: Bool {
     !appRuntime.isDemoModeEnabled && !appRuntime.runtimeRegistry.hasConfiguredEndpoints
@@ -55,10 +55,9 @@ struct OrbitDockWindowRoot: View {
     #endif
     .environment(appRuntime.runtimeRegistry)
     .environment(appRuntime.usageServiceRegistry)
-    .environment(appRuntime.notificationManager)
+    .environment(appRuntime.notificationCoordinator)
     .environment(appRuntime)
     .environment(router)
-    .environment(toastManager)
     .environment(appStore)
     .environment(\.rootSessionActions, RootSessionActions(runtimeRegistry: appRuntime.runtimeRegistry))
     .environment(\.modelPricingService, ModelPricingService.live())
@@ -82,12 +81,42 @@ struct OrbitDockWindowRoot: View {
     }
     .onAppear {
       syncDemoSeed()
+
+      // Register for external navigation (notification taps, etc.)
+      appRuntime.externalNavigationCenter.registerWindow(externalNavWindowID) { command in
+        switch command {
+          case let .selectSession(sessionId, _):
+            router.navigateToSession(scopedID: sessionId, source: .external)
+        }
+      }
+      appRuntime.externalNavigationCenter.updateFocusedWindow(externalNavWindowID)
+    }
+    .onDisappear {
+      appRuntime.externalNavigationCenter.unregisterWindow(externalNavWindowID)
     }
     .onChange(of: environmentAppRuntime.isDemoModeEnabled) { _, _ in
       syncDemoSeed()
     }
+    .onChange(of: appRuntime.runtimeRegistry.aggregatedSessions) { oldSessions, newSessions in
+      if oldSessions.isEmpty && !newSessions.isEmpty {
+        // First load — seed baseline to avoid a burst of toasts
+        appRuntime.notificationCoordinator.seedBaseline(newSessions)
+      } else {
+        appRuntime.notificationCoordinator.processSessionUpdate(newSessions)
+      }
+    }
+    .onChange(of: appRuntime.focusTracker.isAppActive) { _, isActive in
+      appRuntime.notificationCoordinator.appIsActive = isActive
+    }
     .onChange(of: router.route) { oldRoute, newRoute in
       guard oldRoute != newRoute else { return }
+
+      // Update notification coordinator's viewed session
+      if case let .session(ref) = newRoute {
+        appRuntime.notificationCoordinator.viewedSessionScopedID = ref.scopedID
+      } else {
+        appRuntime.notificationCoordinator.viewedSessionScopedID = nil
+      }
 
       switch newRoute {
         case let .session(ref):

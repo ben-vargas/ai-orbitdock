@@ -8,12 +8,18 @@
 import SwiftUI
 
 struct WorktreeFormSection: View {
+  enum Style {
+    case card
+    case embedded
+  }
+
   @Binding var useWorktree: Bool
   @Binding var worktreeBranch: String
   @Binding var worktreeBaseBranch: String
   @Binding var worktreeError: String?
   let selectedPath: String
   let selectedPathIsGit: Bool
+  var style: Style = .card
   let onGitInit: () -> Void
 
   @State private var showGitInitConfirmation = false
@@ -106,11 +112,8 @@ struct WorktreeFormSection: View {
         .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
-    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .stroke(Color.surfaceBorder, lineWidth: 1)
-    )
+    .background(backgroundShape)
+    .overlay(borderShape)
     .animation(Motion.bouncy, value: useWorktree)
     .alert("Initialize Git Repository?", isPresented: $showGitInitConfirmation) {
       Button("Initialize") {
@@ -130,5 +133,21 @@ struct WorktreeFormSection: View {
     useWorktree = transition.useWorktree
     worktreeError = transition.shouldClearError ? nil : worktreeError
     showGitInitConfirmation = transition.shouldShowGitInitConfirmation
+  }
+
+  @ViewBuilder
+  private var backgroundShape: some View {
+    if style == .card {
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.backgroundTertiary)
+    }
+  }
+
+  @ViewBuilder
+  private var borderShape: some View {
+    if style == .card {
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.surfaceBorder, lineWidth: 1)
+    }
   }
 }

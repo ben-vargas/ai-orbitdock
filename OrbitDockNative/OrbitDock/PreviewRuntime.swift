@@ -16,9 +16,8 @@ struct PreviewRuntime {
   let usageServiceRegistry: UsageServiceRegistry
   let attentionService: AttentionService
   let router: AppRouter
-  let toastManager: ToastManager
   let rootSessionActions: RootSessionActions
-  let notificationManager: NotificationManager
+  let notificationCoordinator: NotificationCoordinator
   let appStore: AppStore
   let externalNavigationCenter: AppExternalNavigationCenter
   #if os(macOS)
@@ -78,11 +77,8 @@ struct PreviewRuntime {
     self.usageServiceRegistry = UsageServiceRegistry(runtimeRegistry: runtimeRegistry)
     self.attentionService = AttentionService()
     self.router = AppRouter()
-    self.toastManager = ToastManager()
     self.rootSessionActions = RootSessionActions(runtimeRegistry: runtimeRegistry)
-    self.notificationManager = NotificationManager(
-      isAuthorized: false,
-      shouldRequestAuthorizationOnStart: false,
+    self.notificationCoordinator = NotificationCoordinator(
       notificationCenter: NotificationCenterClient(
         requestAuthorization: { completion in completion(false, nil) },
         setDelegate: { _ in },
@@ -113,10 +109,9 @@ struct PreviewRuntime {
       .environment(sessionStore)
       .environment(runtimeRegistry)
       .environment(usageServiceRegistry)
-      .environment(notificationManager)
+      .environment(notificationCoordinator)
       .environment(attentionService)
       .environment(router)
-      .environment(toastManager)
       .environment(\.rootSessionActions, rootSessionActions)
       .environment(appStore)
     #if os(macOS)

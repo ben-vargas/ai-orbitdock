@@ -1,0 +1,8 @@
+interface:
+  display_name: "Cosmic Harbor Design System"
+  short_description: "OrbitDock UI tokens, patterns, and layout rules"
+  brand_color: "#54AEE5"
+  default_prompt: "Use $design-system to implement this OrbitDock UI change with the correct tokens, hierarchy, and platform behavior."
+
+policy:
+  allow_implicit_invocation: true

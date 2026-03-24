@@ -1,10 +1,16 @@
 import SwiftUI
 
 struct EndpointSelectorField: View {
+  enum Style {
+    case card
+    case embedded
+  }
+
   let endpoints: [ServerEndpoint]
   let statusByEndpointId: [UUID: ConnectionStatus]
   let serverPrimaryByEndpointId: [UUID: Bool]
   @Binding var selectedEndpointId: UUID
+  var style: Style = .card
   var onReconnect: ((UUID) -> Void)?
 
   private var selectedEndpoint: ServerEndpoint? {
@@ -73,8 +79,12 @@ struct EndpointSelectorField: View {
               .padding(.horizontal, Spacing.sm)
               .padding(.vertical, Spacing.sm_)
               .background(
-                Color.accent.opacity(OpacityTier.tint),
-                in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                Color.backgroundSecondary,
+                in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              )
+              .overlay(
+                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                  .stroke(Color.accent.opacity(OpacityTier.light), lineWidth: 1)
               )
             }
           #else
@@ -124,16 +134,32 @@ struct EndpointSelectorField: View {
           .buttonStyle(.plain)
           .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.accent)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.gap)
+          .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
         }
       }
     }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.md)
-    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg))
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg)
+    .padding(.horizontal, style == .card ? Spacing.lg : 0)
+    .padding(.vertical, style == .card ? Spacing.md : 0)
+    .background(backgroundShape)
+    .overlay(borderShape)
+  }
+
+  @ViewBuilder
+  private var backgroundShape: some View {
+    if style == .card {
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.backgroundTertiary)
+    }
+  }
+
+  @ViewBuilder
+  private var borderShape: some View {
+    if style == .card {
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(Color.surfaceBorder, lineWidth: 1)
-    )
+    }
   }
 
   @ViewBuilder

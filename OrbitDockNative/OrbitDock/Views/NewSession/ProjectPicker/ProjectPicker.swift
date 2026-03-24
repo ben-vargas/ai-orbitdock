@@ -14,10 +14,16 @@ import SwiftUI
   let projectPickerLogger = Logger(subsystem: "com.orbitdock", category: "project-picker")
 
   struct ProjectPicker: View {
+    enum Style {
+      case standalone
+      case embedded
+    }
+
     @Binding var selectedPath: String
     @Binding var selectedPathIsGit: Bool
     let endpointId: UUID?
     let endpointSettings: ServerEndpointSettingsClient
+    let style: Style
     @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
     @State var recentProjects: [ServerRecentProject] = []
     @State var directoryEntries: [ServerDirectoryEntry] = []
@@ -34,11 +40,13 @@ import SwiftUI
       selectedPath: Binding<String>,
       selectedPathIsGit: Binding<Bool> = .constant(true),
       endpointId: UUID? = nil,
+      style: Style = .standalone,
       endpointSettings: ServerEndpointSettingsClient? = nil
     ) {
       _selectedPath = selectedPath
       _selectedPathIsGit = selectedPathIsGit
       self.endpointId = endpointId
+      self.style = style
       self.endpointSettings = endpointSettings ?? .live()
     }
 
@@ -53,11 +61,13 @@ import SwiftUI
 
     var body: some View {
       VStack(alignment: .leading, spacing: Spacing.md) {
-        Text("Project Directory")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(Color.textTertiary)
-          .textCase(.uppercase)
-          .tracking(0.5)
+        if style == .standalone {
+          Text("Project Directory")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+            .textCase(.uppercase)
+            .tracking(0.5)
+        }
 
         if !selectedPath.isEmpty {
           selectedPathBanner
@@ -92,6 +102,7 @@ import SwiftUI
             directoryBrowserView
         }
       }
+      .padding(.vertical, Spacing.xs)
       .onAppear {
         loadRecentProjects()
       }

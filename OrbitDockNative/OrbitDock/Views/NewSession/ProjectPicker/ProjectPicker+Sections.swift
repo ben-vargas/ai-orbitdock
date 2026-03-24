@@ -34,7 +34,11 @@ import SwiftUI
         .buttonStyle(.plain)
       }
       .padding(Spacing.md)
-      .background(Color.accent.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.md))
+      .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          .stroke(Color.accent.opacity(OpacityTier.light), lineWidth: 1)
+      )
     }
 
     var tabPicker: some View {
@@ -50,14 +54,24 @@ import SwiftUI
           } label: {
             Text(tab.rawValue)
               .font(.system(size: TypeScale.body, weight: activeTab == tab ? .semibold : .medium))
-              .foregroundStyle(activeTab == tab ? Color.accent : Color.textTertiary)
+              .foregroundStyle(activeTab == tab ? Color.backgroundPrimary : Color.textTertiary)
               .padding(.horizontal, Spacing.lg)
               .padding(.vertical, Spacing.sm)
+              .frame(minWidth: 76)
+              .background(
+                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                  .fill(activeTab == tab ? Color.accent : Color.clear)
+              )
           }
           .buttonStyle(.plain)
         }
       }
-      .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md))
+      .padding(Spacing.xxs)
+      .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+      )
     }
 
     var recentProjectsView: some View {
@@ -91,10 +105,17 @@ import SwiftUI
                 groupedRecentProjectSection(group)
               }
             }
+            .padding(Spacing.sm)
           }
           .frame(minHeight: 200, maxHeight: 280)
         }
       }
+      .padding(.vertical, Spacing.xs)
+      .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+      )
     }
 
     func groupedRecentProjectSection(_ group: GroupedRecentProject) -> some View {
@@ -230,13 +251,21 @@ import SwiftUI
         .padding(.leading, leadingPadding)
         .padding(.trailing, Spacing.md)
         .padding(.vertical, Spacing.sm)
-        .background(
-          selectedPath == selectionPath
-            ? Color.accent.opacity(OpacityTier.light)
-            : Color.clear,
-          in: RoundedRectangle(cornerRadius: Radius.md)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: Radius.md))
+        .background(alignment: .leading) {
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            .fill(selectedPath == selectionPath ? Color.accent.opacity(OpacityTier.light) : Color.clear)
+            .overlay(
+              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .stroke(selectedPath == selectionPath ? Color.accent.opacity(OpacityTier.medium) : Color.clear, lineWidth: 1)
+            )
+        }
+        .overlay(alignment: .leading) {
+          RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+            .fill(selectedPath == selectionPath ? Color.accent : Color.clear)
+            .frame(width: EdgeBar.width)
+            .padding(.vertical, Spacing.xs)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
       }
       .buttonStyle(.plain)
     }
@@ -296,10 +325,18 @@ import SwiftUI
                 directoryEntryRow(entry)
               }
             }
+            .padding(Spacing.sm)
           }
           .frame(minHeight: 200, maxHeight: 280)
         }
       }
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.sm)
+      .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+      )
     }
 
     private func directoryEntryRow(_ entry: ServerDirectoryEntry) -> some View {

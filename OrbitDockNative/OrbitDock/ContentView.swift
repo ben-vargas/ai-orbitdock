@@ -10,7 +10,7 @@ import SwiftUI
 struct ContentView: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
-  @Environment(ToastManager.self) private var toastManager
+  @Environment(NotificationCoordinator.self) private var notificationCoordinator
   #if os(macOS)
     @Environment(\.serverManager) private var serverManager
   #endif
@@ -80,9 +80,7 @@ struct ContentView: View {
       VStack {
         HStack {
           Spacer()
-          ToastContainer(
-            toastManager: toastManager
-          )
+          ToastContainer()
         }
         Spacer()
       }

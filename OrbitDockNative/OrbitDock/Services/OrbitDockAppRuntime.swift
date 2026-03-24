@@ -19,7 +19,8 @@ import SwiftUI
 final class OrbitDockAppRuntime {
   let runtimeRegistry: ServerRuntimeRegistry
   let externalNavigationCenter: AppExternalNavigationCenter
-  let notificationManager: NotificationManager
+  let notificationCoordinator: NotificationCoordinator
+  let focusTracker: AppFocusTracker
   let usageServiceRegistry: UsageServiceRegistry
   let startupCoordinator: ClientStartupCoordinator
   let demoExperience: DemoModeExperience
@@ -33,7 +34,8 @@ final class OrbitDockAppRuntime {
       let runtimeRegistry = ServerRuntimeRegistry()
       self.runtimeRegistry = runtimeRegistry
       self.externalNavigationCenter = AppExternalNavigationCenter()
-      self.notificationManager = NotificationManager()
+      self.notificationCoordinator = NotificationCoordinator()
+      self.focusTracker = AppFocusTracker()
       self.usageServiceRegistry = UsageServiceRegistry(runtimeRegistry: runtimeRegistry)
       self.demoExperience = DemoModeExperience()
       self.serverManager = .live()
@@ -47,7 +49,8 @@ final class OrbitDockAppRuntime {
       let runtimeRegistry = ServerRuntimeRegistry()
       self.runtimeRegistry = runtimeRegistry
       self.externalNavigationCenter = AppExternalNavigationCenter()
-      self.notificationManager = NotificationManager()
+      self.notificationCoordinator = NotificationCoordinator()
+      self.focusTracker = AppFocusTracker()
       self.usageServiceRegistry = UsageServiceRegistry(runtimeRegistry: runtimeRegistry)
       self.demoExperience = DemoModeExperience()
       self.startupCoordinator = ClientStartupCoordinator(
@@ -58,7 +61,8 @@ final class OrbitDockAppRuntime {
   #endif
 
   func startIfNeeded() async {
-    notificationManager.startIfNeeded()
+    notificationCoordinator.startIfNeeded()
+    focusTracker.startObserving()
     await startupCoordinator.startIfNeeded()
   }
 

@@ -1,30 +1,87 @@
 import SwiftUI
 
+struct NewSessionStageCard<Content: View>: View {
+  let eyebrow: String?
+  let title: String
+  let subtitle: String?
+  @ViewBuilder let content: () -> Content
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: Spacing.lg) {
+      VStack(alignment: .leading, spacing: Spacing.xs) {
+        if let eyebrow {
+          Text(eyebrow)
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+            .textCase(.uppercase)
+            .tracking(0.6)
+        }
+
+        Text(title)
+          .font(.system(size: TypeScale.subhead, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+
+        if let subtitle {
+          Text(subtitle)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+
+      content()
+    }
+    .padding(Spacing.lg)
+    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+    )
+  }
+}
+
 struct NewSessionSheetShell<Header: View, FormContent: View, Footer: View>: View {
   @ViewBuilder let header: () -> Header
   @ViewBuilder let formContent: () -> FormContent
   @ViewBuilder let footer: () -> Footer
 
   var body: some View {
-    VStack(spacing: 0) {
+    let chrome = VStack(spacing: 0) {
       header()
 
-      Divider()
-        .overlay(Color.surfaceBorder)
+      divider
 
       formContent()
 
-      Divider()
-        .overlay(Color.surfaceBorder)
+      divider
 
       footer()
     }
+    .background(
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .fill(Color.backgroundSecondary)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+    )
+    .shadow(color: .black.opacity(0.32), radius: 28, y: 14)
+    .shadow(color: Color.accent.opacity(0.08), radius: 18, y: 0)
+
     #if os(iOS)
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    chrome
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     #else
-    .frame(minWidth: 500, idealWidth: 600, maxWidth: 700)
+    chrome
+      .padding(Spacing.md)
+      .frame(minWidth: 540, idealWidth: 620, maxWidth: 720)
     #endif
-    .background(Color.backgroundSecondary)
+  }
+
+  private var divider: some View {
+    Rectangle()
+      .fill(Color.surfaceBorder.opacity(OpacityTier.light))
+      .frame(height: 1)
   }
 }
 
@@ -42,8 +99,8 @@ struct NewSessionFormShell<Content: View>: View {
     #else
       ScrollView(showsIndicators: true) {
         content()
-          .padding(.horizontal, Spacing.xl)
-          .padding(.vertical, Spacing.lg)
+          .padding(.horizontal, Spacing.lg)
+          .padding(.vertical, Spacing.section)
       }
     #endif
   }
@@ -83,10 +140,20 @@ struct NewSessionFormSections<
 
   var body: some View {
     VStack(alignment: .leading, spacing: formSectionSpacing) {
-      providerPicker()
+      NewSessionStageCard(
+        eyebrow: "Stage 1",
+        title: "Session Setup",
+        subtitle: "Choose the provider and where this session should run."
+      ) {
+        providerPicker()
 
-      if shouldShowEndpointSection {
-        endpointSection()
+        if shouldShowEndpointSection {
+          Rectangle()
+            .fill(Color.surfaceBorder.opacity(OpacityTier.light))
+            .frame(height: 1)
+
+          endpointSection()
+        }
       }
 
       if let continuation {
@@ -101,10 +168,22 @@ struct NewSessionFormSections<
         codexCapabilityNoticeSection()
       }
 
-      directorySection()
+      NewSessionStageCard(
+        eyebrow: "Stage 2",
+        title: "Workspace",
+        subtitle: hasSelectedPath
+          ? "Confirm the directory, then decide whether this run should branch into a worktree."
+          : "Pick a recent project or browse for the directory you want this session to use."
+      ) {
+        directorySection()
 
-      if hasSelectedPath {
-        worktreeSection()
+        if hasSelectedPath {
+          Rectangle()
+            .fill(Color.surfaceBorder.opacity(OpacityTier.light))
+            .frame(height: 1)
+
+          worktreeSection()
+        }
       }
 
       configurationCard()

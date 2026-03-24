@@ -86,24 +86,35 @@ struct NewSessionHeader: View {
   }
 
   private var headerIcon: some View {
-    Circle()
-      .fill(provider.color.opacity(OpacityTier.light))
-      .frame(width: 26, height: 26)
-      .overlay(
-        Image(systemName: "plus.circle.fill")
-          .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(provider.color)
-      )
-      .animation(Motion.standard, value: provider)
+    ZStack {
+      Circle()
+        .fill(provider.color.opacity(OpacityTier.light))
+        .frame(width: 28, height: 28)
+
+      Circle()
+        .stroke(provider.color.opacity(OpacityTier.medium), lineWidth: 1)
+        .frame(width: 28, height: 28)
+
+      Image(systemName: "plus")
+        .font(.system(size: 11, weight: .bold))
+        .foregroundStyle(provider.color)
+    }
+    .shadow(color: provider.color.opacity(0.25), radius: 8, y: 0)
+    .animation(Motion.standard, value: provider)
   }
 
   private var closeButton: some View {
     Button(action: onDismiss) {
-      Image(systemName: "xmark.circle.fill")
-        .font(.system(size: 18))
+      Image(systemName: "xmark")
+        .font(.system(size: 10, weight: .bold))
         .foregroundStyle(Color.textQuaternary)
-        .frame(width: 28, height: 28)
-        .contentShape(Rectangle())
+        .frame(width: 24, height: 24)
+        .background(Color.backgroundTertiary, in: Circle())
+        .overlay(
+          Circle()
+            .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+        )
+        .contentShape(Circle())
     }
     .buttonStyle(.plain)
     #if !os(iOS)
@@ -123,41 +134,46 @@ struct NewSessionConnectedBadge: View {
 
   var body: some View {
     HStack(spacing: Spacing.sm) {
+      Circle()
+        .fill(Color.feedbackPositive)
+        .frame(width: 6, height: 6)
+        .shadow(color: Color.feedbackPositive.opacity(0.45), radius: 4, y: 0)
+
       switch account {
         case .apiKey:
-          HStack(spacing: Spacing.xs) {
-            Circle()
-              .fill(Color.providerCodex)
-              .frame(width: 6, height: 6)
-            Text("API Key")
-              .font(.system(size: TypeScale.caption, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
-          }
+          Text("API Key Connected")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
 
         case let .chatgpt(email, planType):
-          HStack(spacing: Spacing.xs) {
-            Circle()
-              .fill(Color.providerCodex)
-              .frame(width: 6, height: 6)
+          if let email {
+            Text(email)
+              .font(.system(size: TypeScale.caption, weight: .medium))
+              .foregroundStyle(Color.textSecondary)
+              .lineLimit(1)
+          }
 
-            if let email {
-              Text(email)
-                .font(.system(size: TypeScale.caption, weight: .medium))
-                .foregroundStyle(Color.textTertiary)
-                .lineLimit(1)
-            }
-
-            if let planType {
-              Text(planType.uppercased())
-                .font(.system(size: 8, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.providerCodex)
-                .padding(.horizontal, 5)
-                .padding(.vertical, Spacing.xxs)
-                .background(Color.providerCodex.opacity(OpacityTier.light), in: Capsule())
-            }
+          if let planType {
+            Text(planType.uppercased())
+              .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
+              .foregroundStyle(Color.providerCodex)
+              .padding(.horizontal, Spacing.sm_)
+              .padding(.vertical, Spacing.gap)
+              .background(Color.providerCodex.opacity(OpacityTier.light), in: Capsule())
+              .overlay(
+                Capsule()
+                  .stroke(Color.providerCodex.opacity(OpacityTier.medium), lineWidth: 1)
+              )
           }
       }
     }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm_)
+    .background(Color.backgroundTertiary, in: Capsule())
+    .overlay(
+      Capsule()
+        .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+    )
   }
 }
 
@@ -422,7 +438,14 @@ struct NewSessionFooter: View {
     Button(action: onSignOut) {
       Text("Sign Out")
         .font(.system(size: TypeScale.caption, weight: .medium))
-        .foregroundStyle(Color.textQuaternary)
+        .foregroundStyle(Color.textTertiary)
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.sm_)
+        .background(Color.backgroundTertiary, in: Capsule())
+        .overlay(
+          Capsule()
+            .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+        )
     }
     .buttonStyle(.plain)
     #if !os(iOS)
