@@ -344,6 +344,7 @@ fn make_entry(session_id: &str, row: ConversationRow) -> ConversationRowEntry {
         session_id: session_id.to_string(),
         sequence: 0,
         turn_id: None,
+        turn_status: Default::default(),
         row,
     }
 }
@@ -648,6 +649,7 @@ impl ClaudeConnector {
         let disallowed_tools = config.disallowed_tools;
         let effort = config.effort;
         let allow_bypass_permissions = config.allow_bypass_permissions;
+        let extra_env = config.extra_env;
 
         let claude_bin = resolve_claude_binary()?;
 
@@ -719,6 +721,11 @@ impl ClaudeConnector {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .envs(
+                extra_env
+                    .iter()
+                    .map(|(key, value)| (key.as_str(), value.as_str())),
+            )
             .env("CLAUDE_CODE_ENTRYPOINT", "orbitdock")
             .env("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING", "true")
             .env_remove("CLAUDECODE")
