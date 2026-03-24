@@ -182,6 +182,70 @@ struct MarkdownParsingTests {
     #expect(list?[1].content.contains("Open task") == true)
   }
 
+  @Test func parserNormalizesLooseOrderedListContinuationParagraphs() {
+    let markdown = """
+    1. Commit only the tracked changes.
+    This is the safest, most focused commit.
+
+    2. Include the markdown cleanup too.
+    That makes the green test run reproducible from git.
+    """
+
+    let blocks = MarkdownSystemParser.parse(markdown)
+    let list = firstList(in: blocks)
+
+    #expect(list != nil)
+    #expect(list?.count == 2)
+    #expect(list?[0].content.contains("Commit only the tracked changes.") == true)
+    #expect(list?[0].content.contains("This is the safest, most focused commit.") == true)
+    #expect(list?[0].continuation.isEmpty == true)
+    #expect(list?[1].content.contains("Include the markdown cleanup too.") == true)
+    #expect(list?[1].content.contains("That makes the green test run reproducible from git.") == true)
+    #expect(list?[1].continuation.isEmpty == true)
+  }
+
+  @Test func parserNormalizesLooseBulletListContinuationParagraphs() {
+    let markdown = """
+    - Keep the timeline shell.
+    Replace the markdown message-body renderer wholesale.
+
+    - Keep code blocks rich.
+    Preserve syntax highlighting.
+    """
+
+    let blocks = MarkdownSystemParser.parse(markdown)
+    let list = firstList(in: blocks)
+
+    #expect(list != nil)
+    #expect(list?.count == 2)
+    #expect(list?[0].content.contains("Keep the timeline shell.") == true)
+    #expect(list?[0].content.contains("Replace the markdown message-body renderer wholesale.") == true)
+    #expect(list?[0].continuation.isEmpty == true)
+    #expect(list?[1].content.contains("Keep code blocks rich.") == true)
+    #expect(list?[1].content.contains("Preserve syntax highlighting.") == true)
+    #expect(list?[1].continuation.isEmpty == true)
+  }
+
+  @Test func parserDoesNotRewriteParagraphsThatIntentionallyEscapeAList() {
+    let markdown = """
+    - Keep the renderer simple.
+
+    This paragraph should remain outside the list because there is no following sibling item.
+    """
+
+    let blocks = MarkdownSystemParser.parse(markdown)
+    let list = firstList(in: blocks)
+    let trailingText = blocks.compactMap { block -> String? in
+      if case let .text(text) = block { return text }
+      return nil
+    }
+
+    #expect(list != nil)
+    #expect(list?.count == 1)
+    #expect(list?[0].continuation.isEmpty == true)
+    #expect(trailingText.contains("This paragraph should remain outside the list because there is no following sibling item."))
+  }
+
   @Test func blockquotePreservesParagraphsAndNestedListBoundaries() {
     let markdown = """
     > First quote paragraph.

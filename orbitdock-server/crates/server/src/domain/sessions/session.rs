@@ -421,6 +421,8 @@ const EVENT_LOG_CAPACITY: usize = 1000;
 const DEFAULT_BROADCAST_CAPACITY: usize = 512;
 const RETAINED_FINALIZED_ROW_LIMIT: usize = 200;
 const STREAMING_ROW_BROADCAST_THROTTLE: Duration = Duration::from_millis(250);
+const STREAMING_ROW_FORCE_EMIT_CONTENT_STEP: usize = 24;
+const STREAMING_ROW_MIN_INITIAL_EMIT_CHARS: usize = 8;
 
 fn broadcast_capacity() -> usize {
     std::env::var("ORBITDOCK_BROADCAST_CAPACITY")
@@ -513,8 +515,8 @@ pub struct SessionHandle {
     revision: u64,
     /// Ring buffer of (revision, pre-serialized JSON with revision injected)
     event_log: VecDeque<(u64, String)>,
-    /// Last emit timestamp for actively streaming message rows.
-    streaming_row_emit_at: HashMap<String, Instant>,
+    /// Last emit state for actively streaming message rows.
+    streaming_row_emit_at: HashMap<String, StreamingRowEmitState>,
 
     // ── Lock-free snapshot ──────────────────────────────────────────
     /// Lock-free snapshot for read-only access from outside the actor
@@ -596,6 +598,21 @@ fn is_actively_streaming_message_row_summary(entry: &RowEntrySummary) -> bool {
         ConversationRowSummary::Assistant(msg) | ConversationRowSummary::Thinking(msg) | ConversationRowSummary::System(msg)
             if msg.is_streaming
     )
+}
+
+fn streaming_message_row_summary_content_len(entry: &RowEntrySummary) -> Option<usize> {
+    match &entry.row {
+        ConversationRowSummary::Assistant(msg)
+        | ConversationRowSummary::Thinking(msg)
+        | ConversationRowSummary::System(msg) => Some(msg.content.chars().count()),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone)]
+struct StreamingRowEmitState {
+    last_emit_at: Instant,
+    last_emitted_content_len: usize,
 }
 
 impl SessionHandle {
@@ -1581,20 +1598,31 @@ impl SessionHandle {
             return true;
         }
 
+        let content_len = streaming_message_row_summary_content_len(entry).unwrap_or(0);
         let now = Instant::now();
         match self.streaming_row_emit_at.get_mut(entry.id()) {
-            Some(last_emit_at) => {
-                if now.duration_since(*last_emit_at) < STREAMING_ROW_BROADCAST_THROTTLE {
+            Some(state) => {
+                let force_emit_for_growth = content_len
+                    >= state.last_emitted_content_len + STREAMING_ROW_FORCE_EMIT_CONTENT_STEP;
+                if !force_emit_for_growth
+                    && now.duration_since(state.last_emit_at) < STREAMING_ROW_BROADCAST_THROTTLE
+                {
                     false
                 } else {
-                    *last_emit_at = now;
+                    state.last_emit_at = now;
+                    state.last_emitted_content_len = content_len;
                     true
                 }
             }
             None => {
-                self.streaming_row_emit_at
-                    .insert(entry.id().to_string(), now);
-                true
+                self.streaming_row_emit_at.insert(
+                    entry.id().to_string(),
+                    StreamingRowEmitState {
+                        last_emit_at: now,
+                        last_emitted_content_len: 0,
+                    },
+                );
+                content_len >= STREAMING_ROW_MIN_INITIAL_EMIT_CHARS
             }
         }
     }
