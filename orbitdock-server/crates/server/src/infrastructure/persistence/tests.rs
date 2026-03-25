@@ -289,7 +289,7 @@ fn row_append_stores_correct_sequence() {
 
 #[test]
 fn flush_batch_emits_row_sync_commands_with_db_assigned_sequences() {
-    let (conn, db_path, _dir) = setup_test_db();
+    let (conn, db_path, _dir, _guard) = setup_test_db();
     drop(conn);
 
     let batch = vec![
@@ -325,7 +325,7 @@ fn flush_batch_emits_row_sync_commands_with_db_assigned_sequences() {
 
 #[test]
 fn flush_batch_skips_non_syncable_commands() {
-    let (conn, db_path, _dir) = setup_test_db();
+    let (conn, db_path, _dir, _guard) = setup_test_db();
     drop(conn);
 
     let batch = vec![
