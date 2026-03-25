@@ -315,7 +315,7 @@ struct DashboardStatusBar: View {
 
   private var actionButtons: some View {
     HStack(spacing: Spacing.sm_) {
-      newSessionMenu
+      newSessionButton(showLabel: true)
       quickSwitchButton
       settingsButton
       serverButton(showLabel: true)
@@ -324,38 +324,47 @@ struct DashboardStatusBar: View {
 
   private var phoneActionButtons: some View {
     HStack(spacing: Spacing.xs) {
-      newSessionMenu
+      newSessionButton(showLabel: false)
       quickSwitchButton
       settingsButton
       serverButton(showLabel: false)
     }
   }
 
-  private var newSessionMenu: some View {
-    Menu {
+  private func newSessionButton(showLabel: Bool) -> some View {
+    Button {
+      router.openNewSessionSheet()
+    } label: {
+      HStack(spacing: Spacing.xs) {
+        Image(systemName: "plus")
+          .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(Color.accent)
+
+        if showLabel {
+          Text("New Session")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+        }
+      }
+      .frame(minWidth: showLabel ? 0 : 28, minHeight: 28, alignment: .center)
+      .padding(.horizontal, showLabel ? Spacing.xs : 0)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .help("Open the new session sheet")
+    .contextMenu {
       Button {
         router.openNewSession(provider: .claude)
       } label: {
-        Label("Claude Session", systemImage: "sparkles")
+        Label("Start in Claude", systemImage: "sparkles")
       }
 
       Button {
         router.openNewSession(provider: .codex)
       } label: {
-        Label("Codex Session", systemImage: "chevron.left.forwardslash.chevron.right")
+        Label("Start in Codex", systemImage: "chevron.left.forwardslash.chevron.right")
       }
-    } label: {
-      Image(systemName: "plus")
-        .font(.system(size: 10, weight: .bold))
-        .foregroundStyle(Color.accent)
-        .frame(width: 28, height: 28)
-        .background(
-          Color.accent.opacity(OpacityTier.light),
-          in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
-        )
     }
-    .menuStyle(.borderlessButton)
-    .help("New session")
   }
 
   private var quickSwitchButton: some View {

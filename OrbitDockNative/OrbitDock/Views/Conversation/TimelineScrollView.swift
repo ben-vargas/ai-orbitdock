@@ -9,8 +9,10 @@
 //  - The timeline owns a bound scroll position anchored to the bottom sentinel.
 //  - When pinned, the bound position stays on the bottom sentinel so container
 //    height and content height changes preserve bottom alignment declaratively.
-//  - User-driven scrolling is detected from SwiftUI scroll phase changes. We
-//    only unpin after a user scroll settles away from the bottom.
+//  - User-driven scrolling is detected by bridging the underlying platform
+//    scroll view so content/layout changes do not masquerade as user intent.
+//  - Targeted navigation (jump to a specific message) stays a one-shot command
+//    layered on top via ScrollViewReader instead of becoming persistent state.
 //
 
 import SwiftUI
@@ -19,124 +21,213 @@ struct TimelineScrollView: View {
   let viewModel: ConversationTimelineViewModel
   let sessionId: String
   let clients: ServerClients
+  @Binding var scrollCommand: ConversationScrollCommand?
   let onLoadMore: (() -> Void)?
-  let isPinned: Bool
-  let onReachedBottom: () -> Void
-  let onLeftBottomByUser: () -> Void
+  let followMode: ConversationFollowMode
+  let onViewportEvent: (ConversationViewportEvent) -> Void
 
   private static let bottomSentinelID = "timeline-bottom"
+  private static let bottomAnchorHeight: CGFloat = 20
+  private static let bottomThreshold: CGFloat = 36
 
-  @State private var bottomSentinelVisible = true
-  @State private var scrollPositionID: String? = bottomSentinelID
-  @State private var userDrivenScrollInFlight = false
+  @State private var isNearBottom = true
+  @State private var commandedScrollPositionID: String? = bottomSentinelID
+  @State private var observedScrollPositionID: String? = bottomSentinelID
   @State private var hasInitializedScrollPosition = false
-
+  @State private var isUserScrolling = false
+  @State private var hasDetachedFromBottomDuringCurrentGesture = false
 
   init(
     viewModel: ConversationTimelineViewModel,
     sessionId: String,
     clients: ServerClients,
+    scrollCommand: Binding<ConversationScrollCommand?>,
     onLoadMore: (() -> Void)?,
-    isPinned: Bool,
-    onReachedBottom: @escaping () -> Void,
-    onLeftBottomByUser: @escaping () -> Void
+    followMode: ConversationFollowMode,
+    onViewportEvent: @escaping (ConversationViewportEvent) -> Void
   ) {
     self.viewModel = viewModel
     self.sessionId = sessionId
     self.clients = clients
+    _scrollCommand = scrollCommand
     self.onLoadMore = onLoadMore
-    self.isPinned = isPinned
-    self.onReachedBottom = onReachedBottom
-    self.onLeftBottomByUser = onLeftBottomByUser
+    self.followMode = followMode
+    self.onViewportEvent = onViewportEvent
   }
 
   var body: some View {
     let displayed = viewModel.displayedEntries
 
-    ScrollView(.vertical) {
-      LazyVStack(spacing: 0) {
-        // Pagination sentinel — triggers history load when scrolled into view.
-        // Identity changes when older messages prepend (first entry's sequence
-        // changes), so onAppear fires again for the next page.
-        Color.clear
-          .frame(height: 1)
-          .id("pagination-\(displayed.first?.sequence ?? 0)")
-          .onAppear {
-            guard hasInitializedScrollPosition, !isPinned else { return }
-            onLoadMore?()
+    ScrollViewReader { proxy in
+      ScrollView(.vertical) {
+        LazyVStack(spacing: 0) {
+          // Pagination sentinel — triggers history load when scrolled into view.
+          // Identity changes when older messages prepend (first entry's sequence
+          // changes), so onAppear fires again for the next page.
+          Color.clear
+            .frame(height: 1)
+            .id("pagination-\(displayed.first?.sequence ?? 0)")
+            .onAppear {
+              guard hasInitializedScrollPosition, !followMode.isFollowing else { return }
+              onLoadMore?()
+            }
+
+          ForEach(displayed) { entry in
+            TimelineRowHost(
+              entry: entry,
+              sessionId: sessionId,
+              clients: clients,
+              viewModel: viewModel
+            )
+            .id(entry.id)
           }
 
-        ForEach(displayed) { entry in
-          TimelineRowHost(
-            entry: entry,
-            sessionId: sessionId,
-            clients: clients,
-            viewModel: viewModel
-          )
-          .id(entry.id)
+          // Bottom sentinel — padded docking region used only as the follow target.
+          Color.clear
+            .frame(height: Self.bottomAnchorHeight)
+            .id(Self.bottomSentinelID)
         }
-
-        // Bottom sentinel — the declarative pinned target and visibility probe.
-        Color.clear
-          .frame(height: 1)
-          .id(Self.bottomSentinelID)
-          .onScrollVisibilityChange(threshold: 0.001) { isVisible in
-            bottomSentinelVisible = isVisible
-            guard isVisible, !isPinned else { return }
-            onReachedBottom()
-          }
+        .scrollTargetLayout()
       }
-      .scrollTargetLayout()
-    }
-    .scrollDismissesKeyboard(.interactively)
-    .defaultScrollAnchor(.bottom)
-    .scrollPosition(id: $scrollPositionID, anchor: .bottom)
-    .background(Color.backgroundPrimary)
-    .task {
-      guard !hasInitializedScrollPosition else { return }
-      hasInitializedScrollPosition = true
-      if isPinned {
+      .scrollDismissesKeyboard(.interactively)
+      .defaultScrollAnchor(.bottom)
+      .scrollPosition(id: scrollPositionBinding, anchor: .bottom)
+      .background(Color.backgroundPrimary)
+      .background {
+        TimelineUserScrollDetector(
+          isUserScrolling: $isUserScrolling,
+          isNearBottom: $isNearBottom,
+          bottomThreshold: Self.bottomThreshold
+        )
+        .frame(width: 0, height: 0)
+      }
+      .task {
+        guard !hasInitializedScrollPosition else { return }
+        hasInitializedScrollPosition = true
+        ConversationFollowDebug.log(
+          "TimelineScrollView.task initialize followMode=\(followMode.rawValue) displayedCount=\(displayed.count) isNearBottom=\(isNearBottom)"
+        )
+        if followMode.isFollowing {
+          setPinnedScrollPosition()
+        }
+      }
+      .onChange(of: followMode) { _, mode in
+        ConversationFollowDebug.log(
+          "TimelineScrollView.followModeChanged newMode=\(mode.rawValue) isNearBottom=\(isNearBottom) commanded=\(commandedScrollPositionID ?? "nil") observed=\(observedScrollPositionID ?? "nil") isUserScrolling=\(isUserScrolling)"
+        )
+        guard mode.isFollowing else { return }
         setPinnedScrollPosition()
       }
-    }
-    .onChange(of: isPinned) { _, pinned in
-      guard pinned else { return }
-      setPinnedScrollPosition()
-    }
-    .onScrollPhaseChange { _, newPhase in
-      if isUserDrivenScrollPhase(newPhase) {
-        userDrivenScrollInFlight = true
-        return
+      .onChange(of: isNearBottom) { _, isVisible in
+        ConversationFollowDebug.log(
+          "TimelineScrollView.nearBottomChanged isNearBottom=\(isVisible) followMode=\(followMode.rawValue) isUserScrolling=\(isUserScrolling) commanded=\(commandedScrollPositionID ?? "nil") observed=\(observedScrollPositionID ?? "nil")"
+        )
+        if isVisible, !followMode.isFollowing {
+          ConversationFollowDebug.log("TimelineScrollView.emitViewportEvent reachedBottom via metrics")
+          onViewportEvent(.reachedBottom)
+          return
+        }
+
+        guard !isVisible, followMode.isFollowing, isUserScrolling else { return }
+        guard !hasDetachedFromBottomDuringCurrentGesture else { return }
+        ConversationFollowDebug.log("TimelineScrollView.emitViewportEvent leftBottomByUser via metrics")
+        hasDetachedFromBottomDuringCurrentGesture = true
+        onViewportEvent(.leftBottomByUser)
       }
+      .onChange(of: isUserScrolling) { _, scrolling in
+        ConversationFollowDebug.log(
+          "TimelineScrollView.userScrollingChanged scrolling=\(scrolling) followMode=\(followMode.rawValue) isNearBottom=\(isNearBottom)"
+        )
+        if scrolling {
+          hasDetachedFromBottomDuringCurrentGesture = false
+          return
+        }
 
-      if newPhase == .animating {
-        userDrivenScrollInFlight = false
-        return
+        guard !hasDetachedFromBottomDuringCurrentGesture else { return }
+        guard followMode.isFollowing, !isNearBottom else { return }
+        ConversationFollowDebug.log("TimelineScrollView.emitViewportEvent leftBottomByUser via scroll end")
+        hasDetachedFromBottomDuringCurrentGesture = true
+        onViewportEvent(.leftBottomByUser)
       }
-
-      guard newPhase == .idle else { return }
-      defer { userDrivenScrollInFlight = false }
-
-      guard userDrivenScrollInFlight else { return }
-      guard isPinned, !bottomSentinelVisible else { return }
-      onLeftBottomByUser()
+      .onChange(of: scrollCommand) { _, command in
+        guard let command else { return }
+        ConversationFollowDebug.log(
+          "TimelineScrollView.scrollCommandReceived command=\(describe(command)) followMode=\(followMode.rawValue) isNearBottom=\(isNearBottom) displayedCount=\(displayed.count) commanded=\(commandedScrollPositionID ?? "nil") observed=\(observedScrollPositionID ?? "nil")"
+        )
+        run(command: command, with: proxy)
+      }
     }
   }
 
   private func setPinnedScrollPosition() {
+    ConversationFollowDebug.log(
+      "TimelineScrollView.setPinnedScrollPosition oldCommanded=\(commandedScrollPositionID ?? "nil") oldObserved=\(observedScrollPositionID ?? "nil") target=\(Self.bottomSentinelID)"
+    )
     var transaction = Transaction()
     transaction.animation = nil
     withTransaction(transaction) {
-      scrollPositionID = Self.bottomSentinelID
+      commandedScrollPositionID = Self.bottomSentinelID
     }
   }
 
-  private func isUserDrivenScrollPhase(_ phase: ScrollPhase) -> Bool {
-    switch phase {
-      case .tracking, .interacting, .decelerating:
-        true
-      case .idle, .animating:
-        false
+  private func scrollToMessage(_ messageID: String, with proxy: ScrollViewProxy) {
+    ConversationFollowDebug.log("TimelineScrollView.scrollToMessage messageID=\(messageID)")
+    var transaction = Transaction()
+    transaction.animation = Motion.standard
+    withTransaction(transaction) {
+      proxy.scrollTo(messageID, anchor: .center)
+    }
+  }
+
+  private func run(command: ConversationScrollCommand, with proxy: ScrollViewProxy) {
+    ConversationFollowDebug.log("TimelineScrollView.run command=\(describe(command))")
+    switch command {
+      case .latest:
+        setPinnedScrollPosition()
+      case let .message(id, _):
+        scrollToMessage(id, with: proxy)
+    }
+  }
+
+  private var scrollPositionBinding: Binding<String?> {
+    Binding(
+      get: {
+        if followMode.isFollowing, !isUserScrolling {
+          return commandedScrollPositionID ?? Self.bottomSentinelID
+        }
+        return observedScrollPositionID
+      },
+      set: { newValue in
+        let previousObserved = observedScrollPositionID
+        if observedScrollPositionID != newValue {
+          observedScrollPositionID = newValue
+        }
+
+        if followMode.isFollowing {
+          if newValue == Self.bottomSentinelID {
+            hasDetachedFromBottomDuringCurrentGesture = false
+          }
+          return
+        }
+
+        guard observedScrollPositionID != newValue || commandedScrollPositionID != newValue else { return }
+        commandedScrollPositionID = newValue
+        if isNearBottom {
+          hasDetachedFromBottomDuringCurrentGesture = false
+        }
+        ConversationFollowDebug.log(
+          "TimelineScrollView.acceptedObservedScrollPositionWhileDetached previousObserved=\(previousObserved ?? "nil") newObserved=\(newValue ?? "nil") commanded=\(commandedScrollPositionID ?? "nil")"
+        )
+      }
+    )
+  }
+
+  private func describe(_ command: ConversationScrollCommand) -> String {
+    switch command {
+      case let .latest(nonce):
+        "latest(nonce: \(nonce))"
+      case let .message(id, nonce):
+        "message(id: \(id), nonce: \(nonce))"
     }
   }
 }

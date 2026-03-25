@@ -19,19 +19,37 @@ import SwiftUI
 
   struct TimelineUserScrollDetector: NSViewRepresentable {
     @Binding var isUserScrolling: Bool
+    @Binding var isNearBottom: Bool
+    let bottomThreshold: CGFloat
 
     func makeNSView(context: Context) -> ScrollDetectorNSView {
-      ScrollDetectorNSView(isUserScrolling: $isUserScrolling)
+      ScrollDetectorNSView(
+        isUserScrolling: $isUserScrolling,
+        isNearBottom: $isNearBottom,
+        bottomThreshold: bottomThreshold
+      )
     }
 
-    func updateNSView(_ nsView: ScrollDetectorNSView, context: Context) {}
+    func updateNSView(_ nsView: ScrollDetectorNSView, context: Context) {
+      nsView.bottomThreshold = bottomThreshold
+      nsView.refreshMetrics()
+    }
   }
 
   final class ScrollDetectorNSView: NSView {
     private let isUserScrolling: Binding<Bool>
+    private let isNearBottom: Binding<Bool>
+    private weak var observedScrollView: NSScrollView?
+    var bottomThreshold: CGFloat
 
-    init(isUserScrolling: Binding<Bool>) {
+    init(
+      isUserScrolling: Binding<Bool>,
+      isNearBottom: Binding<Bool>,
+      bottomThreshold: CGFloat
+    ) {
       self.isUserScrolling = isUserScrolling
+      self.isNearBottom = isNearBottom
+      self.bottomThreshold = bottomThreshold
       super.init(frame: .zero)
     }
 
@@ -40,10 +58,45 @@ import SwiftUI
       fatalError()
     }
 
+    override func viewDidMoveToSuperview() {
+      super.viewDidMoveToSuperview()
+      rebindIfNeeded()
+    }
+
     override func viewDidMoveToWindow() {
       super.viewDidMoveToWindow()
-      NotificationCenter.default.removeObserver(self)
-      guard let scrollView = enclosingScrollView else { return }
+      rebindIfNeeded()
+    }
+
+    override func layout() {
+      super.layout()
+      rebindIfNeeded()
+    }
+
+    private func rebindIfNeeded() {
+      guard window != nil else {
+        teardownObservers()
+        return
+      }
+
+      guard let scrollView = findScrollView() else {
+        if observedScrollView != nil {
+          ConversationFollowDebug.log("TimelineUserScrollDetector.macOS detached scrollView")
+        }
+        teardownObservers()
+        return
+      }
+
+      guard observedScrollView !== scrollView else {
+        refreshMetrics()
+        return
+      }
+
+      teardownObservers()
+      observedScrollView = scrollView
+
+      scrollView.contentView.postsBoundsChangedNotifications = true
+      scrollView.documentView?.postsFrameChangedNotifications = true
 
       NotificationCenter.default.addObserver(
         self,
@@ -57,18 +110,71 @@ import SwiftUI
         name: NSScrollView.didEndLiveScrollNotification,
         object: scrollView
       )
+      NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(scrollMetricsChanged),
+        name: NSView.boundsDidChangeNotification,
+        object: scrollView.contentView
+      )
+      if let documentView = scrollView.documentView {
+        NotificationCenter.default.addObserver(
+          self,
+          selector: #selector(scrollMetricsChanged),
+          name: NSView.frameDidChangeNotification,
+          object: documentView
+        )
+      }
+
+      ConversationFollowDebug.log(
+        "TimelineUserScrollDetector.macOS attached scrollView documentHeight=\(scrollView.documentView?.bounds.height ?? 0)"
+      )
+      refreshMetrics()
     }
 
     @objc private func liveScrollStarted() {
+      ConversationFollowDebug.log("TimelineUserScrollDetector.macOS liveScrollStarted")
       isUserScrolling.wrappedValue = true
+      refreshMetrics()
     }
 
     @objc private func liveScrollEnded() {
+      ConversationFollowDebug.log("TimelineUserScrollDetector.macOS liveScrollEnded")
       isUserScrolling.wrappedValue = false
+      refreshMetrics()
+    }
+
+    @objc private func scrollMetricsChanged() {
+      refreshMetrics()
+    }
+
+    func refreshMetrics() {
+      guard let scrollView = observedScrollView, let documentView = scrollView.documentView else {
+        isNearBottom.wrappedValue = true
+        return
+      }
+
+      let visibleMaxY = scrollView.contentView.documentVisibleRect.maxY
+      let contentMaxY = documentView.bounds.maxY
+      let distanceFromBottom = max(contentMaxY - visibleMaxY, 0)
+      isNearBottom.wrappedValue = distanceFromBottom <= bottomThreshold
+    }
+
+    private func findScrollView() -> NSScrollView? {
+      var view: NSView? = self
+      while let candidate = view {
+        if let scrollView = candidate as? NSScrollView { return scrollView }
+        view = candidate.superview
+      }
+      return nil
+    }
+
+    private func teardownObservers() {
+      NotificationCenter.default.removeObserver(self)
+      observedScrollView = nil
     }
 
     deinit {
-      NotificationCenter.default.removeObserver(self)
+      teardownObservers()
     }
   }
 
@@ -77,21 +183,41 @@ import SwiftUI
 
   struct TimelineUserScrollDetector: UIViewRepresentable {
     @Binding var isUserScrolling: Bool
+    @Binding var isNearBottom: Bool
+    let bottomThreshold: CGFloat
 
     func makeUIView(context: Context) -> ScrollDetectorUIView {
-      ScrollDetectorUIView(isUserScrolling: $isUserScrolling)
+      ScrollDetectorUIView(
+        isUserScrolling: $isUserScrolling,
+        isNearBottom: $isNearBottom,
+        bottomThreshold: bottomThreshold
+      )
     }
 
-    func updateUIView(_ uiView: ScrollDetectorUIView, context: Context) {}
+    func updateUIView(_ uiView: ScrollDetectorUIView, context: Context) {
+      uiView.bottomThreshold = bottomThreshold
+      uiView.refreshMetrics()
+    }
   }
 
   final class ScrollDetectorUIView: UIView {
     var isUserScrolling: Binding<Bool>
+    var isNearBottom: Binding<Bool>
+    var bottomThreshold: CGFloat
     private var panObservation: NSKeyValueObservation?
     private var decelerationObservation: NSKeyValueObservation?
+    private var contentOffsetObservation: NSKeyValueObservation?
+    private var contentSizeObservation: NSKeyValueObservation?
+    private var boundsObservation: NSKeyValueObservation?
 
-    init(isUserScrolling: Binding<Bool>) {
+    init(
+      isUserScrolling: Binding<Bool>,
+      isNearBottom: Binding<Bool>,
+      bottomThreshold: CGFloat
+    ) {
       self.isUserScrolling = isUserScrolling
+      self.isNearBottom = isNearBottom
+      self.bottomThreshold = bottomThreshold
       super.init(frame: .zero)
       isUserInteractionEnabled = false
     }
@@ -105,6 +231,9 @@ import SwiftUI
       super.didMoveToWindow()
       panObservation = nil
       decelerationObservation = nil
+      contentOffsetObservation = nil
+      contentSizeObservation = nil
+      boundsObservation = nil
       guard window != nil else { return }
       guard let scrollView = findScrollView() else { return }
 
@@ -113,6 +242,22 @@ import SwiftUI
           self?.handlePanState(rec)
         }
       }
+      contentOffsetObservation = scrollView.observe(\.contentOffset) { [weak self] _, _ in
+        MainActor.assumeIsolated {
+          self?.refreshMetrics()
+        }
+      }
+      contentSizeObservation = scrollView.observe(\.contentSize) { [weak self] _, _ in
+        MainActor.assumeIsolated {
+          self?.refreshMetrics()
+        }
+      }
+      boundsObservation = scrollView.observe(\.bounds) { [weak self] _, _ in
+        MainActor.assumeIsolated {
+          self?.refreshMetrics()
+        }
+      }
+      refreshMetrics()
     }
 
     private func handlePanState(_ recognizer: UIPanGestureRecognizer) {
@@ -120,16 +265,19 @@ import SwiftUI
         case .began, .changed:
           decelerationObservation = nil
           isUserScrolling.wrappedValue = true
+          refreshMetrics()
 
         case .ended:
           guard let scrollView = recognizer.view as? UIScrollView else {
             isUserScrolling.wrappedValue = false
+            refreshMetrics()
             return
           }
           // Track deceleration (momentum) — keep isUserScrolling true until it settles
           decelerationObservation = scrollView.observe(\.contentOffset) { [weak self] sv, _ in
-            guard !sv.isDecelerating else { return }
             MainActor.assumeIsolated {
+              self?.refreshMetrics()
+              guard !sv.isDecelerating else { return }
               self?.decelerationObservation = nil
               self?.isUserScrolling.wrappedValue = false
             }
@@ -138,10 +286,24 @@ import SwiftUI
         case .cancelled, .failed:
           decelerationObservation = nil
           isUserScrolling.wrappedValue = false
+          refreshMetrics()
 
         default:
           break
       }
+    }
+
+    func refreshMetrics() {
+      guard let scrollView = findScrollView() else {
+        isNearBottom.wrappedValue = true
+        return
+      }
+
+      let insetBottom = scrollView.adjustedContentInset.bottom
+      let visibleMaxY = scrollView.contentOffset.y + scrollView.bounds.height - insetBottom
+      let contentMaxY = scrollView.contentSize.height
+      let distanceFromBottom = max(contentMaxY - visibleMaxY, 0)
+      isNearBottom.wrappedValue = distanceFromBottom <= bottomThreshold
     }
 
     private func findScrollView() -> UIScrollView? {

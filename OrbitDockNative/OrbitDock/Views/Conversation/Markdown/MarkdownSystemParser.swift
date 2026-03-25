@@ -453,7 +453,7 @@ enum MarkdownSystemParser {
 
     for match in regex.matches(in: trimmed, options: [], range: range) {
       guard let matchRange = Range(match.range, in: trimmed) else { continue }
-      let segment = trimmed[lastIndex..<matchRange.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+      let segment = trimmed[lastIndex ..< matchRange.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
       if !segment.isEmpty {
         segments.append(String(segment))
       }

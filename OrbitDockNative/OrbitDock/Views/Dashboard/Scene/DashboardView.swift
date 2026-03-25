@@ -109,20 +109,12 @@ struct DashboardView: View {
       containerWidth: containerWidth
     )
 
-    let sidebarGroups = ConversationProjectGroupBuilder.build(
-      from: viewModel.sidebarConversations,
-      customOrder: viewModel.projectOrder
-    )
-    let hasMultipleEndpoints = Set(
-      viewModel.sidebarConversations.map(\.sessionRef.endpointId)
-    ).count > 1
-
     HStack(spacing: 0) {
       if showSidebar {
         ProjectNavigator(
-          groups: sidebarGroups,
+          groups: viewModel.sidebarGroups,
           totalConversationCount: viewModel.sidebarConversations.count,
-          hasMultipleEndpoints: hasMultipleEndpoints,
+          hasMultipleEndpoints: viewModel.dashboardHasMultipleEndpoints,
           projectFilter: $viewModel.activeProjectFilter,
           projectOrder: $viewModel.projectOrder,
           width: effectiveSidebarWidth(for: containerWidth),
@@ -189,9 +181,9 @@ struct DashboardView: View {
           loadingSkeletonContent
         } else {
           MissionControlCommandDeck(
-            conversations: viewModel.filteredDashboardConversations,
+            groups: viewModel.missionControlGroups,
+            hasMultipleEndpoints: viewModel.dashboardHasMultipleEndpoints,
             projectFilter: $viewModel.activeProjectFilter,
-            projectOrder: viewModel.projectOrder,
             selectedIndex: viewModel.selectedIndex
           )
         }
@@ -202,14 +194,14 @@ struct DashboardView: View {
     .scrollContentBackground(.hidden)
     .scrollPosition(id: dashboardScrollAnchorBinding)
     .task {
-      viewModel.bind(appStore: appStore)
+      viewModel.bind(projectionStore: appStore.dashboardProjectionStore)
       if isMissionControlVisible {
         await viewModel.refreshDashboardData()
       }
     }
     .task(id: isMissionControlVisible ? viewModel.dashboardRefreshIdentity : "dashboard-hidden") {
       guard isMissionControlVisible else { return }
-      viewModel.bind(appStore: appStore)
+      viewModel.bind(projectionStore: appStore.dashboardProjectionStore)
       await viewModel.refreshDashboardData()
     }
     .onChange(of: viewModel.selectedIndex) { _, _ in
@@ -221,7 +213,7 @@ struct DashboardView: View {
     .focusable()
     .focused($isDashboardFocused)
     .onAppear {
-      viewModel.bind(appStore: appStore)
+      viewModel.bind(projectionStore: appStore.dashboardProjectionStore)
       viewModel.dashboardScrollAnchorID = router.dashboardScrollAnchorID
       syncDashboardFocus()
     }

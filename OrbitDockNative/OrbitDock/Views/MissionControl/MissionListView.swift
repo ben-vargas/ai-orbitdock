@@ -23,7 +23,7 @@ struct MissionListView: View {
       viewModel.bind(runtimeRegistry: runtimeRegistry)
       await viewModel.fetchAllMissions()
     }
-    .onChange(of: viewModel.aggregatedMissionsSnapshot) { _, _ in
+    .onChange(of: viewModel.projectedMissionsSnapshot) { _, _ in
       viewModel.applyMissionListSnapshotIfNeeded()
     }
     .sheet(isPresented: $viewModel.showNewMission) {
@@ -174,11 +174,13 @@ private struct MissionOverviewHeader: View {
               .background(Color.backgroundTertiary, in: Capsule())
           }
 
-          Text("A cleaner flight deck for every repository mission, with status that stays stable as live updates stream in.")
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: 560, alignment: .leading)
+          Text(
+            "A cleaner flight deck for every repository mission, with status that stays stable as live updates stream in."
+          )
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: 560, alignment: .leading)
         }
 
         Spacer(minLength: Spacing.md)
@@ -215,7 +217,6 @@ private struct MissionOverviewHeader: View {
     .shadow(color: Color.accent.opacity(0.05), radius: 18, y: 6)
   }
 
-  @ViewBuilder
   private var metricsGrid: some View {
     ViewThatFits(in: .horizontal) {
       LazyVGrid(
@@ -246,10 +247,25 @@ private struct MissionOverviewHeader: View {
 
   private var metricCards: some View {
     Group {
-      MissionOverviewMetric(title: "Active Missions", value: "\(activeCount)", detail: "\(repoCount) repos", tint: .feedbackPositive)
+      MissionOverviewMetric(
+        title: "Active Missions",
+        value: "\(activeCount)",
+        detail: "\(repoCount) repos",
+        tint: .feedbackPositive
+      )
       MissionOverviewMetric(title: "Paused", value: "\(pausedCount)", detail: "Hold + resume", tint: .feedbackCaution)
-      MissionOverviewMetric(title: "Issues In Flight", value: "\(activeIssues)", detail: "\(queuedIssues) queued", tint: .accent)
-      MissionOverviewMetric(title: "Completed", value: "\(completedIssues)", detail: "Across all missions", tint: .textTertiary)
+      MissionOverviewMetric(
+        title: "Issues In Flight",
+        value: "\(activeIssues)",
+        detail: "\(queuedIssues) queued",
+        tint: .accent
+      )
+      MissionOverviewMetric(
+        title: "Completed",
+        value: "\(completedIssues)",
+        detail: "Across all missions",
+        tint: .textTertiary
+      )
     }
   }
 }
@@ -361,7 +377,11 @@ private struct MissionRowView: View {
 
         HStack(spacing: Spacing.sm) {
           statusBadge
-          MissionSignalPill(label: mission.flightStatus, icon: "antenna.radiowaves.left.and.right", tint: mission.flightStatusColor)
+          MissionSignalPill(
+            label: mission.flightStatus,
+            icon: "antenna.radiowaves.left.and.right",
+            tint: mission.flightStatusColor
+          )
           missionActions
         }
       }
@@ -418,7 +438,12 @@ private struct MissionRowView: View {
           tint: mission.resolvedProvider.accentColor,
           fill: mission.resolvedProvider.accentColor.opacity(OpacityTier.subtle)
         )
-        MissionMetaChip(label: mission.trackerKind.capitalized, icon: "link", tint: .textTertiary, fill: Color.backgroundTertiary)
+        MissionMetaChip(
+          label: mission.trackerKind.capitalized,
+          icon: "link",
+          tint: .textTertiary,
+          fill: Color.backgroundTertiary
+        )
         if totalIssues > 0 {
           MissionMetaChip(
             label: "\(totalIssues) tracked",
@@ -498,7 +523,8 @@ private struct MissionRowView: View {
     } else if hasAnyIssues {
       MissionBanner(
         icon: "checklist",
-        text: totalIssues == 1 ? "1 tracked issue moving through this mission" : "\(totalIssues) tracked issues moving through this mission",
+        text: totalIssues == 1 ? "1 tracked issue moving through this mission" :
+          "\(totalIssues) tracked issues moving through this mission",
         tint: .textTertiary
       )
     } else if mission.orchestratorStatus == "no_api_key" {

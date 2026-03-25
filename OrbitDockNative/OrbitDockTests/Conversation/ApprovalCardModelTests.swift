@@ -92,7 +92,7 @@ struct ApprovalCardModelTests {
 
   @Test func builderEnrichesSparsePendingApprovalFromHistoryForPlanRequests() {
     let sessionId = "session-plan-enrichment"
-    let session = Session(
+    var session = Session(
       id: sessionId,
       projectPath: "/tmp/project",
       status: .active,
@@ -104,6 +104,9 @@ struct ApprovalCardModelTests {
       codexIntegrationMode: .direct,
       pendingApprovalId: "req-plan"
     )
+    session.controlMode = .direct
+    session.lifecycleState = .open
+    session.acceptsUserInput = true
 
     let sparsePendingApproval = ServerApprovalRequest(
       id: "req-plan",
@@ -150,7 +153,7 @@ struct ApprovalCardModelTests {
 
   @Test func builderUsesExitPlanContentFromTranscriptToolInput() {
     let sessionId = "session-plan-content-from-transcript"
-    let session = Session(
+    var session = Session(
       id: sessionId,
       projectPath: "/tmp/project",
       status: .active,
@@ -162,6 +165,9 @@ struct ApprovalCardModelTests {
       claudeIntegrationMode: .direct,
       pendingApprovalId: "req-plan-content"
     )
+    session.controlMode = .direct
+    session.lifecycleState = .open
+    session.acceptsUserInput = true
 
     let pendingApproval = ServerApprovalRequest(
       id: "req-plan-content",
@@ -188,47 +194,49 @@ struct ApprovalCardModelTests {
         sequence: 1,
         turnId: nil,
         turnStatus: .active,
-        row: .tool(ServerConversationToolRow(
-          id: "tool-plan",
-          provider: .claude,
-          family: .plan,
-          kind: .exitPlanMode,
-          status: .running,
-          title: "ExitPlanMode",
-          subtitle: nil,
-          summary: nil,
-          preview: nil,
-          startedAt: nil,
-          endedAt: nil,
-          durationMs: nil,
-          groupingKey: nil,
-          renderHints: ServerConversationRenderHints(
-            canExpand: false,
-            defaultExpanded: false,
-            emphasized: false,
-            monospaceSummary: false,
-            accentTone: nil
-          ),
-          toolDisplay: ServerToolDisplay(
-            summary: "Exit plan mode",
+        row: .tool(
+          ServerConversationToolRow(
+            id: "tool-plan",
+            provider: .claude,
+            family: .plan,
+            kind: .exitPlanMode,
+            status: .running,
+            title: "ExitPlanMode",
             subtitle: nil,
-            rightMeta: nil,
-            subtitleAbsorbsMeta: false,
-            glyphSymbol: "list.bullet",
-            glyphColor: "secondaryLabel",
-            language: nil,
-            diffPreview: nil,
-            outputPreview: nil,
-            liveOutputPreview: nil,
-            todoItems: [],
-            toolType: "plan",
-            summaryFont: "system",
-            displayTier: "standard",
-            inputDisplay: "{\"plan\":\"# Plan\\n1. Clarify requirements\\n2. Implement change\"}",
-            outputDisplay: nil,
-            diffDisplay: nil
+            summary: nil,
+            preview: nil,
+            startedAt: nil,
+            endedAt: nil,
+            durationMs: nil,
+            groupingKey: nil,
+            renderHints: ServerConversationRenderHints(
+              canExpand: false,
+              defaultExpanded: false,
+              emphasized: false,
+              monospaceSummary: false,
+              accentTone: nil
+            ),
+            toolDisplay: ServerToolDisplay(
+              summary: "Exit plan mode",
+              subtitle: nil,
+              rightMeta: nil,
+              subtitleAbsorbsMeta: false,
+              glyphSymbol: "list.bullet",
+              glyphColor: "secondaryLabel",
+              language: nil,
+              diffPreview: nil,
+              outputPreview: nil,
+              liveOutputPreview: nil,
+              todoItems: [],
+              toolType: "plan",
+              summaryFont: "system",
+              displayTier: "standard",
+              inputDisplay: "{\"plan\":\"# Plan\\n1. Clarify requirements\\n2. Implement change\"}",
+              outputDisplay: nil,
+              diffDisplay: nil
+            )
           )
-        ))
+        )
       ),
     ]
 
@@ -246,7 +254,7 @@ struct ApprovalCardModelTests {
 
   @Test func builderUsesExitPlanContentFromHistoryToolInput() {
     let sessionId = "session-plan-content-from-history"
-    let session = Session(
+    var session = Session(
       id: sessionId,
       projectPath: "/tmp/project",
       status: .active,
@@ -290,11 +298,13 @@ struct ApprovalCardModelTests {
 
     #expect(model?.toolName == "ExitPlanMode")
     #expect(model?.previewType == .prompt)
-    #expect(model?.command == """
-    # Plan
-    1. Ship it
-    2. Verify it
-    """)
+    #expect(
+      model?.command == """
+      # Plan
+      1. Ship it
+      2. Verify it
+      """
+    )
   }
 
   @Test func builderIgnoresPendingPayloadWithoutAuthoritativeRequestId() {
@@ -345,7 +355,8 @@ struct ApprovalCardModelTests {
       type: .exec,
       toolName: "Bash",
       toolInput: nil,
-      command: "/bin/zsh -lc xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations",
+      command:
+      "/bin/zsh -lc xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations",
       filePath: nil,
       diff: nil,
       question: nil,
@@ -359,12 +370,15 @@ struct ApprovalCardModelTests {
     )
 
     #expect(model?.mode == .permission)
-    #expect(model?.command == "xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations")
+    #expect(
+      model?.command
+        == "xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations"
+    )
     #expect(model?.previewType == .shellCommand)
   }
 
   @Test func builderFallsBackToSessionPendingToolInputWhenApprovalCommandMissing() {
-    let session = Session(
+    var session = Session(
       id: "session-tool-input-fallback",
       projectPath: "/tmp/project",
       status: .active,
@@ -376,6 +390,9 @@ struct ApprovalCardModelTests {
       codexIntegrationMode: .direct,
       pendingApprovalId: "req-fallback"
     )
+    session.controlMode = .direct
+    session.lifecycleState = .open
+    session.acceptsUserInput = true
 
     let pendingApproval = ServerApprovalRequest(
       id: "req-fallback",
@@ -422,7 +439,9 @@ struct ApprovalCardModelTests {
         type: .shellCommand,
         value: "sudo rm -rf /tmp/orbitdock-cache",
         shellSegments: [
-          ServerApprovalPreviewSegment(command: "sudo rm -rf /tmp/orbitdock-cache", leadingOperator: nil),
+          ServerApprovalPreviewSegment(
+            command: "sudo rm -rf /tmp/orbitdock-cache", leadingOperator: nil
+          ),
         ],
         compact: "sudo rm -rf /tmp/orbitdock-cache",
         decisionScope: "approve/deny applies to all command segments in this request.",
@@ -447,7 +466,7 @@ struct ApprovalCardModelTests {
   }
 
   @Test func builderPrefersServerPreviewOverSessionToolInputFallback() {
-    let session = Session(
+    var session = Session(
       id: "session-server-preview",
       projectPath: "/tmp/project",
       status: .active,
@@ -459,6 +478,9 @@ struct ApprovalCardModelTests {
       codexIntegrationMode: .direct,
       pendingApprovalId: "req-preview"
     )
+    session.controlMode = .direct
+    session.lifecycleState = .open
+    session.acceptsUserInput = true
 
     let pendingApproval = ServerApprovalRequest(
       id: "req-preview",
@@ -503,7 +525,7 @@ struct ApprovalCardModelTests {
   }
 
   @Test func builderUsesServerPreviewTypeForSearchQuery() {
-    let session = Session(
+    var session = Session(
       id: "session-search-query",
       projectPath: "/tmp/project",
       status: .active,
@@ -514,6 +536,9 @@ struct ApprovalCardModelTests {
       claudeIntegrationMode: .direct,
       pendingApprovalId: "req-search"
     )
+    session.controlMode = .direct
+    session.lifecycleState = .open
+    session.acceptsUserInput = true
 
     let pendingApproval = ServerApprovalRequest(
       id: "req-search",
@@ -549,7 +574,7 @@ struct ApprovalCardModelTests {
   }
 
   @Test func builderUsesServerQuestionPrompts() {
-    let session = Session(
+    var session = Session(
       id: "session-question-options",
       projectPath: "/tmp/project",
       status: .active,
@@ -559,6 +584,9 @@ struct ApprovalCardModelTests {
       claudeIntegrationMode: .direct,
       pendingApprovalId: "req-question"
     )
+    session.controlMode = .direct
+    session.lifecycleState = .open
+    session.acceptsUserInput = true
 
     let pendingApproval = ServerApprovalRequest(
       id: "req-question",
@@ -577,7 +605,9 @@ struct ApprovalCardModelTests {
           question: "How do you want to launch?",
           options: [
             ServerApprovalQuestionOption(label: "Open Sheet", description: "Open full sheet first"),
-            ServerApprovalQuestionOption(label: "Quick Launch", description: "Use defaults immediately"),
+            ServerApprovalQuestionOption(
+              label: "Quick Launch", description: "Use defaults immediately"
+            ),
           ]
         ),
       ],
@@ -598,7 +628,7 @@ struct ApprovalCardModelTests {
   }
 
   @Test func builderUsesMultipleServerQuestionPrompts() {
-    let session = Session(
+    var session = Session(
       id: "session-multi-question-options",
       projectPath: "/tmp/project",
       status: .active,
@@ -608,6 +638,9 @@ struct ApprovalCardModelTests {
       claudeIntegrationMode: .direct,
       pendingApprovalId: "req-question"
     )
+    session.controlMode = .direct
+    session.lifecycleState = .open
+    session.acceptsUserInput = true
 
     let pendingApproval = ServerApprovalRequest(
       id: "req-question",
@@ -626,7 +659,9 @@ struct ApprovalCardModelTests {
           question: "How do you want to launch?",
           options: [
             ServerApprovalQuestionOption(label: "Open Sheet", description: "Open full sheet first"),
-            ServerApprovalQuestionOption(label: "Quick Launch", description: "Use defaults immediately"),
+            ServerApprovalQuestionOption(
+              label: "Quick Launch", description: "Use defaults immediately"
+            ),
           ]
         ),
         ServerApprovalQuestionPrompt(
@@ -663,7 +698,7 @@ struct ApprovalCardModelTests {
     attentionReason: Session.AttentionReason,
     pendingApprovalId: String?
   ) -> Session {
-    Session(
+    var session = Session(
       id: id,
       projectPath: "/tmp/project",
       status: .active,
@@ -673,6 +708,10 @@ struct ApprovalCardModelTests {
       codexIntegrationMode: .direct,
       pendingApprovalId: pendingApprovalId
     )
+    session.controlMode = .direct
+    session.lifecycleState = .open
+    session.acceptsUserInput = true
+    return session
   }
 
   @Test func builderParsesPermissionRequestPayloadIntoReadableGroups() {
@@ -698,7 +737,9 @@ struct ApprovalCardModelTests {
       permissionReason: "Codex needs broader access to complete this step.",
       requestedPermissions: [
         .network(hosts: []),
-        .filesystem(readPaths: ["/tmp/OrbitDock/README.md"], writePaths: ["/tmp/OrbitDock/output.txt"]),
+        .filesystem(
+          readPaths: ["/tmp/OrbitDock/README.md"], writePaths: ["/tmp/OrbitDock/output.txt"]
+        ),
         .macOs(entitlement: "accessibility", details: nil),
       ]
     )

@@ -10,13 +10,15 @@ final class MissionListViewModel {
   var actionError: String?
 
   @ObservationIgnored private weak var runtimeRegistry: ServerRuntimeRegistry?
+  @ObservationIgnored private weak var missionProjectionStore: MissionProjectionStore?
 
   func bind(runtimeRegistry: ServerRuntimeRegistry) {
     self.runtimeRegistry = runtimeRegistry
+    self.missionProjectionStore = runtimeRegistry.missionProjectionStore
   }
 
-  var aggregatedMissionsSnapshot: [AggregatedMissionSummary] {
-    runtimeRegistry?.aggregatedMissions ?? []
+  var projectedMissionsSnapshot: [AggregatedMissionSummary] {
+    missionProjectionStore?.missions ?? []
   }
 
   func fetchAllMissions() async {
@@ -48,7 +50,7 @@ final class MissionListViewModel {
   }
 
   func applyMissionListSnapshotIfNeeded() {
-    let snapshot = aggregatedMissionsSnapshot
+    let snapshot = projectedMissionsSnapshot
     guard !snapshot.isEmpty else { return }
     missions = mergeMissions(current: missions, incoming: snapshot)
   }

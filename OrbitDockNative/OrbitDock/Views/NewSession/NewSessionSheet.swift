@@ -432,8 +432,8 @@ struct NewSessionSheet: View {
       ProjectPicker(
         selectedPath: $model.selectedPath,
         selectedPathIsGit: $model.selectedPathIsGit,
-        endpointId: model.selectedEndpointId
-        ,
+        endpointId: model.selectedEndpointId,
+
         style: .embedded
       )
     #endif

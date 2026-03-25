@@ -56,39 +56,39 @@ enum MarkdownRenderSegment: Equatable {
   var kind: Kind {
     switch self {
       case .prose:
-        return .prose
+        .prose
       case .codeBlock:
-        return .codeBlock
+        .codeBlock
       case .table:
-        return .table
+        .table
       case .thematicBreak:
-        return .thematicBreak
+        .thematicBreak
     }
   }
 
   var identity: Identity {
     switch self {
       case let .prose(segment):
-        return segment.identity
+        segment.identity
       case let .codeBlock(segment):
-        return segment.identity
+        segment.identity
       case let .table(segment):
-        return segment.identity
+        segment.identity
       case let .thematicBreak(segment):
-        return segment.identity
+        segment.identity
     }
   }
 
   var sourceBlockRange: Range<Int> {
     switch self {
       case let .prose(segment):
-        return segment.sourceBlockRange
+        segment.sourceBlockRange
       case let .codeBlock(segment):
-        return segment.sourceBlockRange
+        segment.sourceBlockRange
       case let .table(segment):
-        return segment.sourceBlockRange
+        segment.sourceBlockRange
       case let .thematicBreak(segment):
-        return segment.sourceBlockRange
+        segment.sourceBlockRange
     }
   }
 
@@ -99,26 +99,26 @@ enum MarkdownRenderSegment: Equatable {
   var leadingBlock: MarkdownBlock? {
     switch self {
       case let .prose(segment):
-        return segment.blocks.first
+        segment.blocks.first
       case let .codeBlock(segment):
-        return .codeBlock(language: segment.language, code: segment.code)
+        .codeBlock(language: segment.language, code: segment.code)
       case let .table(segment):
-        return .table(headers: segment.headers, rows: segment.rows)
+        .table(headers: segment.headers, rows: segment.rows)
       case .thematicBreak:
-        return .thematicBreak
+        .thematicBreak
     }
   }
 
   var trailingBlock: MarkdownBlock? {
     switch self {
       case let .prose(segment):
-        return segment.blocks.last
+        segment.blocks.last
       case let .codeBlock(segment):
-        return .codeBlock(language: segment.language, code: segment.code)
+        .codeBlock(language: segment.language, code: segment.code)
       case let .table(segment):
-        return .table(headers: segment.headers, rows: segment.rows)
+        .table(headers: segment.headers, rows: segment.rows)
       case .thematicBreak:
-        return .thematicBreak
+        .thematicBreak
     }
   }
 }

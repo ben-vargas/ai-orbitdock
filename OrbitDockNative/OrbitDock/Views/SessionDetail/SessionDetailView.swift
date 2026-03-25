@@ -90,10 +90,10 @@ struct SessionDetailView: View {
           sessionStore: scopedServerState,
           selectedSkills: $viewModel.selectedSkills,
           pendingPanelOpenSignal: viewModel.pendingApprovalPanelOpenSignal,
-          isPinned: viewModel.isPinned,
+          followMode: viewModel.followMode,
           unreadCount: viewModel.unreadCount,
           onJumpToLatest: viewModel.jumpConversationToLatest,
-          onTogglePinned: viewModel.toggleConversationPinnedState
+          onTogglePinned: viewModel.toggleConversationFollowMode
         )
       } takeOverBar: {
         TakeOverInputBar(
@@ -136,9 +136,6 @@ struct SessionDetailView: View {
     }
     #endif
     .environment(scopedServerState)
-    .onChange(of: viewModel.isPinned) { _, pinned in
-      viewModel.handlePinnedChange(pinned)
-    }
     .onChange(of: showWorkerPanel) { _, visible in
       guard visible else { return }
       viewModel.loadSelectedWorkerTools()

@@ -1,75 +1,5 @@
 import Foundation
 
-struct SessionDetailConversationChromeState: Equatable {
-  var isPinned: Bool
-  var unreadCount: Int
-  var pendingApprovalPanelOpenSignal: Int
-}
-
-enum SessionDetailConversationChromePlanner {
-  static func timelineReachedBottom(
-    current: SessionDetailConversationChromeState
-  ) -> SessionDetailConversationChromeState {
-    var next = current
-    next.isPinned = true
-    next.unreadCount = 0
-    return next
-  }
-
-  static func timelineLeftBottomByUser(
-    current: SessionDetailConversationChromeState
-  ) -> SessionDetailConversationChromeState {
-    guard current.isPinned else { return current }
-
-    var next = current
-    next.isPinned = false
-    return next
-  }
-
-  static func didReceiveEntries(
-    current: SessionDetailConversationChromeState,
-    oldCount: Int,
-    newCount: Int
-  ) -> SessionDetailConversationChromeState {
-    guard !current.isPinned, newCount > oldCount else { return current }
-
-    var next = current
-    next.unreadCount += newCount - oldCount
-    return next
-  }
-
-  static func openPendingApprovalPanel(
-    current: SessionDetailConversationChromeState
-  ) -> SessionDetailConversationChromeState {
-    var next = current
-    next.pendingApprovalPanelOpenSignal += 1
-    next.isPinned = true
-    next.unreadCount = 0
-    return next
-  }
-
-  static func jumpToLatest(
-    current: SessionDetailConversationChromeState
-  ) -> SessionDetailConversationChromeState {
-    var next = current
-    next.isPinned = true
-    next.unreadCount = 0
-    return next
-  }
-
-  static func togglePinned(
-    current: SessionDetailConversationChromeState
-  ) -> SessionDetailConversationChromeState {
-    guard current.isPinned else {
-      return jumpToLatest(current: current)
-    }
-
-    var next = current
-    next.isPinned = false
-    return next
-  }
-}
-
 struct SessionDetailPlanPillState: Equatable {
   let completedCount: Int
   let totalCount: Int
@@ -186,8 +116,7 @@ struct SessionDetailOnDisappearPlan: Equatable {
 enum SessionDetailLifecyclePlanner {
   static func onAppearPlan(
     shouldSubscribeToServerSession: Bool,
-    isDirect: Bool,
-    isPinned _: Bool
+    isDirect: Bool
   ) -> SessionDetailOnAppearPlan {
     SessionDetailOnAppearPlan(
       shouldSubscribe: shouldSubscribeToServerSession,
@@ -246,11 +175,11 @@ struct SessionDetailActionBarState: Equatable {
   let projectPathLabel: String
   let formattedCost: String?
   let lastActivityAt: Date?
-  let isPinned: Bool
+  let followMode: ConversationFollowMode
   let unreadCount: Int
 
   var showsUnreadIndicator: Bool {
-    !isPinned && unreadCount > 0
+    !followMode.isFollowing && unreadCount > 0
   }
 
   var unreadBadgeText: String {
@@ -258,11 +187,15 @@ struct SessionDetailActionBarState: Equatable {
   }
 
   var followLabel: String {
-    isPinned ? "Following" : "Paused"
+    followMode.statusLabel
   }
 
   var compactFollowIcon: String {
-    isPinned ? "arrow.down.to.line" : "pause"
+    followMode.controlIcon
+  }
+
+  var isFollowing: Bool {
+    followMode.isFollowing
   }
 }
 
@@ -291,16 +224,17 @@ enum SessionDetailActionBarPlanner {
     branch: String?,
     projectPath: String,
     usageStats: TranscriptUsageStats,
-    isPinned: Bool,
+    followMode: ConversationFollowMode,
     unreadCount: Int,
     lastActivityAt: Date?
   ) -> SessionDetailActionBarState {
     SessionDetailActionBarState(
       branchLabel: branch.map(SessionDetailMetadataPlanner.compactBranchLabel),
       projectPathLabel: SessionDetailMetadataPlanner.compactProjectPath(projectPath),
-      formattedCost: usageStats.estimatedCostUSD > 0 ? formattedCost(usageStats.estimatedCostUSD) : nil,
+      formattedCost: usageStats.estimatedCostUSD > 0
+        ? formattedCost(usageStats.estimatedCostUSD) : nil,
       lastActivityAt: lastActivityAt,
-      isPinned: isPinned,
+      followMode: followMode,
       unreadCount: unreadCount
     )
   }
@@ -355,7 +289,9 @@ enum SessionDetailLayoutPlanner {
   ) -> SessionDetailReviewNavigationPlan {
     let reviewFileId =
       if filePath.hasPrefix(projectPath) {
-        String(filePath.dropFirst(projectPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        String(filePath.dropFirst(projectPath.count)).trimmingCharacters(
+          in: CharacterSet(charactersIn: "/")
+        )
       } else {
         filePath
       }
@@ -404,16 +340,15 @@ enum SessionDetailDiffPlanner {
 
 enum SessionDetailFooterPlanner {
   static func mode(
-    isDirect: Bool,
-    canTakeOver: Bool,
-    needsApprovalOverlay: Bool
+    controlMode: ServerSessionControlMode,
+    lifecycleState: ServerSessionLifecycleState
   ) -> SessionDetailFooterMode {
-    // canTakeOver means the user doesn't own this session — show passive view
-    // with takeover option. isDirect alone isn't enough because docked
-    // sessions can be isDirect but not owned.
-    if canTakeOver { return .passive }
-    if isDirect { return .direct }
-    return .passive
+    switch (controlMode, lifecycleState) {
+      case (.direct, .open), (.direct, .resumable), (.direct, .ended):
+        .direct
+      case (.passive, .open), (.passive, .resumable), (.passive, .ended):
+        .passive
+    }
   }
 }
 
@@ -496,7 +431,9 @@ enum SessionDetailWorktreeCleanupPlanner {
     branch: String?,
     isCleaningUp: Bool
   ) -> SessionDetailWorktreeCleanupBannerState? {
-    guard shouldShowBanner(status: status, isWorktree: isWorktree, dismissed: dismissed) else { return nil }
+    guard shouldShowBanner(status: status, isWorktree: isWorktree, dismissed: dismissed) else {
+      return nil
+    }
 
     return SessionDetailWorktreeCleanupBannerState(
       branchName: worktree?.branch ?? branch ?? "unknown",

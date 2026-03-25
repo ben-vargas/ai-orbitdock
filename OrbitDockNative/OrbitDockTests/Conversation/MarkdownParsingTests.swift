@@ -243,7 +243,8 @@ struct MarkdownParsingTests {
     #expect(list != nil)
     #expect(list?.count == 1)
     #expect(list?[0].continuation.isEmpty == true)
-    #expect(trailingText.contains("This paragraph should remain outside the list because there is no following sibling item."))
+    #expect(trailingText
+      .contains("This paragraph should remain outside the list because there is no following sibling item."))
   }
 
   @Test func blockquotePreservesParagraphsAndNestedListBoundaries() {

@@ -3,30 +3,23 @@ import SwiftUI
 struct MissionControlCommandDeck: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-  let conversations: [DashboardConversationRecord]
+  let groups: [ConversationProjectGroup]
+  let hasMultipleEndpoints: Bool
   @Binding var projectFilter: String?
-  let projectOrder: [String]
   let selectedIndex: Int
 
   private var layoutMode: DashboardLayoutMode {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
   }
 
-  private var hasMultipleEndpoints: Bool {
-    Set(conversations.map(\.sessionRef.endpointId)).count > 1
-  }
-
-  private var groupedProjects: [ConversationProjectGroup] {
-    ConversationProjectGroupBuilder.build(from: conversations, customOrder: projectOrder)
-  }
-
   private var selectedConversationID: String? {
+    let conversations = groups.flatMap(\.sortedConversations)
     guard selectedIndex >= 0, selectedIndex < conversations.count else { return nil }
     return conversations[selectedIndex].id
   }
 
   var body: some View {
-    if conversations.isEmpty {
+    if groups.isEmpty {
       emptyState
     } else {
       conversationFeed
@@ -35,13 +28,13 @@ struct MissionControlCommandDeck: View {
 
   private var conversationFeed: some View {
     VStack(alignment: .leading, spacing: Spacing.xxl) {
-      ForEach(groupedProjects) { group in
+      ForEach(groups) { group in
         ConversationProjectSection(
           group: group,
           showEndpointName: hasMultipleEndpoints,
           selectedConversationID: selectedConversationID,
           projectFilter: $projectFilter,
-          layoutMode: layoutMode,
+          layoutMode: layoutMode
         )
       }
     }
@@ -109,7 +102,7 @@ private struct ConversationProjectSection: View {
       sectionHeader
 
       VStack(spacing: Spacing.sm) {
-        ForEach(Array(visibleConversations.enumerated()), id: \.element.id) { index, conversation in
+        ForEach(Array(visibleConversations.enumerated()), id: \.element.id) { _, conversation in
           conversationView(for: conversation)
         }
       }
@@ -208,9 +201,9 @@ private struct ConversationProjectSection: View {
   // MARK: Section Header — sector label with signal dot + station callsign
 
   private enum SectionTier {
-    case hot      // attentionCount > 0
-    case active   // workingCount > 0
-    case idle     // only docked/ended
+    case hot // attentionCount > 0
+    case active // workingCount > 0
+    case idle // only docked/ended
   }
 
   private var sectionTier: SectionTier {

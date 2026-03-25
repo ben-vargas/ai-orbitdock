@@ -13,14 +13,13 @@ struct ConversationView: View {
   var displayStatus: SessionDisplayStatus = .ended
   var currentTool: String?
   var chatViewMode: ChatViewMode = .focused
-  @Binding var jumpToMessageTarget: ConversationJumpTarget?
+  @Binding var scrollCommand: ConversationScrollCommand?
 
-  let isPinned: Bool
+  let followMode: ConversationFollowMode
   let unreadCount: Int
   let onJumpToLatest: () -> Void
-  let onReachedBottom: () -> Void
-  let onLeftBottomByUser: () -> Void
-  let onEntryCountChanged: (_ oldCount: Int, _ newCount: Int) -> Void
+  let onViewportEvent: (ConversationViewportEvent) -> Void
+  let onLatestEntriesAppended: (_ count: Int) -> Void
   @State private var viewModel = ConversationViewModel()
 
   var body: some View {
@@ -51,7 +50,7 @@ struct ConversationView: View {
             ZStack(alignment: .bottomTrailing) {
               conversationTimeline
 
-              if !isPinned {
+              if !followMode.isFollowing {
                 ConversationFollowPill(
                   unreadCount: unreadCount,
                   onTap: onJumpToLatest
@@ -59,7 +58,7 @@ struct ConversationView: View {
                 .padding(.trailing, Spacing.lg)
                 .padding(.bottom, Spacing.sm)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-                .animation(Motion.standard, value: isPinned)
+                .animation(Motion.standard, value: followMode)
               }
             }
 
@@ -74,17 +73,36 @@ struct ConversationView: View {
       }
     }
     .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId ?? "")") {
+      ConversationFollowDebug.log(
+        "ConversationView.task bind sessionId=\(sessionId ?? "nil") endpointId=\(sessionStore.endpointId.uuidString) followMode=\(followMode.rawValue) unread=\(unreadCount)"
+      )
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore, viewMode: chatViewMode)
     }
     .animation(Motion.fade, value: viewModel.loadState == .loading)
     .onChange(of: viewModel.loadState) { _, newState in
+      ConversationFollowDebug.log("ConversationView.loadStateChanged newState=\(String(describing: newState))")
       viewModel.handleLoadStateChange(newState)
     }
-    .onChange(of: viewModel.entryCount) { oldCount, newCount in
-      onEntryCountChanged(oldCount, newCount)
+    .onChange(of: viewModel.latestAppendEvent) { _, event in
+      guard let event else { return }
+      ConversationFollowDebug.log(
+        "ConversationView.latestAppendEvent count=\(event.count) nonce=\(event.nonce) followMode=\(followMode.rawValue) unread=\(unreadCount)"
+      )
+      onLatestEntriesAppended(event.count)
     }
     .onChange(of: chatViewMode) { _, newMode in
+      ConversationFollowDebug.log("ConversationView.chatViewModeChanged newMode=\(String(describing: newMode))")
       viewModel.handleTimelineViewModeChange(newMode)
+    }
+    .onChange(of: followMode) { oldMode, newMode in
+      ConversationFollowDebug.log(
+        "ConversationView.followModeChanged old=\(oldMode.rawValue) new=\(newMode.rawValue) unread=\(unreadCount)"
+      )
+    }
+    .onChange(of: unreadCount) { oldCount, newCount in
+      ConversationFollowDebug.log(
+        "ConversationView.unreadChanged old=\(oldCount) new=\(newCount) followMode=\(followMode.rawValue)"
+      )
     }
   }
 
@@ -97,12 +115,12 @@ struct ConversationView: View {
         viewModel: viewModel.timelineViewModel,
         sessionId: sessionId,
         clients: sessionStore.clients,
+        scrollCommand: $scrollCommand,
         onLoadMore: {
           viewModel.loadOlderMessages()
         },
-        isPinned: isPinned,
-        onReachedBottom: onReachedBottom,
-        onLeftBottomByUser: onLeftBottomByUser
+        followMode: followMode,
+        onViewportEvent: onViewportEvent
       )
     } else {
       ConversationEmptyStateView()
@@ -118,9 +136,9 @@ enum ConversationLoadState: Equatable {
 // MARK: - Preview
 
 #Preview {
-  @Previewable @State var isPinned = true
+  @Previewable @State var followMode: ConversationFollowMode = .following
   @Previewable @State var unreadCount = 0
-  @Previewable @State var jumpTarget: ConversationJumpTarget?
+  @Previewable @State var scrollCommand: ConversationScrollCommand?
 
   ConversationView(
     sessionId: nil,
@@ -128,23 +146,25 @@ enum ConversationLoadState: Equatable {
     isSessionActive: true,
     displayStatus: .working,
     currentTool: "Edit",
-    jumpToMessageTarget: $jumpTarget,
-    isPinned: isPinned,
+    scrollCommand: $scrollCommand,
+    followMode: followMode,
     unreadCount: unreadCount,
     onJumpToLatest: {
-      isPinned = true
+      followMode = .following
       unreadCount = 0
     },
-    onReachedBottom: {
-      isPinned = true
-      unreadCount = 0
+    onViewportEvent: { event in
+      switch event {
+        case .reachedBottom:
+          followMode = .following
+          unreadCount = 0
+        case .leftBottomByUser:
+          followMode = .detachedByUser
+      }
     },
-    onLeftBottomByUser: {
-      isPinned = false
-    },
-    onEntryCountChanged: { oldCount, newCount in
-      guard !isPinned, newCount > oldCount else { return }
-      unreadCount += newCount - oldCount
+    onLatestEntriesAppended: { count in
+      guard !followMode.isFollowing else { return }
+      unreadCount += count
     }
   )
   .frame(width: 700, height: 600)

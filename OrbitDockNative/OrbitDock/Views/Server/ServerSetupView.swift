@@ -348,9 +348,11 @@ struct ServerSetupView: View {
         .font(.system(size: TypeScale.body, weight: .semibold))
         .foregroundStyle(Color.textPrimary)
 
-      Text("Explore a small read-only sample with seeded conversations and dashboard data. Great for App Review or a first pass through the interface.")
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textSecondary)
+      Text(
+        "Explore a small read-only sample with seeded conversations and dashboard data. Great for App Review or a first pass through the interface."
+      )
+      .font(.system(size: TypeScale.caption))
+      .foregroundStyle(Color.textSecondary)
 
       Button {
         appRuntime.enterDemoMode()

@@ -1,6 +1,6 @@
 import Foundation
-import SwiftUI
 @testable import OrbitDock
+import SwiftUI
 import Testing
 
 struct MarkdownProseAttributedStringBuilderTests {
@@ -13,7 +13,7 @@ struct MarkdownProseAttributedStringBuilderTests {
   @Test func proseBuilderRendersHeadingsWithStrongerTypography() {
     let blocks: [MarkdownBlock] = [
       .heading(level: 1, text: "A Clear Heading"),
-      .text("Body paragraph.")
+      .text("Body paragraph."),
     ]
 
     let attributed = MarkdownProseAttributedStringBuilder.build(from: blocks, style: .standard)
@@ -29,7 +29,7 @@ struct MarkdownProseAttributedStringBuilderTests {
 
   @Test func proseBuilderPreservesLinksAndInlineCodeStyling() {
     let blocks: [MarkdownBlock] = [
-      .text("Visit [OpenAI](https://openai.com) and use `cmd+k`.")
+      .text("Visit [OpenAI](https://openai.com) and use `cmd+k`."),
     ]
 
     let attributed = MarkdownProseAttributedStringBuilder.build(from: blocks, style: .standard)
@@ -62,7 +62,7 @@ struct MarkdownProseAttributedStringBuilderTests {
               content: "Nested child item",
               continuation: [],
               children: []
-            )
+            ),
           ]
         ),
         ListItem(
@@ -70,8 +70,8 @@ struct MarkdownProseAttributedStringBuilderTests {
           content: "Second item",
           continuation: [],
           children: []
-        )
-      ])
+        ),
+      ]),
     ]
 
     let attributed = MarkdownProseAttributedStringBuilder.build(from: blocks, style: .standard)
@@ -88,7 +88,7 @@ struct MarkdownProseAttributedStringBuilderTests {
 
   @Test func proseBuilderRendersBlockquotesAsQuotedText() {
     let blocks: [MarkdownBlock] = [
-      .blockquote("First quote line.\n\nSecond quote line with [link](https://openai.com).")
+      .blockquote("First quote line.\n\nSecond quote line with [link](https://openai.com)."),
     ]
 
     let attributed = MarkdownProseAttributedStringBuilder.build(from: blocks, style: .thinking)
@@ -105,7 +105,7 @@ struct MarkdownProseAttributedStringBuilderTests {
   @Test func proseBuilderAppliesStyleSpecificTypography() {
     let blocks: [MarkdownBlock] = [
       .heading(level: 2, text: "Section"),
-      .text("Body")
+      .text("Body"),
     ]
 
     let standard = MarkdownProseAttributedStringBuilder.build(from: blocks, style: .standard)
@@ -127,7 +127,7 @@ struct MarkdownProseAttributedStringBuilderTests {
   @Test func proseBuilderKeepsHeadingTightToFollowingParagraph() {
     let blocks: [MarkdownBlock] = [
       .heading(level: 2, text: "Section Heading"),
-      .text("The body should start right under the heading.")
+      .text("The body should start right under the heading."),
     ]
 
     let attributed = MarkdownProseAttributedStringBuilder.build(from: blocks, style: .standard)
@@ -141,9 +141,9 @@ struct MarkdownProseAttributedStringBuilderTests {
       .text("Intro paragraph."),
       .list([
         ListItem(marker: .bullet, content: "First", continuation: [], children: []),
-        ListItem(marker: .bullet, content: "Second", continuation: [], children: [])
+        ListItem(marker: .bullet, content: "Second", continuation: [], children: []),
       ]),
-      .text("Outro paragraph.")
+      .text("Outro paragraph."),
     ]
 
     let attributed = MarkdownProseAttributedStringBuilder.build(from: blocks, style: .standard)
@@ -154,7 +154,7 @@ struct MarkdownProseAttributedStringBuilderTests {
 
   @Test func proseBuilderUsesPrimaryColorForH3Headings() {
     let blocks: [MarkdownBlock] = [
-      .heading(level: 3, text: "Subsection")
+      .heading(level: 3, text: "Subsection"),
     ]
 
     let attributed = MarkdownProseAttributedStringBuilder.build(from: blocks, style: .standard)
@@ -167,7 +167,7 @@ struct MarkdownProseAttributedStringBuilderTests {
   @Test func repeatedBuildsStayStableAcrossCacheHits() {
     let blocks: [MarkdownBlock] = [
       .text("Repeated `cache` hit"),
-      .blockquote("Second fragment.")
+      .blockquote("Second fragment."),
     ]
 
     let first = MarkdownProseAttributedStringBuilder.build(from: blocks, style: .standard)
@@ -190,7 +190,10 @@ struct MarkdownProseAttributedStringBuilderTests {
       foregroundColor: .blue
     )
 
-    #expect(firstForegroundColorDescription(in: first, matching: "Cache me") != firstForegroundColorDescription(in: second, matching: "Cache me"))
+    #expect(firstForegroundColorDescription(in: first, matching: "Cache me") != firstForegroundColorDescription(
+      in: second,
+      matching: "Cache me"
+    ))
   }
 
   private func links(in attributed: AttributedString) -> Set<String> {

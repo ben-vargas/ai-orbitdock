@@ -84,7 +84,13 @@ struct ProjectNavigator: View {
           }
 
           if counts.ready > 0 || workbenchFilter == .ready {
-            sidebarFilterChip(target: .ready, icon: "bubble.left.fill", label: "Ready", count: counts.ready, color: .statusReply)
+            sidebarFilterChip(
+              target: .ready,
+              icon: "bubble.left.fill",
+              label: "Ready",
+              count: counts.ready,
+              color: .statusReply
+            )
           }
 
           if directCount > 0 || workbenchFilter == .direct {
@@ -294,7 +300,10 @@ struct ProjectNavigator: View {
                   .foregroundStyle(Color.textPrimary)
                   .padding(.horizontal, Spacing.sm)
                   .padding(.vertical, Spacing.xs)
-                  .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+                  .background(
+                    Color.backgroundTertiary,
+                    in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                  )
               }
               .dropDestination(for: String.self) { droppedPaths, _ in
                 guard let sourcePath = droppedPaths.first else { return false }
@@ -380,9 +389,9 @@ struct ProjectNavigator: View {
   // MARK: - Project Row (Three Visual Tiers)
 
   private enum ProjectTier {
-    case hot      // attentionCount > 0
-    case active   // workingCount > 0
-    case idle     // only docked/ended
+    case hot // attentionCount > 0
+    case active // workingCount > 0
+    case idle // only docked/ended
   }
 
   private func projectTier(for group: ConversationProjectGroup) -> ProjectTier {
@@ -478,7 +487,7 @@ struct ProjectNavigator: View {
       .background(rowBackground(tier: tier, isActive: isActive, group: group))
       .overlay(alignment: .leading) {
         // Left accent border for hot projects
-        if tier == .hot && !isActive {
+        if tier == .hot, !isActive {
           RoundedRectangle(cornerRadius: 1, style: .continuous)
             .fill(group.signalColor)
             .frame(width: 2)

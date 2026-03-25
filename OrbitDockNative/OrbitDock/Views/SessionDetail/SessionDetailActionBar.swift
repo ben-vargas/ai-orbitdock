@@ -64,14 +64,14 @@ struct SessionDetailRegularActionBar: View {
       Button(action: togglePinned) {
         Text(state.followLabel)
           .font(.system(size: TypeScale.caption, weight: .medium))
-          .foregroundStyle(state.isPinned ? Color.textTertiary : Color.textPrimary)
+          .foregroundStyle(state.isFollowing ? Color.textTertiary : Color.textPrimary)
       }
       .buttonStyle(.plain)
       .padding(.horizontal, Spacing.md)
     }
     .frame(height: 30)
     .background(Color.backgroundSecondary)
-    .animation(Motion.standard, value: state.isPinned)
+    .animation(Motion.standard, value: state.followMode)
     .animation(Motion.standard, value: state.unreadCount)
   }
 }
@@ -137,12 +137,12 @@ struct SessionDetailCompactActionBar: View {
             Text(state.followLabel)
               .font(.system(size: TypeScale.code, weight: .medium))
           }
-          .foregroundStyle(state.isPinned ? .secondary : .primary)
+          .foregroundStyle(state.isFollowing ? .secondary : .primary)
           .padding(.horizontal, Spacing.sm)
           .padding(.vertical, Spacing.xs)
           .background(
             RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-              .fill(state.isPinned ? Color.clear : Color.backgroundTertiary)
+              .fill(state.isFollowing ? Color.clear : Color.backgroundTertiary)
           )
         }
         .buttonStyle(.plain)
@@ -190,7 +190,7 @@ struct SessionDetailCompactActionBar: View {
     }
     .padding(.vertical, Spacing.sm)
     .background(Color.backgroundSecondary)
-    .animation(Motion.standard, value: state.isPinned)
+    .animation(Motion.standard, value: state.followMode)
     .animation(Motion.standard, value: state.unreadCount)
   }
 }

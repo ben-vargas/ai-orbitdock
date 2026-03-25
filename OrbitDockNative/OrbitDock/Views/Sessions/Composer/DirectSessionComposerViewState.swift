@@ -59,7 +59,7 @@ extension DirectSessionComposer {
   }
 
   var isSessionActive: Bool {
-    obs.isActive
+    obs.lifecycleState == .open
   }
 
   var draftStorageKey: String {

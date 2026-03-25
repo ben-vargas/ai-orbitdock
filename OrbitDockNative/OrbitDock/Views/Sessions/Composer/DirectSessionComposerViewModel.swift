@@ -370,19 +370,19 @@ final class DirectSessionComposerViewModel {
       return
     }
 
-    let sessionStore = currentSessionStore
-
-    withObservationTracking {
-      sessionState = Self.makeSessionState(from: sessionStore.session(currentSessionId))
+    let snapshot = withObservationTracking {
+      Self.buildSessionState(session: currentSessionStore.session(currentSessionId))
     } onChange: { [weak self] in
       Task { @MainActor [weak self] in
         guard let self, self.sessionObservationGeneration == generation else { return }
         self.startObservation(generation: generation)
       }
     }
+
+    sessionState = snapshot
   }
 
-  private static func makeSessionState(from session: SessionObservable) -> DirectSessionComposerSessionState {
+  private static func buildSessionState(session: SessionObservable) -> DirectSessionComposerSessionState {
     DirectSessionComposerSessionState(
       provider: session.provider,
       displayName: session.displayName,
@@ -396,6 +396,8 @@ final class DirectSessionComposerViewModel {
       steerable: session.steerable,
       workStatus: session.workStatus,
       isActive: session.isActive,
+      controlMode: session.controlMode,
+      lifecycleState: session.lifecycleState,
       isDirectCodex: session.isDirectCodex,
       isDirectClaude: session.isDirectClaude,
       approvalCardContext: session.approvalCardContext,
@@ -456,6 +458,8 @@ struct DirectSessionComposerSessionState {
   let steerable: Bool
   let workStatus: Session.WorkStatus
   let isActive: Bool
+  let controlMode: ServerSessionControlMode
+  let lifecycleState: ServerSessionLifecycleState
   let isDirectCodex: Bool
   let isDirectClaude: Bool
   let approvalCardContext: ApprovalCardSessionContext
@@ -558,6 +562,8 @@ struct DirectSessionComposerSessionState {
     steerable: false,
     workStatus: .unknown,
     isActive: false,
+    controlMode: .passive,
+    lifecycleState: .ended,
     isDirectCodex: false,
     isDirectClaude: false,
     approvalCardContext: ApprovalCardSessionContext(

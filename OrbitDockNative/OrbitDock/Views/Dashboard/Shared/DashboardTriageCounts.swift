@@ -5,12 +5,12 @@
 //  Shared urgency counters for active dashboard sessions.
 //
 
-struct DashboardTriageCounts {
+struct DashboardTriageCounts: Sendable {
   var attention = 0
   var running = 0
   var ready = 0
 
-  init(sessions: [RootSessionNode]) {
+  nonisolated init(sessions: [RootSessionNode]) {
     for session in sessions {
       guard session.showsInMissionControl else { continue }
       switch session.displayStatus {
@@ -22,7 +22,7 @@ struct DashboardTriageCounts {
     }
   }
 
-  init(conversations: [DashboardConversationRecord]) {
+  nonisolated init(conversations: [DashboardConversationRecord]) {
     for conversation in conversations {
       switch conversation.displayStatus {
         case .permission, .question: attention += 1

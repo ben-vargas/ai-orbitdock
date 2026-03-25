@@ -234,7 +234,6 @@ struct MissionAgentCard: View {
 
   // MARK: - Expanded Content
 
-  @ViewBuilder
   private var expandedContent: some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
       Divider().foregroundStyle(Color.surfaceBorder)

@@ -70,7 +70,8 @@ struct MissionIssueItem: Codable, Identifiable, Equatable {
     let parts = url.pathComponents
     // GitHub PR URLs: /owner/repo/pull/123
     if let pullIndex = parts.firstIndex(of: "pull"),
-       pullIndex + 1 < parts.count {
+       pullIndex + 1 < parts.count
+    {
       return "PR #\(parts[pullIndex + 1])"
     }
     return "PR"
@@ -84,12 +85,12 @@ struct MissionIssueItem: Codable, Identifiable, Equatable {
     }
     guard let ws = workStatus else { return nil }
     switch ws {
-    case "working": return "Working..."
-    case "waiting": return "Thinking..."
-    case "permission": return "Awaiting approval"
-    case "question": return "Has a question"
-    case "reply": return "Waiting for input"
-    default: return nil
+      case "working": return "Working..."
+      case "waiting": return "Thinking..."
+      case "permission": return "Awaiting approval"
+      case "question": return "Has a question"
+      case "reply": return "Waiting for input"
+      default: return nil
     }
   }
 }

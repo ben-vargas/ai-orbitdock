@@ -213,7 +213,7 @@ extension DirectSessionComposer {
 
   var footerFollowControls: some View {
     HStack(spacing: Spacing.xs) {
-      if !isPinned, unreadCount > 0 {
+      if !followMode.isFollowing, unreadCount > 0 {
         Button {
           onJumpToLatest()
           Platform.services.playHaptic(.selection)
@@ -232,18 +232,18 @@ extension DirectSessionComposer {
         onTogglePinned()
         Platform.services.playHaptic(.selection)
       } label: {
-        Image(systemName: isPinned ? "arrow.down.to.line" : "pause.fill")
+        Image(systemName: followMode.isFollowing ? "arrow.down.to.line" : followMode.controlIcon)
           .font(.system(size: isCompactLayout ? TypeScale.body : TypeScale.caption, weight: .semibold))
-          .foregroundStyle(isPinned ? Color.textQuaternary : Color.statusReply)
+          .foregroundStyle(followMode.isFollowing ? Color.textQuaternary : Color.statusReply)
           .frame(width: isCompactLayout ? 34 : 28, height: isCompactLayout ? 34 : 28)
           .background(
-            isPinned ? Color.clear : Color.statusReply.opacity(OpacityTier.light),
+            followMode.isFollowing ? Color.clear : Color.statusReply.opacity(OpacityTier.light),
             in: Circle()
           )
       }
       .buttonStyle(.plain)
     }
-    .animation(Motion.standard, value: isPinned)
+    .animation(Motion.standard, value: followMode)
     .animation(Motion.standard, value: unreadCount)
   }
 

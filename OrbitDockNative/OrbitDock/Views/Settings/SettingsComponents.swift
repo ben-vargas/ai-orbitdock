@@ -55,18 +55,18 @@ struct SettingsSidebarButton: View {
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
     #if os(macOS)
-    .onContinuousHover { phase in
-      switch phase {
-        case .active:
-          NSCursor.pointingHand.push()
-        case .ended:
-          NSCursor.pop()
+      .onContinuousHover { phase in
+        switch phase {
+          case .active:
+            NSCursor.pointingHand.push()
+          case .ended:
+            NSCursor.pop()
+        }
       }
-    }
     #endif
-    .animation(Motion.hover, value: isHovering)
-    .accessibilityLabel("\(title), \(subtitle)")
-    .accessibilityAddTraits(isSelected ? .isSelected : [])
+      .animation(Motion.hover, value: isHovering)
+      .accessibilityLabel("\(title), \(subtitle)")
+      .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 }
 

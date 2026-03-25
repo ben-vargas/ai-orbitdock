@@ -1,14 +1,32 @@
 import Foundation
+import Observation
 
 @MainActor
 @Observable
 final class DashboardViewModel {
   var selectedIndex = 0
   var dashboardScrollAnchorID: String?
-  var activeWorkbenchFilter: ActiveSessionWorkbenchFilter = .all
-  var activeSort: ActiveSessionSort = .recent
-  var activeProviderFilter: ActiveSessionProviderFilter = .all
-  var activeProjectFilter: String?
+  var activeWorkbenchFilter: ActiveSessionWorkbenchFilter = .all {
+    didSet { recomputeDerivedCollections() }
+  }
+
+  var activeSort: ActiveSessionSort = .recent {
+    didSet { recomputeDerivedCollections() }
+  }
+
+  var activeProviderFilter: ActiveSessionProviderFilter = .all {
+    didSet { recomputeDerivedCollections() }
+  }
+
+  var activeProjectFilter: String? {
+    didSet { recomputeDerivedCollections() }
+  }
+
+  var rootSessions: [RootSessionNode] = []
+  var filteredDashboardConversations: [DashboardConversationRecord] = []
+  var sidebarConversations: [DashboardConversationRecord] = []
+  var missionControlGroups: [ConversationProjectGroup] = []
+  var sidebarGroups: [ConversationProjectGroup] = []
 
   /// Custom project ordering — persisted to UserDefaults.
   /// Empty array means "use alphabetical order."
@@ -22,59 +40,17 @@ final class DashboardViewModel {
       if let data = try? JSONEncoder().encode(projectOrder) {
         UserDefaults.standard.set(data, forKey: "dashboard.projectOrder")
       }
+      recomputeDerivedCollections()
     }
   }
 
-  @ObservationIgnored private weak var appStore: AppStore?
+  @ObservationIgnored private weak var dashboardProjectionStore: DashboardProjectionStore?
+  @ObservationIgnored private var observationGeneration: UInt64 = 0
 
-  func bind(appStore: AppStore) {
-    self.appStore = appStore
-  }
-
-  var rootSessions: [RootSessionNode] {
-    appStore?.records() ?? []
-  }
-
-  var librarySessions: [RootSessionNode] {
-    rootSessions
-  }
-
-  var dashboardConversations: [DashboardConversationRecord] {
-    appStore?.dashboardConversationRecords() ?? []
-  }
-
-  var filteredDashboardConversations: [DashboardConversationRecord] {
-    DashboardConversationDeckPlanner.build(
-      from: dashboardConversations,
-      filter: activeWorkbenchFilter,
-      sort: activeSort,
-      providerFilter: activeProviderFilter,
-      projectFilter: activeProjectFilter
-    )
-  }
-
-  /// Conversations filtered by workbench + provider, but NOT by project.
-  /// Used by the ProjectNavigator so all projects remain visible even when one is selected.
-  var sidebarConversations: [DashboardConversationRecord] {
-    DashboardConversationDeckPlanner.build(
-      from: dashboardConversations,
-      filter: activeWorkbenchFilter,
-      sort: activeSort,
-      providerFilter: activeProviderFilter,
-      projectFilter: nil
-    )
-  }
-
-  var dashboardCounts: DashboardTriageCounts {
-    DashboardTriageCounts(conversations: dashboardConversations)
-  }
-
-  var dashboardDirectCount: Int {
-    dashboardConversations.filter(\.isDirect).count
-  }
-
-  var dashboardRefreshIdentity: String {
-    appStore?.runtimeRegistry.dashboardRefreshIdentity ?? "dashboard-unbound"
+  func bind(projectionStore: DashboardProjectionStore) {
+    dashboardProjectionStore = projectionStore
+    observationGeneration &+= 1
+    startObservation(generation: observationGeneration)
   }
 
   func showingLoadingSkeleton(isInitialLoading: Bool) -> Bool {
@@ -82,8 +58,8 @@ final class DashboardViewModel {
   }
 
   func refreshDashboardData() async {
-    guard let appStore else { return }
-    await appStore.runtimeRegistry.refreshDashboardConversations()
+    guard let dashboardProjectionStore else { return }
+    await dashboardProjectionStore.refreshDashboardData()
   }
 
   func syncSelectionBounds() {
@@ -131,6 +107,97 @@ final class DashboardViewModel {
   var selectedConversationScrollTargetID: String? {
     guard let selectedConversation else { return nil }
     return DashboardScrollIDs.session(selectedConversation.id)
+  }
+
+  private func startObservation(generation: UInt64) {
+    guard let projectionStore = dashboardProjectionStore else {
+      applyBaseState(.empty)
+      return
+    }
+
+    withObservationTracking {
+      applyBaseState(
+        DashboardProjectionSnapshot(
+          rootSessions: projectionStore.rootSessions,
+          dashboardConversations: projectionStore.dashboardConversations,
+          hasMultipleEndpoints: projectionStore.hasMultipleEndpoints,
+          counts: projectionStore.counts,
+          directCount: projectionStore.directCount,
+          refreshIdentity: projectionStore.refreshIdentity
+        )
+      )
+    } onChange: { [weak self] in
+      Task { @MainActor [weak self] in
+        guard let self, self.observationGeneration == generation else { return }
+        self.startObservation(generation: generation)
+      }
+    }
+  }
+
+  private func applyBaseState(_ snapshot: DashboardProjectionSnapshot) {
+    rootSessions = snapshot.rootSessions
+    filteredDashboardConversations = snapshot.dashboardConversations
+    recomputeDerivedCollections()
+  }
+
+  private func recomputeDerivedCollections() {
+    guard let dashboardProjectionStore else {
+      filteredDashboardConversations = []
+      sidebarConversations = []
+      missionControlGroups = []
+      sidebarGroups = []
+      syncSelectionBounds()
+      return
+    }
+
+    let dashboardConversations = dashboardProjectionStore.dashboardConversations
+    filteredDashboardConversations = DashboardConversationDeckPlanner.build(
+      from: dashboardConversations,
+      filter: activeWorkbenchFilter,
+      sort: activeSort,
+      providerFilter: activeProviderFilter,
+      projectFilter: activeProjectFilter
+    )
+    sidebarConversations = DashboardConversationDeckPlanner.build(
+      from: dashboardConversations,
+      filter: activeWorkbenchFilter,
+      sort: activeSort,
+      providerFilter: activeProviderFilter,
+      projectFilter: nil
+    )
+    missionControlGroups = ConversationProjectGroupBuilder.build(
+      from: filteredDashboardConversations,
+      customOrder: projectOrder
+    )
+    sidebarGroups = ConversationProjectGroupBuilder.build(
+      from: sidebarConversations,
+      customOrder: projectOrder
+    )
+    syncSelectionBounds()
+  }
+
+  var librarySessions: [RootSessionNode] {
+    rootSessions
+  }
+
+  var dashboardConversations: [DashboardConversationRecord] {
+    dashboardProjectionStore?.dashboardConversations ?? []
+  }
+
+  var dashboardHasMultipleEndpoints: Bool {
+    dashboardProjectionStore?.hasMultipleEndpoints ?? false
+  }
+
+  var dashboardCounts: DashboardTriageCounts {
+    dashboardProjectionStore?.counts ?? DashboardTriageCounts(conversations: [])
+  }
+
+  var dashboardDirectCount: Int {
+    dashboardProjectionStore?.directCount ?? 0
+  }
+
+  var dashboardRefreshIdentity: String {
+    dashboardProjectionStore?.refreshIdentity ?? "dashboard-unbound"
   }
 }
 

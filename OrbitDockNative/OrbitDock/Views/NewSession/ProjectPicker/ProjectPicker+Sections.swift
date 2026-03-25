@@ -256,7 +256,10 @@ import SwiftUI
             .fill(selectedPath == selectionPath ? Color.accent.opacity(OpacityTier.light) : Color.clear)
             .overlay(
               RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .stroke(selectedPath == selectionPath ? Color.accent.opacity(OpacityTier.medium) : Color.clear, lineWidth: 1)
+                .stroke(
+                  selectedPath == selectionPath ? Color.accent.opacity(OpacityTier.medium) : Color.clear,
+                  lineWidth: 1
+                )
             )
         }
         .overlay(alignment: .leading) {

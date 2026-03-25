@@ -33,14 +33,14 @@ struct MissionTrackerSection: View {
 
   private var sourceDescription: String {
     switch trackerKeySource {
-    case "mission":
-      return "Mission-scoped key"
-    case "env":
-      return "\(envVarName) environment variable"
-    case "global":
-      return "Server default key"
-    default:
-      return "Saved in OrbitDock"
+      case "mission":
+        "Mission-scoped key"
+      case "env":
+        "\(envVarName) environment variable"
+      case "global":
+        "Server default key"
+      default:
+        "Saved in OrbitDock"
     }
   }
 

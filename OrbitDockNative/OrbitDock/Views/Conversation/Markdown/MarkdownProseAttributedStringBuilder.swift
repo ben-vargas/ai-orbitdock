@@ -54,27 +54,27 @@ struct MarkdownProseAttributedStringBuilder {
   private func buildFragment(for block: MarkdownBlock) -> AttributedString? {
     switch block {
       case let .text(text):
-        return styledInlineAttributedString(
+        styledInlineAttributedString(
           text,
           font: MarkdownTypography.bodyFont(style: style),
           foregroundColor: bodyForegroundColor
         )
 
       case let .heading(level, text):
-        return styledInlineAttributedString(
+        styledInlineAttributedString(
           text,
           font: MarkdownTypography.headingFont(level: level, style: style),
           foregroundColor: MarkdownTypography.headingColor(level: level)
         )
 
       case let .blockquote(text):
-        return buildBlockquote(text)
+        buildBlockquote(text)
 
       case let .list(items):
-        return buildList(items, depth: 0)
+        buildList(items, depth: 0)
 
       case .codeBlock, .table, .thematicBreak:
-        return nil
+        nil
     }
   }
 
@@ -93,10 +93,10 @@ struct MarkdownProseAttributedStringBuilder {
 
       result.append(styledPrefix(quotePrefix, font: bodyFont, foregroundColor: quotePrefixColor))
       if let paragraphString = styledInlineAttributedString(
-           paragraph,
-           font: bodyFont,
-           foregroundColor: quoteColor
-         ) {
+        paragraph,
+        font: bodyFont,
+        foregroundColor: quoteColor
+      ) {
         result.append(paragraphString)
       }
     }
@@ -205,11 +205,11 @@ struct MarkdownProseAttributedStringBuilder {
   private func blockSeparator(previous: MarkdownBlock, current: MarkdownBlock) -> AttributedString {
     switch (previous, current) {
       case (.heading, _):
-        return AttributedString("\n")
+        AttributedString("\n")
       case (.blockquote, .blockquote):
-        return AttributedString("\n")
+        AttributedString("\n")
       default:
-        return AttributedString(MarkdownTypography.paragraphSpacing(style: style))
+        AttributedString(MarkdownTypography.paragraphSpacing(style: style))
     }
   }
 }

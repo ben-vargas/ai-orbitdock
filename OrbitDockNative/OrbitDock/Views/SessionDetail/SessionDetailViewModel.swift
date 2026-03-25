@@ -10,9 +10,8 @@ final class SessionDetailViewModel {
   var currentEndpointId = UUID()
   var currentSessionStore = SessionStore.preview()
   var selectedWorkerId: String?
-  var conversationJumpTarget: ConversationJumpTarget?
-  var isPinned = true
-  var unreadCount = 0
+  var conversationScrollCommand: ConversationScrollCommand?
+  var conversationFollowState = ConversationFollowState.initial
   var selectedSkills: Set<String> = []
   var layoutConfig: LayoutConfiguration = .conversationOnly {
     didSet {
@@ -33,6 +32,7 @@ final class SessionDetailViewModel {
 
   @ObservationIgnored private weak var modelPricingService: ModelPricingService?
   @ObservationIgnored private var sessionObservationGeneration: UInt64 = 0
+  @ObservationIgnored private var conversationScrollCommandNonce = 0
 
   var screenPresentation = SessionDetailScreenPresentation.empty
   var usageSource = SessionDetailUsageSource.empty
@@ -69,6 +69,10 @@ final class SessionDetailViewModel {
     currentEndpointId = endpointId
     currentSessionStore = resolvedStore
     self.modelPricingService = modelPricingService
+    conversationFollowState = .initial
+    conversationScrollCommand = nil
+    conversationScrollCommandNonce = 0
+    pendingApprovalPanelOpenSignal = 0
     sessionObservationGeneration &+= 1
     startSessionObservation(generation: sessionObservationGeneration)
   }
@@ -90,7 +94,7 @@ final class SessionDetailViewModel {
       branch: worktreeState.branch,
       projectPath: worktreeState.projectPath,
       usageStats: usageStats,
-      isPinned: isPinned,
+      followMode: followMode,
       unreadCount: unreadCount,
       lastActivityAt: lastActivityAt
     )
@@ -107,12 +111,12 @@ final class SessionDetailViewModel {
     )
   }
 
-  var conversationChromeState: SessionDetailConversationChromeState {
-    SessionDetailConversationChromeState(
-      isPinned: isPinned,
-      unreadCount: unreadCount,
-      pendingApprovalPanelOpenSignal: pendingApprovalPanelOpenSignal
-    )
+  var followMode: ConversationFollowMode {
+    conversationFollowState.mode
+  }
+
+  var unreadCount: Int {
+    conversationFollowState.unreadCount
   }
 
   var usageStats: TranscriptUsageStats {
@@ -157,74 +161,100 @@ final class SessionDetailViewModel {
       return
     }
 
-    let snapshot = makeSnapshot(
-      session: sessionStore.session(sessionId),
-      endpointId: endpointId,
-      sessionId: sessionId
+    apply(
+      snapshot: Self.buildSnapshot(
+        session: sessionStore.session(sessionId),
+        endpointId: endpointId,
+        sessionId: sessionId
+      )
     )
-    apply(snapshot: snapshot)
   }
 
-  func applyConversationChromeState(
-    _ state: SessionDetailConversationChromeState,
-    animatePendingApprovalPanel: Bool = false
-  ) {
-    if animatePendingApprovalPanel {
-      withAnimation(Motion.standard) {
-        pendingApprovalPanelOpenSignal = state.pendingApprovalPanelOpenSignal
-      }
-    } else {
-      pendingApprovalPanelOpenSignal = state.pendingApprovalPanelOpenSignal
+  private func applyFollowPlan(_ plan: ConversationFollowPlan) {
+    let previousState = conversationFollowState
+    conversationFollowState = plan.state
+    ConversationFollowDebug.log(
+      """
+      SessionDetailViewModel.applyFollowPlan sessionId=\(sessionId) oldMode=\(previousState.mode
+        .rawValue) oldUnread=\(previousState.unreadCount) newMode=\(plan.state.mode.rawValue) newUnread=\(plan.state
+        .unreadCount) scrollAction=\(describe(plan.scrollAction))
+      """
+    )
+    guard let action = plan.scrollAction else { return }
+
+    conversationScrollCommandNonce += 1
+    switch action {
+      case .latest:
+        conversationScrollCommand = .latest(nonce: conversationScrollCommandNonce)
+      case let .message(messageID):
+        conversationScrollCommand = .message(id: messageID, nonce: conversationScrollCommandNonce)
     }
-
-    isPinned = state.isPinned
-    unreadCount = state.unreadCount
-  }
-
-  func handlePinnedChange(_ pinned: Bool) {
-    guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-    if pinned { unreadCount = 0 }
-  }
-
-  func handleConversationTimelineReachedBottom() {
-    applyConversationChromeState(
-      SessionDetailConversationChromePlanner.timelineReachedBottom(current: conversationChromeState)
+    ConversationFollowDebug.log(
+      "SessionDetailViewModel.emittedScrollCommand command=\(describe(conversationScrollCommand)) nonce=\(conversationScrollCommandNonce)"
     )
   }
 
-  func handleConversationTimelineLeftBottomByUser() {
-    applyConversationChromeState(
-      SessionDetailConversationChromePlanner.timelineLeftBottomByUser(current: conversationChromeState)
+  func handleConversationViewportEvent(_ event: ConversationViewportEvent) {
+    ConversationFollowDebug.log(
+      "SessionDetailViewModel.handleConversationViewportEvent event=\(describe(event)) mode=\(followMode.rawValue) unread=\(unreadCount)"
+    )
+    applyFollowPlan(
+      ConversationFollowPlanner.apply(
+        current: conversationFollowState,
+        intent: .viewportEvent(event)
+      )
     )
   }
 
-  func handleConversationEntryCountChange(oldCount: Int, newCount: Int) {
-    applyConversationChromeState(
-      SessionDetailConversationChromePlanner.didReceiveEntries(
-        current: conversationChromeState,
-        oldCount: oldCount,
-        newCount: newCount
+  func handleConversationLatestEntriesAppended(_ count: Int) {
+    ConversationFollowDebug.log(
+      "SessionDetailViewModel.handleConversationLatestEntriesAppended count=\(count) mode=\(followMode.rawValue) unread=\(unreadCount)"
+    )
+    applyFollowPlan(
+      ConversationFollowPlanner.apply(
+        current: conversationFollowState,
+        intent: .latestEntriesAppended(count)
       )
     )
   }
 
   func jumpConversationToLatest() {
-    applyConversationChromeState(
-      SessionDetailConversationChromePlanner.jumpToLatest(current: conversationChromeState)
+    ConversationFollowDebug.log(
+      "SessionDetailViewModel.jumpConversationToLatest mode=\(followMode.rawValue) unread=\(unreadCount)"
+    )
+    applyFollowPlan(
+      ConversationFollowPlanner.apply(
+        current: conversationFollowState,
+        intent: .jumpToLatest
+      )
     )
   }
 
-  func toggleConversationPinnedState() {
-    applyConversationChromeState(
-      SessionDetailConversationChromePlanner.togglePinned(current: conversationChromeState)
+  func toggleConversationFollowMode() {
+    ConversationFollowDebug.log(
+      "SessionDetailViewModel.toggleConversationFollowMode mode=\(followMode.rawValue) unread=\(unreadCount)"
+    )
+    applyFollowPlan(
+      ConversationFollowPlanner.apply(
+        current: conversationFollowState,
+        intent: .toggleFollow
+      )
     )
   }
 
   func openPendingApprovalPanel() {
-    let nextState = SessionDetailConversationChromePlanner.openPendingApprovalPanel(
-      current: conversationChromeState
+    ConversationFollowDebug.log(
+      "SessionDetailViewModel.openPendingApprovalPanel mode=\(followMode.rawValue) unread=\(unreadCount)"
     )
-    applyConversationChromeState(nextState, animatePendingApprovalPanel: true)
+    withAnimation(Motion.standard) {
+      pendingApprovalPanelOpenSignal += 1
+    }
+    applyFollowPlan(
+      ConversationFollowPlanner.apply(
+        current: conversationFollowState,
+        intent: .openPendingApprovalPanel
+      )
+    )
   }
 
   func navigateToReviewComment(_ comment: ServerReviewComment) {
@@ -258,14 +288,47 @@ final class SessionDetailViewModel {
   }
 
   func revealWorkerConversationEvent(_ messageId: String) {
+    ConversationFollowDebug.log(
+      "SessionDetailViewModel.revealWorkerConversationEvent messageId=\(messageId) mode=\(followMode.rawValue) unread=\(unreadCount) layout=\(String(describing: layoutConfig))"
+    )
     if layoutConfig == .reviewOnly {
       layoutConfig = .split
     }
-    isPinned = false
-    conversationJumpTarget = .init(
-      messageID: messageId,
-      nonce: (conversationJumpTarget?.nonce ?? 0) + 1
+    applyFollowPlan(
+      ConversationFollowPlanner.apply(
+        current: conversationFollowState,
+        intent: .revealMessage(messageId)
+      )
     )
+  }
+
+  private func describe(_ action: ConversationScrollAction?) -> String {
+    guard let action else { return "nil" }
+    return switch action {
+      case .latest:
+        "latest"
+      case let .message(messageID):
+        "message(\(messageID))"
+    }
+  }
+
+  private func describe(_ command: ConversationScrollCommand?) -> String {
+    guard let command else { return "nil" }
+    return switch command {
+      case let .latest(nonce):
+        "latest(nonce: \(nonce))"
+      case let .message(id, nonce):
+        "message(id: \(id), nonce: \(nonce))"
+    }
+  }
+
+  private func describe(_ event: ConversationViewportEvent) -> String {
+    switch event {
+      case .reachedBottom:
+        "reachedBottom"
+      case .leftBottomByUser:
+        "leftBottomByUser"
+    }
   }
 
   func selectLayout(_ layout: LayoutConfiguration) {
@@ -385,23 +448,20 @@ final class SessionDetailViewModel {
       return
     }
 
-    let sessionId = self.sessionId
-    let endpointId = self.endpointId
-    let sessionStore = self.sessionStore
-
-    withObservationTracking {
-      let snapshot = makeSnapshot(
+    let snapshot = withObservationTracking {
+      Self.buildSnapshot(
         session: sessionStore.session(sessionId),
         endpointId: endpointId,
         sessionId: sessionId
       )
-      apply(snapshot: snapshot)
     } onChange: { [weak self] in
       Task { @MainActor [weak self] in
         guard let self, self.sessionObservationGeneration == generation else { return }
         self.startSessionObservation(generation: generation)
       }
     }
+
+    apply(snapshot: snapshot)
   }
 
   private func apply(snapshot: SessionDetailSnapshot) {
@@ -460,7 +520,7 @@ final class SessionDetailViewModel {
     )
   }
 
-  private func makeSnapshot(
+  private static func buildSnapshot(
     session: SessionObservable,
     endpointId: UUID,
     sessionId: String
@@ -487,7 +547,8 @@ final class SessionDetailViewModel {
           displayName: session.displayName,
           projectPath: session.projectPath,
           model: session.model,
-          hasGitRepository: session.branch != nil || session.repositoryRoot != nil || session.isWorktree
+          hasGitRepository: session.branch != nil || session.repositoryRoot != nil
+            || session.isWorktree
         ),
         debugContext: SessionDetailDebugContext(
           sessionId: sessionId,
@@ -529,9 +590,8 @@ final class SessionDetailViewModel {
       currentTool: session.lastTool,
       lastActivityAt: session.lastActivityAt,
       footerMode: SessionDetailFooterPlanner.mode(
-        isDirect: session.isDirect,
-        canTakeOver: session.canTakeOver,
-        needsApprovalOverlay: session.needsApprovalOverlay
+        controlMode: session.controlMode,
+        lifecycleState: session.lifecycleState
       ),
       sessionStoreEndpointId: endpointId,
       sessionId: sessionId
@@ -539,7 +599,7 @@ final class SessionDetailViewModel {
   }
 }
 
-private struct SessionDetailSnapshot {
+struct SessionDetailSnapshot {
   let screenPresentation: SessionDetailScreenPresentation
   let usageSource: SessionDetailUsageSource
   let worktreeState: SessionDetailWorktreeState

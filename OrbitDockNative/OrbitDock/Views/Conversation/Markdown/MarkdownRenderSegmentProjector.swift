@@ -21,7 +21,7 @@ enum MarkdownRenderSegmentProjector {
       let segment = MarkdownRenderSegment.prose(
         MarkdownRenderSegment.Prose(
           identity: identity,
-          sourceBlockRange: startBlockIndex..<endIndex,
+          sourceBlockRange: startBlockIndex ..< endIndex,
           blocks: proseBlocks
         )
       )
@@ -66,7 +66,7 @@ enum MarkdownRenderSegmentProjector {
 
   private static func segment(for block: MarkdownBlock, at index: Int) -> MarkdownRenderSegment {
     let identity = MarkdownRenderSegment.Identity(kind: kind(for: block), startBlockIndex: index)
-    let sourceBlockRange = index..<(index + 1)
+    let sourceBlockRange = index ..< (index + 1)
 
     switch block {
       case let .codeBlock(language, code):
@@ -105,22 +105,22 @@ enum MarkdownRenderSegmentProjector {
   private static func kind(for block: MarkdownBlock) -> MarkdownRenderSegment.Kind {
     switch block {
       case .text, .heading, .blockquote, .list:
-        return .prose
+        .prose
       case .codeBlock:
-        return .codeBlock
+        .codeBlock
       case .table:
-        return .table
+        .table
       case .thematicBreak:
-        return .thematicBreak
+        .thematicBreak
     }
   }
 
   private static func isProseRenderable(_ block: MarkdownBlock) -> Bool {
     switch block {
       case .text, .heading, .blockquote, .list:
-        return true
+        true
       case .codeBlock, .table, .thematicBreak:
-        return false
+        false
     }
   }
 }

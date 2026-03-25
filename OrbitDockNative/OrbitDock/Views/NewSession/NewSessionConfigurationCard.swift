@@ -81,33 +81,33 @@ struct NewSessionConfigurationCard: View {
   private var codexResolvedProfileLabel: String {
     switch codexConfigMode {
       case .inherit:
-        return codexCatalog?.effectiveSettings?.configProfile ?? "Folder default"
+        codexCatalog?.effectiveSettings?.configProfile ?? "Folder default"
       case .profile:
-        return selectedProfileSummary?.name ?? "Saved profile"
+        selectedProfileSummary?.name ?? "Saved profile"
       case .custom:
-        return "Custom session"
+        "Custom session"
     }
   }
 
   private var codexResolvedProviderLabel: String {
     switch codexConfigMode {
       case .inherit:
-        return codexCatalog?.effectiveSettings?.modelProvider ?? "Resolved by Codex"
+        codexCatalog?.effectiveSettings?.modelProvider ?? "Resolved by Codex"
       case .profile:
-        return selectedProfileSummary?.modelProvider ?? "From selected profile"
+        selectedProfileSummary?.modelProvider ?? "From selected profile"
       case .custom:
-        return selectedProviderSummary?.displayName ?? selectedProviderSummary?.id ?? "Choose provider"
+        selectedProviderSummary?.displayName ?? selectedProviderSummary?.id ?? "Choose provider"
     }
   }
 
   private var codexResolvedModelLabel: String {
     switch codexConfigMode {
       case .inherit:
-        return codexCatalog?.effectiveSettings?.model ?? "Resolved by Codex"
+        codexCatalog?.effectiveSettings?.model ?? "Resolved by Codex"
       case .profile:
-        return selectedProfileSummary?.model ?? "From selected profile"
+        selectedProfileSummary?.model ?? "From selected profile"
       case .custom:
-        return currentCodexModelOption?.displayName ?? "Choose model"
+        currentCodexModelOption?.displayName ?? "Choose model"
     }
   }
 
@@ -256,7 +256,8 @@ struct NewSessionConfigurationCard: View {
     HStack(spacing: Spacing.sm) {
       if provider == .codex {
         codexHeaderBadge(
-          title: codexConfigMode == .inherit ? "Inherited" : codexConfigMode == .profile ? "Saved Profile" : "Custom Session",
+          title: codexConfigMode == .inherit ? "Inherited" : codexConfigMode == .profile ? "Saved Profile" :
+            "Custom Session",
           tint: Color.providerCodex
         )
 
@@ -297,10 +298,12 @@ struct NewSessionConfigurationCard: View {
             .foregroundStyle(Color.textPrimary)
         }
 
-        Text("Decide whether this session should follow the folder's resolved Codex setup, one of your saved profiles, or a one-off custom configuration.")
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
+        Text(
+          "Decide whether this session should follow the folder's resolved Codex setup, one of your saved profiles, or a one-off custom configuration."
+        )
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
       }
 
       codexModeSelector
@@ -445,9 +448,9 @@ struct NewSessionConfigurationCard: View {
   private var codexConfigModeSummaryDetail: String {
     switch codexConfigMode {
       case .inherit:
-        return "OrbitDock will inherit the effective profile, provider, and model Codex resolves for this folder."
+        "OrbitDock will inherit the effective profile, provider, and model Codex resolves for this folder."
       case .profile:
-        return selectedProfileSummary.map {
+        selectedProfileSummary.map {
           [
             $0.modelProvider.map { "Provider: \($0)" },
             $0.model.map { "Model: \($0)" },
@@ -456,7 +459,7 @@ struct NewSessionConfigurationCard: View {
           .joined(separator: " • ")
         } ?? profileModePlaceholder
       case .custom:
-        return "Override the provider, model, and launch-time behavior just for this session."
+        "Override the provider, model, and launch-time behavior just for this session."
     }
   }
 
@@ -709,7 +712,8 @@ struct NewSessionConfigurationCard: View {
             .pickerStyle(.menu)
             .disabled(providerOptions.isEmpty)
           } description: {
-            Text(selectedProviderSummary?.displayName ?? selectedProviderSummary?.id ?? "Choose from the providers Codex reports for this environment.")
+            Text(selectedProviderSummary?.displayName ?? selectedProviderSummary?
+              .id ?? "Choose from the providers Codex reports for this environment.")
           }
 
           codexPickerCard(
@@ -748,7 +752,8 @@ struct NewSessionConfigurationCard: View {
             .pickerStyle(.menu)
             .disabled(providerOptions.isEmpty)
           } description: {
-            Text(selectedProviderSummary?.displayName ?? selectedProviderSummary?.id ?? "Choose from the providers Codex reports for this environment.")
+            Text(selectedProviderSummary?.displayName ?? selectedProviderSummary?
+              .id ?? "Choose from the providers Codex reports for this environment.")
           }
 
           codexPickerCard(

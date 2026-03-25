@@ -45,7 +45,7 @@ extension SessionDetailView {
       state: actionBarState,
       usageStats: usageStats,
       jumpToLatest: viewModel.jumpConversationToLatest,
-      togglePinned: viewModel.toggleConversationPinnedState
+      togglePinned: viewModel.toggleConversationFollowMode
     )
   }
 
@@ -93,7 +93,7 @@ extension SessionDetailView {
         _ = Platform.services.revealInFileBrowser(screenPresentation.projectPath)
       },
       jumpToLatest: viewModel.jumpConversationToLatest,
-      togglePinned: viewModel.toggleConversationPinnedState
+      togglePinned: viewModel.toggleConversationFollowMode
     )
   }
 
@@ -116,13 +116,12 @@ extension SessionDetailView {
       focusWorkerInDeck: workerRosterPresentation != nil ? { workerId in
         focusWorkerInDeck(workerId)
       } : nil,
-      jumpToMessageTarget: $viewModel.conversationJumpTarget,
-      isPinned: viewModel.isPinned,
+      scrollCommand: $viewModel.conversationScrollCommand,
+      followMode: viewModel.followMode,
       unreadCount: viewModel.unreadCount,
       onJumpToLatest: viewModel.jumpConversationToLatest,
-      onReachedBottom: viewModel.handleConversationTimelineReachedBottom,
-      onLeftBottomByUser: viewModel.handleConversationTimelineLeftBottomByUser,
-      onEntryCountChanged: viewModel.handleConversationEntryCountChange
+      onViewportEvent: viewModel.handleConversationViewportEvent,
+      onLatestEntriesAppended: viewModel.handleConversationLatestEntriesAppended
     )
   }
 

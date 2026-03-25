@@ -125,16 +125,20 @@ struct MissionShowView: View {
   // MARK: - Content
 
   private func missionContent(_ mission: MissionSummary) -> some View {
-    VStack(spacing: 0) {
+    let missionRef = MissionRef(endpointId: endpointId, missionId: missionId)
+    let selectedTab = router.selectedMissionTab(for: missionRef)
+
+    return VStack(spacing: 0) {
       ScrollView {
         VStack(alignment: .leading, spacing: Spacing.xl) {
           missionHeader(mission)
-          tabBar
+          missionSectionPicker(for: missionRef, selectedTab: selectedTab)
 
-          switch viewModel.selectedTab {
+          switch selectedTab {
             case .overview:
               MissionOverviewTab(
                 mission: mission,
+                cleanupPrompt: viewModel.cleanupPrompt,
                 settings: viewModel.settings,
                 issues: viewModel.issues,
                 missionId: missionId,
@@ -148,8 +152,12 @@ struct MissionShowView: View {
                 lastTickAt: viewModel.lastTickAt,
                 onRefresh: { await viewModel.refreshDetail() },
                 onApplyDetail: { viewModel.applyDetail($0) },
+                onShowCleanup: {
+                  viewModel.showWorktreeCleanup = true
+                  Task { await viewModel.loadMissionWorktrees() }
+                },
                 onSelectTab: { tab in
-                  withAnimation(Motion.standard) { viewModel.selectedTab = tab }
+                  withAnimation(Motion.standard) { router.selectMissionTab(tab, for: missionRef) }
                 },
                 onUpdateMission: { enabled, paused in
                   await viewModel.updateMission(enabled: enabled, paused: paused)
@@ -193,54 +201,118 @@ struct MissionShowView: View {
 
   // MARK: - Tab Bar
 
-  private var tabBar: some View {
-    HStack(spacing: 0) {
-      ForEach(MissionTab.allCases, id: \.self) { tab in
-        let isSelected = viewModel.selectedTab == tab
-        Button {
-          withAnimation(Motion.standard) {
-            viewModel.selectedTab = tab
-          }
-        } label: {
-          VStack(spacing: Spacing.xs) {
-            HStack(spacing: Spacing.sm_) {
-              Image(systemName: tab.icon)
-                .font(.system(size: IconScale.sm, weight: .semibold))
-              Text(tab.title)
-                .font(.system(size: TypeScale.caption, weight: .semibold))
-              if tab == .issues, !viewModel.issues.isEmpty {
-                Text("\(viewModel.issues.count)")
-                  .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-                  .foregroundStyle(isSelected ? Color.accent : Color.textQuaternary)
-                  .padding(.horizontal, Spacing.xs)
-                  .padding(.vertical, 1)
-                  .background(
-                    isSelected
-                      ? Color.accent.opacity(OpacityTier.subtle)
-                      : Color.backgroundTertiary,
-                    in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-                  )
-              }
-            }
-            .foregroundStyle(isSelected ? Color.accent : Color.textTertiary)
-
-            // Active indicator line
-            RoundedRectangle(cornerRadius: 1, style: .continuous)
-              .fill(isSelected ? Color.accent : .clear)
-              .frame(height: 2)
-          }
-          .padding(.horizontal, Spacing.lg)
-          .padding(.top, Spacing.sm)
-        }
-        .buttonStyle(.plain)
-      }
-
-      Spacer()
+  @ViewBuilder
+  private func missionSectionPicker(for missionRef: MissionRef, selectedTab: MissionTab) -> some View {
+    if isCompact {
+      compactSectionNavigator(for: missionRef, selectedTab: selectedTab)
+    } else {
+      desktopSectionNavigator(for: missionRef, selectedTab: selectedTab)
     }
-    .overlay(alignment: .bottom) {
-      Rectangle()
-        .fill(Color.surfaceBorder.opacity(OpacityTier.medium))
-        .frame(height: 1)
+  }
+
+  private func desktopSectionNavigator(for missionRef: MissionRef, selectedTab: MissionTab) -> some View {
+    HStack(spacing: Spacing.md) {
+      ForEach(MissionTab.allCases, id: \.self) { tab in
+        missionSectionButton(tab, missionRef: missionRef, isSelected: selectedTab == tab)
+          .frame(maxWidth: .infinity)
+      }
+    }
+  }
+
+  private func compactSectionNavigator(for missionRef: MissionRef, selectedTab: MissionTab) -> some View {
+    VStack(spacing: Spacing.sm) {
+      ForEach(MissionTab.allCases, id: \.self) { tab in
+        missionSectionButton(tab, missionRef: missionRef, isSelected: selectedTab == tab)
+      }
+    }
+  }
+
+  private func missionSectionButton(
+    _ tab: MissionTab,
+    missionRef: MissionRef,
+    isSelected: Bool
+  ) -> some View {
+    Button {
+      withAnimation(Motion.standard) {
+        router.selectMissionTab(tab, for: missionRef)
+      }
+    } label: {
+      HStack(spacing: Spacing.md) {
+        ZStack {
+          RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
+            .fill(
+              isSelected
+                ? Color.accent.opacity(OpacityTier.light)
+                : Color.backgroundTertiary
+            )
+
+          Image(systemName: tab.icon)
+            .font(.system(size: IconScale.sm, weight: .semibold))
+            .foregroundStyle(isSelected ? Color.accent : Color.textTertiary)
+        }
+        .frame(width: 30, height: 30)
+
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          HStack(spacing: Spacing.sm_) {
+            Text(tab.navigationTitle)
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+              .foregroundStyle(Color.textPrimary)
+
+            if let badgeValue = missionSectionBadgeValue(for: tab) {
+              Text(badgeValue)
+                .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+                .foregroundStyle(isSelected ? Color.accent : Color.textQuaternary)
+                .padding(.horizontal, Spacing.xs)
+                .padding(.vertical, 1)
+                .background(
+                  isSelected
+                    ? Color.accent.opacity(OpacityTier.subtle)
+                    : Color.backgroundTertiary,
+                  in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+                )
+            }
+          }
+
+          Text(tab.navigationSubtitle)
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(isSelected ? Color.textSecondary : Color.textTertiary)
+            .multilineTextAlignment(.leading)
+        }
+
+        Spacer(minLength: Spacing.md)
+
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(isSelected ? Color.accent : Color.textQuaternary)
+      }
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.md)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          .fill(isSelected ? Color.backgroundSecondary : Color.backgroundPrimary)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          .stroke(
+            isSelected
+              ? Color.accent.opacity(OpacityTier.light)
+              : Color.surfaceBorder.opacity(OpacityTier.medium),
+            lineWidth: 1
+          )
+      )
+    }
+    .buttonStyle(.plain)
+  }
+
+  private func missionSectionBadgeValue(for tab: MissionTab) -> String? {
+    switch tab {
+      case .overview:
+        let active = viewModel.issues.running.count + viewModel.issues.blocked.count + viewModel.issues.failed.count
+        return active > 0 ? "\(active)" : nil
+      case .settings:
+        return nil
+      case .issues:
+        return viewModel.issues.isEmpty ? nil : "\(viewModel.issues.count)"
     }
   }
 
@@ -296,7 +368,8 @@ struct MissionShowView: View {
             statusCapsule(mission)
 
             if runtimeRegistry.hasMultipleEndpoints,
-               let name = runtimeRegistry.runtimesByEndpointId[endpointId]?.endpoint.name {
+               let name = runtimeRegistry.runtimesByEndpointId[endpointId]?.endpoint.name
+            {
               capsuleTag(name, icon: "server.rack")
             }
           }
@@ -432,11 +505,27 @@ enum MissionTab: String, CaseIterable {
     }
   }
 
+  var navigationTitle: String {
+    switch self {
+      case .overview: "Board"
+      case .settings: "Settings"
+      case .issues: "Pipeline"
+    }
+  }
+
   var icon: String {
     switch self {
       case .overview: "gauge.with.dots.needle.33percent"
       case .settings: "gearshape"
       case .issues: "list.bullet"
+    }
+  }
+
+  var navigationSubtitle: String {
+    switch self {
+      case .overview: "Issue-first triage with live agent state"
+      case .settings: "Mission config, polling, and provider defaults"
+      case .issues: "Full tracker pipeline with every transition"
     }
   }
 }

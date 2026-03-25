@@ -88,6 +88,7 @@ final class AppRouter {
   /// macOS ContentView derives its displayed view from `route` (computed below).
   var navigationStack: [AppNavDestination] = []
   var dashboardTab: DashboardTab = .missionControl
+  var selectedMissionTabs: [MissionRef: MissionTab] = [:]
 
   var showQuickSwitcher = false
   var showNewSessionSheet = false
@@ -119,6 +120,9 @@ final class AppRouter {
       outcome: "applied",
       details: "missionId=\(missionId) from=\(routeSummary)"
     )
+    if selectedMissionTabs[ref] == nil {
+      selectedMissionTabs[ref] = .overview
+    }
     navigationStack = [.mission(ref)]
   }
 
@@ -200,6 +204,11 @@ final class AppRouter {
     showQuickSwitcher = false
   }
 
+  func openNewSessionSheet() {
+    newSessionContinuation = nil
+    showNewSessionSheet = true
+  }
+
   func openNewSession(provider: SessionProvider, continuation: SessionContinuation? = nil) {
     newSessionProvider = provider
     newSessionContinuation = continuation
@@ -219,6 +228,14 @@ final class AppRouter {
   var selectedMissionRef: MissionRef? {
     guard case let .mission(ref) = route else { return nil }
     return ref
+  }
+
+  func selectedMissionTab(for ref: MissionRef) -> MissionTab {
+    selectedMissionTabs[ref] ?? .overview
+  }
+
+  func selectMissionTab(_ tab: MissionTab, for ref: MissionRef) {
+    selectedMissionTabs[ref] = tab
   }
 
   var selectedEndpointId: UUID? {

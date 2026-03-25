@@ -22,11 +22,7 @@ enum TimelineDataSource {
       viewMode: ChatViewMode
     ) -> Projection {
       guard viewMode == .focused else {
-        let directIndexByRowID = Dictionary(
-          uniqueKeysWithValues: entries.enumerated().map { index, entry in
-            (entry.id, index)
-          }
-        )
+        let directIndexByRowID = TimelineDataSource.displayIndexByRowID(entries)
         return Projection(
           displayedEntries: entries,
           directDisplayIndexByRowID: directIndexByRowID,
@@ -70,9 +66,10 @@ enum TimelineDataSource {
           archivedToolIDs: archivedTools.map(\.entry.id)
         )
 
-        displayedEntries.append(makeActivityGroupEntry(spec: spec, rawEntriesByID: Dictionary(
-          uniqueKeysWithValues: toolBuffer.map { ($0.entry.id, $0.entry) }
-        )))
+        displayedEntries.append(makeActivityGroupEntry(
+          spec: spec,
+          rawEntriesByID: TimelineDataSource.entryDictionary(toolBuffer.map(\.entry), context: "tool-buffer")
+        ))
         groupSpecsByIndex[groupIndex] = spec
 
         for child in archivedTools {
@@ -118,7 +115,7 @@ enum TimelineDataSource {
       guard !changedEntries.isEmpty else { return displayedEntries }
 
       var updatedEntries = displayedEntries
-      let changedEntriesByID = Dictionary(uniqueKeysWithValues: changedEntries.map { ($0.id, $0) })
+      let changedEntriesByID = TimelineDataSource.entryDictionary(changedEntries, context: "changed-entries")
       var dirtyGroupIndices: Set<Int> = []
 
       for changedEntry in changedEntries {
@@ -161,7 +158,7 @@ enum TimelineDataSource {
     rawEntriesByID: [String: ServerConversationRowEntry],
     fallbackEntries: [ServerConversationRowEntry] = []
   ) -> ServerConversationRowEntry {
-    let fallbackEntriesByID = Dictionary(uniqueKeysWithValues: fallbackEntries.map { ($0.id, $0) })
+    let fallbackEntriesByID = entryDictionary(fallbackEntries, context: "fallback-entries")
     let archivedTools = spec.archivedToolIDs.compactMap { rowID in
       toolRow(for: rowID, primary: rawEntriesByID, fallback: fallbackEntriesByID)
     }
@@ -204,5 +201,48 @@ enum TimelineDataSource {
     let entry = primary[rowID] ?? fallback[rowID]
     guard let entry, case let .tool(toolRow) = entry.row else { return nil }
     return toolRow
+  }
+
+  private static func displayIndexByRowID(_ entries: [ServerConversationRowEntry]) -> [String: Int] {
+    var indexByID: [String: Int] = [:]
+    var duplicateIDs: Set<String> = []
+
+    for (index, entry) in entries.enumerated() {
+      if indexByID.updateValue(index, forKey: entry.id) != nil {
+        duplicateIDs.insert(entry.id)
+      }
+    }
+
+    if !duplicateIDs.isEmpty {
+      let duplicateSummary = duplicateIDs.sorted().joined(separator: ", ")
+      ConversationFollowDebug.log(
+        "TimelineDataSource.displayIndexByRowID droppedDuplicateIndexes duplicateIDs=[\(duplicateSummary)]"
+      )
+    }
+
+    return indexByID
+  }
+
+  private static func entryDictionary(
+    _ entries: [ServerConversationRowEntry],
+    context: String
+  ) -> [String: ServerConversationRowEntry] {
+    var entriesByID: [String: ServerConversationRowEntry] = [:]
+    var duplicateIDs: Set<String> = []
+
+    for entry in entries {
+      if entriesByID.updateValue(entry, forKey: entry.id) != nil {
+        duplicateIDs.insert(entry.id)
+      }
+    }
+
+    if !duplicateIDs.isEmpty {
+      let duplicateSummary = duplicateIDs.sorted().joined(separator: ", ")
+      ConversationFollowDebug.log(
+        "TimelineDataSource.entryDictionary context=\(context) duplicateIDs=[\(duplicateSummary)]"
+      )
+    }
+
+    return entriesByID
   }
 }

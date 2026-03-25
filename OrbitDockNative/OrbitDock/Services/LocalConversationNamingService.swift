@@ -31,7 +31,9 @@ nonisolated enum LocalNamingAvailabilityResolver {
   @available(macOS 26.0, iOS 26.0, *)
   @Generable(description: "A concise conversation title")
   struct GeneratedSessionTitle {
-    @Guide(description: "A concise 3-7 word title for this coding session. Title case. No quotes. No trailing punctuation.")
+    @Guide(
+      description: "A concise 3-7 word title for this coding session. Title case. No quotes. No trailing punctuation."
+    )
     var name: String
   }
 

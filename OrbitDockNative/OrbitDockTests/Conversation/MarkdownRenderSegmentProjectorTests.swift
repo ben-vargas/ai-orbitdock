@@ -27,11 +27,11 @@ struct MarkdownRenderSegmentProjectorTests {
       return
     }
 
-    #expect(first.sourceBlockRange == 0..<1)
+    #expect(first.sourceBlockRange == 0 ..< 1)
     #expect(first.blocks.count == 1)
-    #expect(code.sourceBlockRange == 1..<2)
+    #expect(code.sourceBlockRange == 1 ..< 2)
     #expect(code.language == "swift")
-    #expect(last.sourceBlockRange == 2..<3)
+    #expect(last.sourceBlockRange == 2 ..< 3)
     #expect(last.blocks.count == 1)
   }
 
@@ -52,7 +52,7 @@ struct MarkdownRenderSegmentProjectorTests {
       return
     }
 
-    #expect(prose.sourceBlockRange == 0..<2)
+    #expect(prose.sourceBlockRange == 0 ..< 2)
     #expect(prose.blocks.count == 2)
 
     if case .heading = prose.blocks[0] {
@@ -89,7 +89,7 @@ struct MarkdownRenderSegmentProjectorTests {
       return
     }
 
-    #expect(table.sourceBlockRange == 1..<2)
+    #expect(table.sourceBlockRange == 1 ..< 2)
     #expect(table.headers == ["Name", "Value"])
     #expect(table.rows.first == ["One", "Two"])
   }
@@ -113,7 +113,7 @@ struct MarkdownRenderSegmentProjectorTests {
       return
     }
 
-    #expect(breakSegment.sourceBlockRange == 1..<2)
+    #expect(breakSegment.sourceBlockRange == 1 ..< 2)
     #expect(breakSegment.identity.kind.rawValue == "thematicBreak")
   }
 
@@ -131,7 +131,7 @@ struct MarkdownRenderSegmentProjectorTests {
     )
 
     #expect(segments.map(\.startBlockIndex) == [0, 2])
-    #expect(segments.map { $0.identity.kind.rawValue } == ["prose", "codeBlock"])
+    #expect(segments.map(\.identity.kind.rawValue) == ["prose", "codeBlock"])
   }
 
   private func project(_ markdown: String) -> [MarkdownRenderSegment] {
@@ -139,6 +139,6 @@ struct MarkdownRenderSegmentProjectorTests {
   }
 
   private func kinds(in segments: [MarkdownRenderSegment]) -> [String] {
-    segments.map { $0.kind.rawValue }
+    segments.map(\.kind.rawValue)
   }
 }

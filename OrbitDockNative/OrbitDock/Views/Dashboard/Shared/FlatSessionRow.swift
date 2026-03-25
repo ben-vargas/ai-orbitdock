@@ -478,6 +478,8 @@ private func previewRootSession(_ session: Session) -> RootSessionNode {
     model: session.model,
     status: session.status == .active ? .active : .ended,
     workStatus: previewWorkStatus(for: session),
+    controlMode: previewControlMode(for: session),
+    lifecycleState: previewLifecycleState(for: session),
     codexIntegrationMode: session.codexIntegrationMode == .passive ? .passive : .direct,
     claudeIntegrationMode: session
       .provider == .claude ? (session.claudeIntegrationMode == .passive ? .passive : .direct) : nil,
@@ -505,6 +507,19 @@ private func previewRootSession(_ session: Session) -> RootSessionNode {
     endpointName: session.endpointName ?? "Preview",
     connectionStatus: session.endpointConnectionStatus ?? .connected
   )
+}
+
+private func previewControlMode(for session: Session) -> ServerSessionControlMode {
+  switch session.provider {
+    case .codex:
+      session.codexIntegrationMode == .passive ? .passive : .direct
+    case .claude:
+      session.claudeIntegrationMode == .passive ? .passive : .direct
+  }
+}
+
+private func previewLifecycleState(for session: Session) -> ServerSessionLifecycleState {
+  session.status == .active ? .open : .ended
 }
 
 private func previewWorkStatus(for session: Session) -> ServerWorkStatus {

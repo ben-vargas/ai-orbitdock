@@ -90,16 +90,16 @@ struct LibraryFilterSheet: View {
       #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
       #endif
-      .toolbar {
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Done") { dismiss() }
-        }
-        ToolbarItem(placement: .cancellationAction) {
-          if hasActiveFilters {
-            Button("Reset") { onReset() }
+        .toolbar {
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Done") { dismiss() }
+          }
+          ToolbarItem(placement: .cancellationAction) {
+            if hasActiveFilters {
+              Button("Reset") { onReset() }
+            }
           }
         }
-      }
     }
   }
 

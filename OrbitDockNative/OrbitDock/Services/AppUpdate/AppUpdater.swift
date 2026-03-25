@@ -8,7 +8,9 @@ import Foundation
     case beta
     case nightly
 
-    var id: String { rawValue }
+    var id: String {
+      rawValue
+    }
 
     var displayName: String {
       switch self {
@@ -51,14 +53,13 @@ import Foundation
     /// Feed URL for this channel on GitHub Releases.
     func feedURL(owner: String = "Robdel12", repo: String = "OrbitDock") -> URL? {
       let base = "https://github.com/\(owner)/\(repo)/releases"
-      let urlString: String
-      switch self {
+      let urlString = switch self {
         case .stable:
-          urlString = "\(base)/latest/download/\(appcastFilename)"
+          "\(base)/latest/download/\(appcastFilename)"
         case .beta:
-          urlString = "\(base)/latest/download/\(appcastFilename)"
+          "\(base)/latest/download/\(appcastFilename)"
         case .nightly:
-          urlString = "\(base)/download/nightly/\(appcastFilename)"
+          "\(base)/download/nightly/\(appcastFilename)"
       }
       return URL(string: urlString)
     }

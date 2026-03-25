@@ -67,7 +67,7 @@ extension DirectSessionComposer {
 
     if obs.isDirect, obs.turnCount > 0 {
       Menu {
-        ForEach(1...min(Int(obs.turnCount), 5), id: \.self) { n in
+        ForEach(1 ... min(Int(obs.turnCount), 5), id: \.self) { n in
           Button {
             Task { try? await viewModel.rollbackTurns(numTurns: UInt32(n)) }
           } label: {

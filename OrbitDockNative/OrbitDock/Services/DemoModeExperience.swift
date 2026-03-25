@@ -89,15 +89,15 @@ struct DemoModeExperience {
     reviewSession.repositoryRoot = "/Users/demo/OrbitDock"
     reviewSession.lastMessage = "I added a lightweight Explore Demo flow and seeded a sample session."
     reviewSession.currentDiff = """
-diff --git a/OrbitDockNative/OrbitDock/Views/Server/ServerSetupView.swift b/OrbitDockNative/OrbitDock/Views/Server/ServerSetupView.swift
-+ Button("Explore Demo") { ... }
-"""
+    diff --git a/OrbitDockNative/OrbitDock/Views/Server/ServerSetupView.swift b/OrbitDockNative/OrbitDock/Views/Server/ServerSetupView.swift
+    + Button("Explore Demo") { ... }
+    """
     reviewSession.cumulativeDiff = """
-diff --git a/OrbitDockNative/OrbitDock/Views/Server/ServerSetupView.swift b/OrbitDockNative/OrbitDock/Views/Server/ServerSetupView.swift
-+ Button("Explore Demo") { ... }
-diff --git a/OrbitDockNative/OrbitDock/Services/DemoModeExperience.swift b/OrbitDockNative/OrbitDock/Services/DemoModeExperience.swift
-+ struct DemoModeExperience { ... }
-"""
+    diff --git a/OrbitDockNative/OrbitDock/Views/Server/ServerSetupView.swift b/OrbitDockNative/OrbitDock/Views/Server/ServerSetupView.swift
+    + Button("Explore Demo") { ... }
+    diff --git a/OrbitDockNative/OrbitDock/Services/DemoModeExperience.swift b/OrbitDockNative/OrbitDock/Services/DemoModeExperience.swift
+    + struct DemoModeExperience { ... }
+    """
 
     var endedSession = Session(
       id: "demo-ended-session",
@@ -175,6 +175,8 @@ diff --git a/OrbitDockNative/OrbitDock/Services/DemoModeExperience.swift b/Orbit
         model: "gpt-5-codex",
         status: .active,
         workStatus: .waiting,
+        controlMode: .direct,
+        lifecycleState: .open,
         codexIntegrationMode: .direct,
         claudeIntegrationMode: nil,
         startedAt: iso8601Timestamp(now.addingTimeInterval(-4_200)),
@@ -204,6 +206,8 @@ diff --git a/OrbitDockNative/OrbitDock/Services/DemoModeExperience.swift b/Orbit
         model: "claude-opus",
         status: .ended,
         workStatus: .waiting,
+        controlMode: .passive,
+        lifecycleState: .ended,
         codexIntegrationMode: nil,
         claudeIntegrationMode: .passive,
         startedAt: iso8601Timestamp(now.addingTimeInterval(-86_400)),
@@ -244,6 +248,8 @@ diff --git a/OrbitDockNative/OrbitDock/Services/DemoModeExperience.swift b/Orbit
         claudeIntegrationMode: nil,
         status: .active,
         workStatus: .waiting,
+        controlMode: .direct,
+        lifecycleState: .open,
         listStatus: .reply,
         displayTitle: "App Review Demo",
         contextLine: "Minimal seeded conversation for App Review",
@@ -410,6 +416,8 @@ extension ServerDashboardConversationItem {
     claudeIntegrationMode: ServerClaudeIntegrationMode?,
     status: ServerSessionStatus,
     workStatus: ServerWorkStatus,
+    controlMode: ServerSessionControlMode = .passive,
+    lifecycleState: ServerSessionLifecycleState = .ended,
     listStatus: ServerSessionListStatus,
     displayTitle: String,
     contextLine: String?,
@@ -443,6 +451,8 @@ extension ServerDashboardConversationItem {
     self.claudeIntegrationMode = claudeIntegrationMode
     self.status = status
     self.workStatus = workStatus
+    self.controlMode = controlMode
+    self.lifecycleState = lifecycleState
     self.listStatus = listStatus
     self.displayTitle = displayTitle
     self.contextLine = contextLine

@@ -83,7 +83,7 @@ struct MarkdownContentView: View {
         .prose(
           MarkdownRenderSegment.Prose(
             identity: .init(kind: .prose, startBlockIndex: startBlockIndex),
-            sourceBlockRange: startBlockIndex..<(startBlockIndex + 1),
+            sourceBlockRange: startBlockIndex ..< (startBlockIndex + 1),
             blocks: [tailBlock]
           )
         )

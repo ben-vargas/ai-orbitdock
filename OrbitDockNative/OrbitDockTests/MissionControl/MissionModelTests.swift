@@ -82,6 +82,38 @@ struct MissionModelTests {
     #expect(summary.pollInterval == nil)
   }
 
+  @Test func missionDetailResponseDecodesCleanupPrompt() throws {
+    let json = """
+    {
+      "summary": {
+        "id": "m1",
+        "name": "Ship features",
+        "repo_root": "/Users/dev/my-project",
+        "enabled": true,
+        "paused": false,
+        "tracker_kind": "linear",
+        "provider": "claude",
+        "provider_strategy": "primary_only",
+        "primary_provider": "claude",
+        "active_count": 0,
+        "queued_count": 0,
+        "completed_count": 12,
+        "failed_count": 0
+      },
+      "issues": [],
+      "cleanup_prompt": {
+        "lingering_worktree_count": 3
+      },
+      "settings": null,
+      "mission_file_exists": true,
+      "workflow_migration_available": false
+    }
+    """.data(using: .utf8)!
+
+    let response = try decoder.decode(MissionDetailResponse.self, from: json)
+    #expect(response.cleanupPrompt?.lingeringWorktreeCount == 3)
+  }
+
   // MARK: - MissionSettings
 
   @Test func missionSettingsDecodesAllNested() throws {

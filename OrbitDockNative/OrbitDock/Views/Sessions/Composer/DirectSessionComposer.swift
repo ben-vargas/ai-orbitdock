@@ -17,7 +17,7 @@ struct DirectSessionComposer: View {
   let sessionStore: SessionStore
   @Binding var selectedSkills: Set<String>
   var pendingPanelOpenSignal: Int = 0
-  let isPinned: Bool
+  let followMode: ConversationFollowMode
   let unreadCount: Int
   let onJumpToLatest: () -> Void
   let onTogglePinned: () -> Void
@@ -51,7 +51,7 @@ struct DirectSessionComposer: View {
     sessionStore: SessionStore,
     selectedSkills: Binding<Set<String>>,
     pendingPanelOpenSignal: Int = 0,
-    isPinned: Bool,
+    followMode: ConversationFollowMode,
     unreadCount: Int,
     onJumpToLatest: @escaping () -> Void,
     onTogglePinned: @escaping () -> Void
@@ -60,7 +60,7 @@ struct DirectSessionComposer: View {
     self.sessionStore = sessionStore
     _selectedSkills = selectedSkills
     self.pendingPanelOpenSignal = pendingPanelOpenSignal
-    self.isPinned = isPinned
+    self.followMode = followMode
     self.unreadCount = unreadCount
     self.onJumpToLatest = onJumpToLatest
     self.onTogglePinned = onTogglePinned
@@ -637,7 +637,7 @@ struct DirectSessionComposer: View {
 
 #Preview {
   @Previewable @State var skills: Set<String> = []
-  @Previewable @State var pinned = true
+  @Previewable @State var followMode: ConversationFollowMode = .following
   @Previewable @State var unread = 0
   let runtimeRegistry = ServerRuntimeRegistry(
     endpointsProvider: { [] },
@@ -650,15 +650,15 @@ struct DirectSessionComposer: View {
     sessionId: "test-session",
     sessionStore: sessionStore,
     selectedSkills: $skills,
-    isPinned: pinned,
+    followMode: followMode,
     unreadCount: unread,
     onJumpToLatest: {
-      pinned = true
+      followMode = .following
       unread = 0
     },
     onTogglePinned: {
-      pinned.toggle()
-      if pinned {
+      followMode = followMode.isFollowing ? .detachedByUser : .following
+      if followMode.isFollowing {
         unread = 0
       }
     }

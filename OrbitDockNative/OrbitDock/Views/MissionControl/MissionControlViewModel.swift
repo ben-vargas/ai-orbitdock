@@ -5,13 +5,13 @@ import Foundation
 final class MissionControlViewModel {
   var summary: MissionSummary?
   var issues: [MissionIssueItem] = []
+  var cleanupPrompt: MissionCleanupPrompt?
   var settings: MissionSettings?
   var missionFileExists = true
   var missionFilePath: String?
   var workflowMigrationAvailable = false
   var isLoading = true
   var error: String?
-  var selectedTab: MissionTab = .overview
   var showDeleteConfirmation = false
   var showWorktreeCleanup = false
   var missionWorktrees: [MissionWorktreeItem] = []
@@ -26,6 +26,7 @@ final class MissionControlViewModel {
   private(set) var liveState: MissionObservable?
 
   @ObservationIgnored private weak var runtimeRegistry: ServerRuntimeRegistry?
+  @ObservationIgnored private weak var dashboardProjectionStore: DashboardProjectionStore?
   @ObservationIgnored private var boundMissionId: String?
   @ObservationIgnored private var boundEndpointId: UUID?
 
@@ -37,6 +38,7 @@ final class MissionControlViewModel {
     self.boundMissionId = missionId
     self.boundEndpointId = endpointId
     self.runtimeRegistry = runtimeRegistry
+    self.dashboardProjectionStore = runtimeRegistry.dashboardProjectionStore
     self.liveState = sessionStore?.mission(missionId)
   }
 
@@ -67,8 +69,8 @@ final class MissionControlViewModel {
   }
 
   var dashboardConversationsBySessionId: [String: DashboardConversationRecord] {
-    guard let runtimeRegistry, let endpointId = boundEndpointId else { return [:] }
-    return runtimeRegistry.aggregatedDashboardConversations.reduce(into: [:]) { result, conversation in
+    guard let dashboardProjectionStore, let endpointId = boundEndpointId else { return [:] }
+    return dashboardProjectionStore.dashboardConversations.reduce(into: [:]) { result, conversation in
       guard conversation.sessionRef.endpointId == endpointId else { return }
       result[conversation.sessionId] = conversation
     }
@@ -77,6 +79,7 @@ final class MissionControlViewModel {
   func applyDetail(_ response: MissionDetailResponse) {
     summary = response.summary
     issues = response.issues
+    cleanupPrompt = response.cleanupPrompt
     settings = response.settings
     missionFileExists = response.missionFileExists
     missionFilePath = response.missionFilePath
@@ -196,5 +199,6 @@ final class MissionControlViewModel {
       actionError = errors.joined(separator: "\n")
     }
     await loadMissionWorktrees()
+    await refreshDetail()
   }
 }

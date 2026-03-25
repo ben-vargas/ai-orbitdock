@@ -7,9 +7,25 @@
 
 import Foundation
 
-nonisolated struct ConversationJumpTarget: Equatable, Sendable {
-  let messageID: String
-  let nonce: Int
+nonisolated enum ConversationScrollCommand: Equatable, Sendable {
+  case latest(nonce: Int)
+  case message(id: String, nonce: Int)
+
+  var nonce: Int {
+    switch self {
+      case let .latest(nonce), let .message(_, nonce):
+        nonce
+    }
+  }
+
+  var messageID: String? {
+    switch self {
+      case .latest:
+        nil
+      case let .message(id, _):
+        id
+    }
+  }
 }
 
 nonisolated enum ApprovalCardMode: Hashable, Sendable {

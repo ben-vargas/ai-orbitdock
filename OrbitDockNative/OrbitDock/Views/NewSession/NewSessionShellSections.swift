@@ -69,12 +69,12 @@ struct NewSessionSheetShell<Header: View, FormContent: View, Footer: View>: View
     .shadow(color: Color.accent.opacity(0.08), radius: 18, y: 0)
 
     #if os(iOS)
-    chrome
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+      chrome
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     #else
-    chrome
-      .padding(Spacing.md)
-      .frame(minWidth: 540, idealWidth: 620, maxWidth: 720)
+      chrome
+        .padding(Spacing.md)
+        .frame(minWidth: 540, idealWidth: 620, maxWidth: 720)
     #endif
   }
 

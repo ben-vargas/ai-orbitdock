@@ -10,7 +10,7 @@ final class ConversationViewModel {
   var currentViewMode: ChatViewMode = .focused
   var timeline: ConversationTimelinePresentation?
   var timelineViewModel = ConversationTimelineViewModel()
-  var entryCount = 0
+  var latestAppendEvent: ConversationLatestAppendEvent?
   var loadState: ConversationLoadState = .empty
   var forkOrigin: ConversationForkOriginPresentation?
 
@@ -19,6 +19,9 @@ final class ConversationViewModel {
   private let pageSize = 50
 
   func bind(sessionId: String?, sessionStore: SessionStore, viewMode: ChatViewMode) {
+    ConversationFollowDebug.log(
+      "ConversationViewModel.bind sessionId=\(sessionId ?? "nil") endpointId=\(sessionStore.endpointId.uuidString) viewMode=\(String(describing: viewMode))"
+    )
     currentSessionId = sessionId
     currentSessionStore = sessionStore
     currentViewMode = viewMode
@@ -28,12 +31,16 @@ final class ConversationViewModel {
   }
 
   func handleTimelineViewModeChange(_ viewMode: ChatViewMode) {
+    ConversationFollowDebug.log(
+      "ConversationViewModel.handleTimelineViewModeChange old=\(String(describing: currentViewMode)) new=\(String(describing: viewMode))"
+    )
     currentViewMode = viewMode
     guard let timeline else { return }
     timelineViewModel.apply(presentation: timeline, viewMode: viewMode)
   }
 
   func handleLoadStateChange(_ newState: ConversationLoadState) {
+    ConversationFollowDebug.log("ConversationViewModel.handleLoadStateChange newState=\(String(describing: newState))")
     if newState == .ready {
       hasShownContent = true
     }
@@ -41,6 +48,9 @@ final class ConversationViewModel {
 
   func loadOlderMessages() {
     guard let currentSessionId else { return }
+    ConversationFollowDebug.log(
+      "ConversationViewModel.loadOlderMessages sessionId=\(currentSessionId) limit=\(pageSize)"
+    )
     currentSessionStore.loadOlderMessages(sessionId: currentSessionId, limit: pageSize)
   }
 
@@ -52,25 +62,66 @@ final class ConversationViewModel {
 
     let sessionStore = currentSessionStore
 
-    withObservationTracking {
-      let snapshot = makeSnapshot(
-        session: sessionStore.session(currentSessionId),
-        sessionStore: sessionStore,
-        hasShownContent: hasShownContent
-      )
-      apply(snapshot: snapshot)
+    // Read the snapshot inside the tracking block so observation is registered
+    // for changes to the authoritative SessionObservable. Apply it OUTSIDE so
+    // that writes to self-properties (timeline, loadState, etc.) don't consume
+    // the one-shot onChange before the tracked property can trigger it.
+    let snapshot = withObservationTracking {
+      Self.buildSnapshot(session: sessionStore.session(currentSessionId), sessionStore: sessionStore)
     } onChange: { [weak self] in
       Task { @MainActor [weak self] in
         guard let self, self.sessionObservationGeneration == generation else { return }
         self.startObservation(generation: generation)
       }
     }
+
+    apply(snapshot: snapshot)
   }
 
-  private func makeSnapshot(
+  private func apply(snapshot: ConversationSnapshot) {
+    let previousEntries = timeline?.entries ?? []
+    let nextLoadState: ConversationLoadState = if let timeline = snapshot.timeline, !timeline.entries.isEmpty {
+      .ready
+    } else if hasShownContent || snapshot.conversationLoaded {
+      .empty
+    } else {
+      .loading
+    }
+    timeline = snapshot.timeline
+    if let timeline = snapshot.timeline {
+      timelineViewModel.apply(presentation: timeline, viewMode: currentViewMode)
+      let appendedCount = ConversationTimelineDeltaPlanner.latestAppendedCount(
+        oldEntries: previousEntries,
+        newEntries: timeline.entries
+      )
+      if appendedCount > 0 {
+        latestAppendEvent = ConversationLatestAppendEvent(
+          count: appendedCount,
+          nonce: (latestAppendEvent?.nonce ?? 0) + 1
+        )
+      }
+      ConversationFollowDebug.log(
+        """
+        ConversationViewModel.applySnapshot sessionId=\(currentSessionId ?? "nil") oldCount=\(previousEntries
+          .count) newCount=\(timeline.entries
+          .count) appendedCount=\(appendedCount) loadState=\(String(
+          describing: nextLoadState
+        )) hasShownContent=\(hasShownContent)
+        """
+      )
+    } else {
+      ConversationFollowDebug.log(
+        "ConversationViewModel.applySnapshot clearedTimeline sessionId=\(currentSessionId ?? "nil") loadState=\(String(describing: nextLoadState))"
+      )
+      timelineViewModel.clearSession()
+    }
+    loadState = nextLoadState
+    forkOrigin = snapshot.forkOrigin
+  }
+
+  private static func buildSnapshot(
     session: SessionObservable,
-    sessionStore: SessionStore,
-    hasShownContent: Bool
+    sessionStore: SessionStore
   ) -> ConversationSnapshot {
     let timeline = ConversationTimelinePresentation(
       entries: session.rowEntries,
@@ -78,14 +129,6 @@ final class ConversationViewModel {
       structureRevision: session.rowEntriesStructureRevision,
       changedEntries: session.lastChangedRowEntries
     )
-
-    let loadState: ConversationLoadState = if !session.rowEntries.isEmpty {
-      .ready
-    } else if hasShownContent || session.conversationLoaded {
-      .empty
-    } else {
-      .loading
-    }
 
     let forkOrigin: ConversationForkOriginPresentation? = if let sourceId = session.forkedFrom {
       ConversationForkOriginPresentation(
@@ -99,35 +142,20 @@ final class ConversationViewModel {
 
     return ConversationSnapshot(
       timeline: timeline,
-      entryCount: timeline.entries.count,
-      loadState: loadState,
+      conversationLoaded: session.conversationLoaded,
       forkOrigin: forkOrigin
     )
   }
-
-  private func apply(snapshot: ConversationSnapshot) {
-    timeline = snapshot.timeline
-    if let timeline = snapshot.timeline {
-      timelineViewModel.apply(presentation: timeline, viewMode: currentViewMode)
-    } else {
-      timelineViewModel.clearSession()
-    }
-    entryCount = snapshot.entryCount
-    loadState = snapshot.loadState
-    forkOrigin = snapshot.forkOrigin
-  }
 }
 
-private struct ConversationSnapshot {
+struct ConversationSnapshot {
   let timeline: ConversationTimelinePresentation?
-  let entryCount: Int
-  let loadState: ConversationLoadState
+  let conversationLoaded: Bool
   let forkOrigin: ConversationForkOriginPresentation?
 
   static let empty = ConversationSnapshot(
     timeline: nil,
-    entryCount: 0,
-    loadState: .empty,
+    conversationLoaded: false,
     forkOrigin: nil
   )
 }

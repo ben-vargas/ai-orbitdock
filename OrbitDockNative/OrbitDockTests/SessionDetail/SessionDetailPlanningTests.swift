@@ -14,95 +14,98 @@ struct SessionDetailPlanningTests {
     ]
   )
 
-  @Test func openingPendingApprovalPanelPinsConversationAndClearsUnreadState() {
-    let next = SessionDetailConversationChromePlanner.openPendingApprovalPanel(
-      current: SessionDetailConversationChromeState(
-        isPinned: false,
-        unreadCount: 6,
-        pendingApprovalPanelOpenSignal: 4
-      )
+  @Test func openingPendingApprovalPanelReturnsToFollowingAndRequestsLatestScroll() {
+    let plan = ConversationFollowPlanner.apply(
+      current: ConversationFollowState(mode: .detachedByUser, unreadCount: 6),
+      intent: .openPendingApprovalPanel
     )
 
-    #expect(next.isPinned)
-    #expect(next.unreadCount == 0)
-    #expect(next.pendingApprovalPanelOpenSignal == 5)
+    #expect(plan.state.mode == .following)
+    #expect(plan.state.unreadCount == 0)
+    #expect(plan.scrollAction == .latest)
   }
 
-  @Test func togglingPinnedFromPausedJumpsToLatest() {
-    let next = SessionDetailConversationChromePlanner.togglePinned(
-      current: SessionDetailConversationChromeState(
-        isPinned: false,
-        unreadCount: 3,
-        pendingApprovalPanelOpenSignal: 1
-      )
+  @Test func togglingFollowFromDetachedReturnsToFollowingAndRequestsLatestScroll() {
+    let plan = ConversationFollowPlanner.apply(
+      current: ConversationFollowState(mode: .detachedByUser, unreadCount: 3),
+      intent: .toggleFollow
     )
 
-    #expect(next.isPinned)
-    #expect(next.unreadCount == 0)
-    #expect(next.pendingApprovalPanelOpenSignal == 1)
+    #expect(plan.state.mode == .following)
+    #expect(plan.state.unreadCount == 0)
+    #expect(plan.scrollAction == .latest)
   }
 
-  @Test func togglingPinnedFromFollowingOnlyPauses() {
-    let next = SessionDetailConversationChromePlanner.togglePinned(
-      current: SessionDetailConversationChromeState(
-        isPinned: true,
-        unreadCount: 2,
-        pendingApprovalPanelOpenSignal: 3
-      )
+  @Test func togglingFollowFromFollowingDetachesWithoutScrolling() {
+    let plan = ConversationFollowPlanner.apply(
+      current: ConversationFollowState(mode: .following, unreadCount: 2),
+      intent: .toggleFollow
     )
 
-    #expect(!next.isPinned)
-    #expect(next.unreadCount == 2)
-    #expect(next.pendingApprovalPanelOpenSignal == 3)
+    #expect(plan.state.mode == .detachedByUser)
+    #expect(plan.state.unreadCount == 2)
+    #expect(plan.scrollAction == nil)
   }
 
-  @Test func timelineReachedBottomRepinsAndClearsUnreadCount() {
-    let next = SessionDetailConversationChromePlanner.timelineReachedBottom(
-      current: SessionDetailConversationChromeState(
-        isPinned: false,
-        unreadCount: 5,
-        pendingApprovalPanelOpenSignal: 2
-      )
+  @Test func viewportReachingBottomReturnsToFollowingAndClearsUnreadCount() {
+    let plan = ConversationFollowPlanner.apply(
+      current: ConversationFollowState(mode: .programmaticNavigation, unreadCount: 5),
+      intent: .viewportEvent(.reachedBottom)
     )
 
-    #expect(next.isPinned)
-    #expect(next.unreadCount == 0)
-    #expect(next.pendingApprovalPanelOpenSignal == 2)
+    #expect(plan.state.mode == .following)
+    #expect(plan.state.unreadCount == 0)
+    #expect(plan.scrollAction == nil)
   }
 
-  @Test func timelineLeavingBottomOnlyUnpinsWhenFollowing() {
-    let next = SessionDetailConversationChromePlanner.timelineLeftBottomByUser(
-      current: SessionDetailConversationChromeState(
-        isPinned: true,
-        unreadCount: 1,
-        pendingApprovalPanelOpenSignal: 0
-      )
+  @Test func userLeavingBottomDetachesFollowMode() {
+    let plan = ConversationFollowPlanner.apply(
+      current: ConversationFollowState(mode: .following, unreadCount: 1),
+      intent: .viewportEvent(.leftBottomByUser)
     )
 
-    #expect(!next.isPinned)
-    #expect(next.unreadCount == 1)
+    #expect(plan.state.mode == .detachedByUser)
+    #expect(plan.state.unreadCount == 1)
+    #expect(plan.scrollAction == nil)
   }
 
-  @Test func receivingEntriesWhilePausedIncrementsUnreadCount() {
-    let next = SessionDetailConversationChromePlanner.didReceiveEntries(
-      current: SessionDetailConversationChromeState(
-        isPinned: false,
-        unreadCount: 2,
-        pendingApprovalPanelOpenSignal: 1
-      ),
-      oldCount: 10,
-      newCount: 13
+  @Test func receivingEntriesWhileDetachedIncrementsUnreadCount() {
+    let plan = ConversationFollowPlanner.apply(
+      current: ConversationFollowState(mode: .detachedByUser, unreadCount: 2),
+      intent: .latestEntriesAppended(3)
     )
 
-    #expect(!next.isPinned)
-    #expect(next.unreadCount == 5)
+    #expect(plan.state.mode == .detachedByUser)
+    #expect(plan.state.unreadCount == 5)
+    #expect(plan.scrollAction == nil)
+  }
+
+  @Test func receivingNoLatestEntriesKeepsUnreadCountStable() {
+    let plan = ConversationFollowPlanner.apply(
+      current: ConversationFollowState(mode: .detachedByUser, unreadCount: 2),
+      intent: .latestEntriesAppended(0)
+    )
+
+    #expect(plan.state.mode == .detachedByUser)
+    #expect(plan.state.unreadCount == 2)
+    #expect(plan.scrollAction == nil)
+  }
+
+  @Test func revealMessageEntersProgrammaticNavigationAndRequestsTargetedScroll() {
+    let plan = ConversationFollowPlanner.apply(
+      current: ConversationFollowState(mode: .following, unreadCount: 0),
+      intent: .revealMessage("message-1")
+    )
+
+    #expect(plan.state.mode == .programmaticNavigation)
+    #expect(plan.state.unreadCount == 0)
+    #expect(plan.scrollAction == .message("message-1"))
   }
 
   @Test func onAppearPlanSubscribesAndLoadsApprovalsForDirectSessions() {
     let plan = SessionDetailLifecyclePlanner.onAppearPlan(
       shouldSubscribeToServerSession: true,
-      isDirect: true,
-      isPinned: false
+      isDirect: true
     )
 
     #expect(plan.shouldSubscribe)
@@ -162,44 +165,39 @@ struct SessionDetailPlanningTests {
     #expect(plan.navigateToComment == nil)
   }
 
-  @Test func footerPlannerShowsPassiveForNonOwnedSessions() {
-    // canTakeOver → passive, even if isDirect
-    #expect(
-      isPassiveFooterMode(
-        SessionDetailFooterPlanner.mode(
-          isDirect: true,
-          canTakeOver: true,
-          needsApprovalOverlay: false
-        )
-      )
-    )
-    // canTakeOver with approval → still passive (approval visible in timeline)
-    #expect(
-      isPassiveFooterMode(
-        SessionDetailFooterPlanner.mode(
-          isDirect: false,
-          canTakeOver: true,
-          needsApprovalOverlay: true
-        )
-      )
-    )
-    // isDirect without canTakeOver → direct (user owns it)
+  @Test func footerPlannerUsesExplicitControlAndLifecycleState() {
+    // Direct sessions stay on the direct composer path whether they are open or resumable.
     #expect(
       isDirectFooterMode(
         SessionDetailFooterPlanner.mode(
-          isDirect: true,
-          canTakeOver: false,
-          needsApprovalOverlay: false
+          controlMode: .direct,
+          lifecycleState: .open
         )
       )
     )
-    // Not direct, can't take over → passive
+    #expect(
+      isDirectFooterMode(
+        SessionDetailFooterPlanner.mode(
+          controlMode: .direct,
+          lifecycleState: .resumable
+        )
+      )
+    )
+    // Passive sessions that are open render the takeover footer.
     #expect(
       isPassiveFooterMode(
         SessionDetailFooterPlanner.mode(
-          isDirect: false,
-          canTakeOver: false,
-          needsApprovalOverlay: false
+          controlMode: .passive,
+          lifecycleState: .open
+        )
+      )
+    )
+    // Lifecycle state does not override passive ownership.
+    #expect(
+      isPassiveFooterMode(
+        SessionDetailFooterPlanner.mode(
+          controlMode: .passive,
+          lifecycleState: .ended
         )
       )
     )
@@ -227,7 +225,7 @@ struct SessionDetailPlanningTests {
       branch: "feature/super-long-branch-name",
       projectPath: "/tmp/repo/feature-a",
       usageStats: stats,
-      isPinned: false,
+      followMode: .detachedByUser,
       unreadCount: 3,
       lastActivityAt: lastActivity
     )
@@ -247,7 +245,7 @@ struct SessionDetailPlanningTests {
       branch: nil,
       projectPath: "repo",
       usageStats: TranscriptUsageStats(),
-      isPinned: true,
+      followMode: .following,
       unreadCount: 8,
       lastActivityAt: nil
     )
@@ -483,7 +481,9 @@ struct SessionDetailPlanningTests {
     return false
   }
 
-  private func makeReviewComment(id: String, status: ServerReviewCommentStatus) -> ServerReviewComment {
+  private func makeReviewComment(id: String, status: ServerReviewCommentStatus)
+    -> ServerReviewComment
+  {
     ServerReviewComment(
       id: id,
       sessionId: "session-1",

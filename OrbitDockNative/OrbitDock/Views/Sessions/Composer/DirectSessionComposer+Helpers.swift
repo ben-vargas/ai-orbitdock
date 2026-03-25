@@ -112,6 +112,13 @@ extension DirectSessionComposer {
         await MainActor.run {
           isSending = false
           Platform.services.playHaptic(.error)
+          connLog(
+            .error,
+            category: .error,
+            "Send failed",
+            sessionId: sessionId,
+            data: ["error": String(describing: error)]
+          )
           errorMessage = "Couldn't send message. Your draft is still here."
           requestComposerFocus()
         }
