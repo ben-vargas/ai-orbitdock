@@ -25,9 +25,14 @@ SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:?SPARKLE_PUBLIC_ED_KEY is require
 MACOS_DEVELOPMENT_TEAM="${MACOS_DEVELOPMENT_TEAM:?MACOS_DEVELOPMENT_TEAM is required}"
 
 if [[ "${SKIP_NOTARIZATION:-0}" != "1" ]]; then
-  : "${APPLE_NOTARY_KEY_ID:?APPLE_NOTARY_KEY_ID is required}"
-  : "${APPLE_NOTARY_ISSUER_ID:?APPLE_NOTARY_ISSUER_ID is required}"
-  : "${APPLE_NOTARY_PRIVATE_KEY:?APPLE_NOTARY_PRIVATE_KEY is required}"
+  if [[ -n "${APPLE_NOTARY_KEY_ID:-}" && -n "${APPLE_NOTARY_ISSUER_ID:-}" && -n "${APPLE_NOTARY_PRIVATE_KEY:-}" ]]; then
+    NOTARIZATION_MODE="api-key"
+  elif [[ -n "${APPLE_ID:-}" && -n "${APPLE_APP_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then
+    NOTARIZATION_MODE="apple-id"
+  else
+    echo "error: notarization requires either APPLE_NOTARY_KEY_ID/APPLE_NOTARY_ISSUER_ID/APPLE_NOTARY_PRIVATE_KEY or APPLE_ID/APPLE_APP_PASSWORD/APPLE_TEAM_ID"
+    exit 1
+  fi
 fi
 
 mkdir -p "$DIST_DIR"
@@ -70,19 +75,27 @@ rm -f "$SUBMISSION_ZIP" "$FINAL_ZIP" "$FINAL_ZIP.sha256"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$SUBMISSION_ZIP"
 
 if [[ "${SKIP_NOTARIZATION:-0}" != "1" ]]; then
-  NOTARY_KEY_PATH="$DIST_DIR/notary-api-key.p8"
-  printf '%s' "$APPLE_NOTARY_PRIVATE_KEY" > "$NOTARY_KEY_PATH"
+  if [[ "$NOTARIZATION_MODE" == "api-key" ]]; then
+    NOTARY_KEY_PATH="$DIST_DIR/notary-api-key.p8"
+    printf '%s' "$APPLE_NOTARY_PRIVATE_KEY" > "$NOTARY_KEY_PATH"
 
-  xcrun notarytool submit "$SUBMISSION_ZIP" \
-    --key "$NOTARY_KEY_PATH" \
-    --key-id "$APPLE_NOTARY_KEY_ID" \
-    --issuer "$APPLE_NOTARY_ISSUER_ID" \
-    --wait
+    xcrun notarytool submit "$SUBMISSION_ZIP" \
+      --key "$NOTARY_KEY_PATH" \
+      --key-id "$APPLE_NOTARY_KEY_ID" \
+      --issuer "$APPLE_NOTARY_ISSUER_ID" \
+      --wait
+
+    rm -f "$NOTARY_KEY_PATH"
+  else
+    xcrun notarytool submit "$SUBMISSION_ZIP" \
+      --apple-id "$APPLE_ID" \
+      --password "$APPLE_APP_PASSWORD" \
+      --team-id "$APPLE_TEAM_ID" \
+      --wait
+  fi
 
   xcrun stapler staple "$APP_PATH"
   spctl -a -vvv --type exec "$APP_PATH"
-
-  rm -f "$NOTARY_KEY_PATH"
 fi
 
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$FINAL_ZIP"

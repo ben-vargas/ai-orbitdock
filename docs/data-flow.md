@@ -1,237 +1,227 @@
 # OrbitDock Data Flow Contract
 
-## Principle
+This is the current server-authoritative contract for OrbitDock.
 
-**WebSocket = lightweight event envelopes. REST = all content.**
+The short version:
 
-WS carries only summary-weight data (no raw tool payloads):
-- Session lifecycle events (created, ended, removed — small payloads)
-- Incremental conversation row summaries (`RowEntrySummary` — metadata + `ToolDisplay`, no raw invocation/result)
-- Approval requests (interactive, real-time)
-- Session state deltas (work_status, custom_name, etc.)
+- HTTP owns initial and heavy reads.
+- WebSocket owns realtime updates and replay.
+- The Rust server owns durable business truth.
+- The client renders server state. It does not reconstruct business state from connector internals.
 
-REST carries:
-- Session list (bulk)
-- Conversation bootstrap (summary rows + session state via `RowPageSummary`)
-- Conversation pages (pagination, also `RowPageSummary`)
-- Expanded tool content on demand (`ServerRowContent` via `GET /rows/{id}/content`)
-- All queries and mutations
+Today’s important nuance:
 
----
+- HTTP is the only bootstrap path.
+- WebSocket carries deltas, replay, heartbeats, and explicit resync/refetch hints only.
+- If replay cannot satisfy a revision gap, the client refetches the matching HTTP surface.
 
-## Wire Types (content tiering)
+## Architecture Diagram
 
-Two type hierarchies enforce the contract at compile time:
+```mermaid
+flowchart TD
+    UI[SwiftUI / CLI surfaces]
+    DPS[DashboardProjectionStore]
+    MPS[MissionProjectionStore]
+    SS[SessionStore]
+    WS[WebSocket realtime + replay]
+    HTTP[HTTP snapshots + pagination + mutations]
+    API[Rust transport layer]
+    DOMAIN[Session/domain transitions]
+    DB[(SQLite durable truth)]
+    RT[Connector runtime / harnesses]
 
-| Layer | Rust Type | Swift Type | Contains raw payloads? |
-|-------|-----------|------------|----------------------|
-| **Internal/persistence** | `ConversationRowEntry` → `ConversationRow` → `ToolRow` | — | Yes (`invocation`, `result`) |
-| **Wire (WS + HTTP)** | `RowEntrySummary` → `ConversationRowSummary` → `ToolRowSummary` | `ServerConversationRowEntry` → `ServerConversationRow` → `ServerConversationToolRow` | No. `tool_display: ToolDisplay` required. |
-| **On-demand content** | `RowContentResponse` | `ServerRowContent` | Full `input_display`, `output_display`, `diff_display` |
+    UI --> DPS
+    UI --> MPS
+    UI --> SS
 
-### ToolRowSummary (wire-safe tool row)
-Same fields as `ToolRow` except:
-- **No** `invocation` (raw JSON input)
-- **No** `result` (raw JSON output)
-- `tool_display: ToolDisplay` is **required** (not optional)
+    DPS --> HTTP
+    MPS --> HTTP
+    SS --> HTTP
 
-Conversion: `ToolRow::to_summary()` strips payloads and guarantees `tool_display`.
+    DPS --> WS
+    MPS --> WS
+    SS --> WS
 
-### RowEntrySummary (wire-safe entry)
-
-| Field | Type | Purpose |
-|-------|------|---------|
-| `session_id` | String | Owning session |
-| `sequence` | u64 | Monotonic position within session (0-indexed) |
-| `turn_id` | Option\<String\> | Groups rows into turns |
-| `row` | ConversationRowSummary | Variant: User, Assistant, Thinking, Tool (summary), System, etc. |
-
-**Identity:** `row.id` (each variant has an `id: String` field).
-**Ordering:** `sequence` is authoritative. Assigned by the server on creation.
-
-### RowPageSummary (wire-safe page)
-
-Used by HTTP bootstrap, HTTP pagination, and WS `ConversationBootstrap`.
-
-| Field | Type |
-|-------|------|
-| `rows` | Vec\<RowEntrySummary\> |
-| `total_row_count` | u64 |
-| `has_more_before` | bool |
-| `oldest_sequence` | Option\<u64\> |
-| `newest_sequence` | Option\<u64\> |
-
-### Sequence Numbers
-- 0-indexed, monotonic, gap-free within a session
-- Assigned at row creation time: `last_row.sequence + 1`
-- Never reused (rows are append-only; upserts preserve existing sequence)
-- **Source of truth for pagination:** `has_more_before = oldest_loaded_sequence > 0`
-
-### Row Count
-- **Derived, never tracked as a counter.** The total row count is:
-  - In-memory: `rows.len()` (the retained window, max 200)
-  - For pagination: `newest_sequence + 1` (sequences are 0-indexed)
-- No `total_row_count` counter that can inflate independently
-- REST pagination uses sequence math: `newest_sequence + 1` for total,
-  `oldest_sequence > 0` for `has_more_before`
-
----
-
-## Server Architecture
-
-### Row Lifecycle (3 paths, all converge at SessionHandle)
-
-**Path 1: Transition State Machine (Codex + Claude direct)**
-```
-ConnectorEvent::RowCreated(entry)
-  → transition() pure function
-  → Effect::Persist(RowAppend { entry })         // full ConversationRowEntry to SQLite
-  → Effect::Emit(ConversationRowsChanged { upserted: [entry.to_summary()] })  // summary to WS
-  → dispatch_transition_input() applies state + broadcasts
-```
-Sequence assigned in transition: `rows.last().sequence + 1`
-
-**Path 2: Transcript Sync (Claude hooks)**
-```
-Hook POST /api/hook
-  → sync_transcript_messages()
-  → plan_transcript_sync() (ID-based comparison via newest_synced_row_id)
-  → AddRowAndBroadcast (new) / UpsertRowAndBroadcast (updated) / ReplaceRows (force resync)
-```
-Sequence assigned in SessionHandle::add_row()
-
-**Path 3: REST Bootstrap (client request)**
-```
-GET /api/sessions/{id}/conversation?limit=50
-  → conversation_bootstrap() reads from retained rows
-  → Converts to RowPageSummary via .to_summary()
-  → Returns ConversationBootstrapResponse with pagination metadata
-```
-Read-only. No mutations.
-
-### SessionHandle (in-memory state owner)
-
-**Retained window:** Last 200 rows in `Vec<ConversationRowEntry>` (full rows with raw payloads).
-Older rows are evicted by `trim_retained_rows()` but remain in SQLite.
-
-**Key invariants:**
-- `rows` is always sorted by sequence
-- `add_row()` appends and assigns sequence. Increments unread count.
-- `upsert_row()` replaces by ID if found in retained window.
-  If the row was evicted (not in window), appends without inflating count.
-- `replace_rows()` replaces all rows (force resync). Broadcasts the result.
-- `newest_synced_row_id` tracks the last row synced from transcript (ID-based).
-- **Broadcast always converts to summary:** `entry.to_summary()` before serialization
-
-### Broadcast Rules
-
-Every mutation that changes conversation state MUST broadcast
-`ConversationRowsChanged` with `Vec<RowEntrySummary>` (never full rows):
-
-| Command | Broadcasts? | What |
-|---------|-------------|------|
-| `AddRowAndBroadcast` | Yes | Single new row (summary) |
-| `UpsertRowAndBroadcast` | Yes | Single updated row (summary) |
-| `ReplaceRows` | Yes | ALL rows (summaries, force resync recovery) |
-| `AddRow` (no broadcast) | No | Internal use only |
-
-Broadcast includes `total_row_count` derived from `newest_sequence + 1`.
-
-### Event Log + Replay
-
-- Ring buffer of last 1000 serialized events with revision numbers
-- Events stored as pre-serialized JSON (already summary format — no raw payloads)
-- `replay_since(revision)` returns events newer than client's revision
-- If gap > 1000: returns None → subscribe handler falls back to snapshot
-- Client should always have HTTP bootstrap as backup
-
----
-
-## Client Architecture
-
-### ServerConnection (unified WS + HTTP gate)
-
-**One URLSession per transport, reused across reconnects.** Only the
-`URLSessionWebSocketTask` is recreated on reconnect.
-
-```
-init() → create URLSession (once)
-attemptConnect() → create WebSocketTask (per attempt), cancel old task
-disconnect() → cancel task, keep URLSession alive
+    HTTP --> API
+    WS --> API
+    API --> DOMAIN
+    DOMAIN --> DB
+    DOMAIN --> RT
+    RT --> DOMAIN
 ```
 
-HTTP requests are gated on WS connection status — if WS is disconnected, HTTP throws `.serverUnreachable`.
+The rule of thumb:
 
-### SessionStore (per-endpoint orchestrator)
+- HTTP loads authoritative surface state.
+- WebSocket only delivers incremental realtime change or replay from a known revision.
+- The domain layer decides business state.
+- SQLite stores that business state durably.
+- Connector runtime is operational plumbing, not product truth.
 
-**Subscription flow (atomic, sequential):**
-```
-subscribeToSession(sessionId)
-  1. await HTTP bootstrap (REST) → RowPageSummary
-  2. Extract sinceRevision from bootstrap
-  3. WS subscribeSession(sinceRevision) — incremental from that point
-```
-Steps 1-3 run in a single Task. No parallel race.
+## Session Authority Diagram
 
-**Reconnect flow (serialized, not parallel):**
-```
-handleConnectionStatusChanged(.connected)
-  1. Clear stale lastRevision dictionary
-  2. REST fetch sessions list (one call)
-  3. For each subscribed session, SEQUENTIALLY:
-     a. HTTP bootstrap
-     b. WS subscribe with bootstrap revision
-```
-One Task iterates sessions. Not N parallel Tasks.
+```mermaid
+stateDiagram-v2
+    [*] --> PassiveOpen: create passive
+    [*] --> DirectOpen: create direct
 
-### ConversationStore (per-session conversation state)
+    PassiveOpen --> DirectOpen: takeover
+    DirectOpen --> DirectResumable: connector detached / resume required
+    DirectResumable --> DirectOpen: explicit resume + harness attached
 
-**Data structures:**
-- `messages: [TranscriptMessage]` — client-constructed from row summaries, sorted by sequence
-- `rowEntries: [ServerConversationRowEntry]` — decoded wire entries for timeline view
-- `hasMoreHistoryBefore: Bool` — set by server, derived from sequences
-- `oldestLoadedSequence` / `newestLoadedSequence` — bounds of loaded data
-
-**TranscriptMessage** is a client-only view model. It has NO raw tool payload fields
-(`toolInput`, `rawToolInput`, `toolOutput` were removed). Tool rendering reads from
-`toolDisplay` (always present on tool rows from the wire).
-
-**Key invariants:**
-- Deduplication by row ID (existing row → merge in-place, new row → insert-sort)
-- `totalMessageCount` is SET from server value, never ratcheted with `max()`
-- `hydrationState` derived from `hasMoreHistoryBefore`, not count comparison
-- Live updates use binary-search insert (O(log n)), not full sort (O(n log n))
-- Bootstrap/pagination uses full sort (runs once per bulk load, acceptable)
-
-**Pagination:**
-```
-loadOlderMessages()
-  → REST GET /api/sessions/{id}/conversation?before_sequence=X&limit=50
-  → Server returns RowPageSummary from SQLite (rows beyond retained window)
-  → Client extends oldestLoadedSequence downward
-  → Terminates when hasMoreHistoryBefore == false (sequence-based)
+    PassiveOpen --> Ended: end
+    DirectOpen --> Ended: end
+    DirectResumable --> Ended: end
 ```
 
-### Expanded Tool Content (on-demand)
+## Principles
 
-When a user expands a tool card, content is fetched via REST:
-```
-GET /api/sessions/{id}/rows/{rowId}/content
-  → Returns ServerRowContent { inputDisplay, outputDisplay, diffDisplay, language }
-  → Cached in TimelineRowStateStore.fetchedContent[rowId]
-```
-This is the only path that accesses full tool invocation/result data (read from SQLite on the server).
+1. HTTP is the bootstrap path.
+   Dashboard, detail, composer, conversation bootstrap, and pagination all start from HTTP.
+2. WebSocket is the follow-up path.
+   After the client has a snapshot revision, it subscribes for realtime updates and replay from that revision.
+3. Session authority lives on the server.
+   `control_mode`, `lifecycle_state`, and `accepts_user_input` are server-owned fields.
+4. Mutation responses are authoritative.
+   Successful `POST`/`PATCH`/`PUT` responses are applied immediately by the client. WS reconciles afterward.
 
----
+## Boundary Rules
 
-## Scale Path (100+ agents)
+- The client may derive presentation, never business truth.
+- The Rust domain layer owns `control_mode`, `lifecycle_state`, and `accepts_user_input`.
+- Runtime connector maps may support those fields, but they do not define them.
+- Large payloads move over HTTP. WebSocket should carry deltas, replay, heartbeats, and refetch hints.
+- Replay gaps are handled by refetching the exact affected HTTP surface, not by rebuilding unrelated state.
+- Each surface has one bootstrap path and one realtime path.
 
-Summary-weight row events (~1-2 KB per tool) work well at current scale.
-When we hit bandwidth pressure with 100+ streaming agents, the evolution is:
+## Surface Model
 
-1. Replace `ConversationRowsChanged` with `ConversationRowsHint { session_id, newest_sequence }`
-2. Client batches hints over 100ms window, fetches changed rows via REST
-3. Streaming deltas (assistant text in-progress) stay on WS — latency-sensitive
+OrbitDock now treats UI data as named surfaces instead of one catch-all session blob.
 
-This is a protocol change, not a migration. When we do it, the hint
-message type replaces the current summary payload type.
+### Dashboard
+
+- HTTP: `GET /api/dashboard`
+- WS subscribe: `subscribe_dashboard { since_revision }`
+- Purpose:
+  - root session list
+  - dashboard conversations
+  - dashboard counts
+
+### Missions
+
+- HTTP: canonical missions snapshot endpoint
+- WS subscribe: `subscribe_missions { since_revision }`
+- Purpose:
+  - mission summaries
+  - mission realtime deltas
+
+### Session Detail
+
+- HTTP: `GET /api/sessions/{id}/detail`
+- WS subscribe: `subscribe_session_surface { session_id, surface: detail, since_revision }`
+
+### Session Composer
+
+- HTTP: `GET /api/sessions/{id}/composer`
+- WS subscribe: `subscribe_session_surface { session_id, surface: composer, since_revision }`
+
+### Conversation
+
+- HTTP bootstrap: `GET /api/sessions/{id}/conversation?limit=...`
+- HTTP pagination: `GET /api/sessions/{id}/conversation?before_sequence=...&limit=...`
+- WS subscribe: `subscribe_session_surface { session_id, surface: conversation, since_revision }`
+
+## Boot Sequences
+
+### Dashboard Boot
+
+1. WebSocket connects and receives `hello`.
+2. Client fetches `GET /api/dashboard`.
+3. Client applies the snapshot and stores its revision.
+4. Client subscribes to dashboard updates with `since_revision = snapshot.revision`.
+
+There should not be a second eager dashboard bootstrap path in parallel.
+
+### Session Boot
+
+1. Client fetches the HTTP snapshot for the surface it needs.
+2. Client applies that snapshot and stores the returned revision.
+3. Client subscribes to the matching WS surface with `since_revision`.
+
+Conversation screens usually need:
+
+1. conversation HTTP bootstrap
+2. detail HTTP snapshot
+3. conversation WS replay/deltas
+4. detail WS replay/deltas
+
+Composer screens usually need:
+
+1. composer HTTP snapshot
+2. composer WS replay/deltas
+3. conversation HTTP/WS only if the composer screen also renders history
+
+## Replay Rules
+
+- Every replayable WS subscription accepts `since_revision`.
+- If the server can replay from that revision, it sends only the missing events.
+- If the replay window is too old or unavailable, the server tells the client to refetch that surface over HTTP.
+- The client must treat HTTP refetch as the fallback, not try to synthesize missing state locally.
+
+## Durable Session Authority
+
+The server is responsible for these fields:
+
+- `control_mode`
+  - `direct`
+  - `passive`
+- `lifecycle_state`
+  - `open`
+  - `resumable`
+  - `ended`
+- `accepts_user_input`
+
+The intended model is:
+
+- `direct + open` means OrbitDock owns the live control path.
+- `passive + open` means the underlying provider session is live, but OrbitDock does not own direct control.
+- `direct + resumable` means this is still a direct session, but it needs a resume path rather than immediate input.
+- `ended` means historical only.
+
+The client should never infer these from connector maps, missing channels, or transcript patterns.
+
+## Conversation Row Rules
+
+- Conversation rows remain single-writer, server-assigned, and sequence-based.
+- HTTP bootstrap and pagination return server-owned ordering metadata:
+  - `total_row_count`
+  - `has_more_before`
+  - `oldest_sequence`
+  - `newest_sequence`
+- WS conversation updates carry row changes and replay events, not full raw tool payloads.
+- Expanded tool content is still fetched on demand via HTTP.
+
+## Send Semantics
+
+`POST /api/sessions/{id}/messages` must obey this contract:
+
+1. connector enqueue succeeds
+2. server persists and broadcasts the accepted row
+3. HTTP response returns the authoritative accepted row
+4. client applies the response immediately
+
+If connector enqueue fails:
+
+- the server returns an error such as `connector_unavailable`
+- no accepted conversation row is created
+- the client keeps the draft locally and shows the failure
+
+## What We Intentionally Avoid
+
+- No dual bootstrap for the same surface.
+- No client-owned business-state inference.
+- No “accept first, fail later” send path that leaves ghost rows behind.
+- No using WebSocket as the only source for large initial payloads.
+- No broad god-object session store that synthesizes every UI surface from one mixed state blob.
+- No durable state transitions driven implicitly by runtime channel presence alone.
+- No heavy all-rows websocket resync when a targeted HTTP refetch hint would do.

@@ -25,6 +25,7 @@ OrbitDock has two main parts:
 The repo rules are simple:
 
 - keep durable business truth on the server
+- apply authoritative `POST`/`PATCH`/`PUT` responses to local state immediately, then let subscriptions reconcile
 - use `make rust-*` targets instead of plain `cargo`
 - keep shared Make config in the root `Makefile` and target families in `make/*.mk`
 - keep SQLite ownership in the Rust server

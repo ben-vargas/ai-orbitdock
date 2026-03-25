@@ -171,12 +171,24 @@ The `.github/workflows/nightly.yml` workflow runs daily at 06:00 UTC (and on man
 
 Required repository secrets for the nightly workflow:
 
+- `APPLE_CERTIFICATE_BASE64` — Developer ID `.p12` exported as Base64
+- `APPLE_CERTIFICATE_PASSWORD` — password for that `.p12`
+- `KEYCHAIN_PASSWORD` — temporary runner keychain password
 - `SPARKLE_PUBLIC_ED_KEY` — compiled into the app
 - `SPARKLE_PRIVATE_ED_KEY` — signs the appcast
-- `MACOS_DEVELOPMENT_TEAM` — Apple team ID for code signing
+- `MACOS_DEVELOPMENT_TEAM` — Developer ID team ID for code signing
+
+Nightly notarization supports either of these secret sets:
+
+- `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER_ID`, `APPLE_NOTARY_PRIVATE_KEY` for App Store Connect API key notarization
 - `APPLE_NOTARY_KEY_ID` — App Store Connect API key ID
 - `APPLE_NOTARY_ISSUER_ID` — App Store Connect issuer ID
 - `APPLE_NOTARY_PRIVATE_KEY` — App Store Connect API private key (`.p8` contents)
+
+- `APPLE_ID`, `APPLE_APP_PASSWORD`, and `APPLE_TEAM_ID` or `APPLE_NOTARY_TEAM_ID` for Apple ID notarization fallback
+- `APPLE_ID` — Apple ID email used for notarization
+- `APPLE_APP_PASSWORD` — app-specific password for that Apple ID
+- `APPLE_TEAM_ID` or `APPLE_NOTARY_TEAM_ID` — team ID used with `notarytool`
 
 #### Sparkle key notes
 

@@ -1,236 +1,164 @@
 # Client Networking Architecture
 
-Authoritative spec for the OrbitDock client networking layer. Covers connection lifecycle, readiness gating, circuit breaker, and HTTP request policy.
+This is the client-side networking contract for OrbitDock after the session-contract rewrite.
 
-Companion to [`data-flow.md`](data-flow.md) which covers server-side data shapes and WebSocket protocol.
+Companion to [`data-flow.md`](data-flow.md), which describes the shared HTTP/WS data model.
 
----
+## Principles
 
-## 1. Principles
+1. WebSocket is the liveness gate.
+   If WS is not connected, the client does not treat the endpoint as query-ready.
+2. HTTP owns initial and heavy reads.
+   Dashboard, detail, composer, conversation bootstrap, and pagination start from HTTP.
+3. WebSocket owns realtime updates and replay.
+   The client subscribes only after it already has a snapshot revision.
+4. One endpoint, one runtime.
+   `ServerRuntime` owns the shared connection, typed clients, and `SessionStore`.
+5. Surface state is explicit.
+   Dashboard, detail, composer, and conversation are loaded and updated independently.
 
-| ID | Rule |
-|----|------|
-| P1 | **WS is the liveness probe** — no HTTP without WS `.connected` |
-| P2 | **Single URLSession per endpoint** — shared between WS + HTTP |
-| P3 | **Readiness gates everything** — `ServerRuntimeReadiness.queryReady` |
-| P4 | **No fire-and-forget into the void** — every HTTP callsite checks readiness or awaits it |
-| P5 | **Fail together, recover together** — WS down = HTTP stops |
-| P6 | **Backoff is mandatory** — circuit breaker after N consecutive failures |
+## Endpoint Lifecycle
 
----
+`ServerRuntime` owns both transport sides for one endpoint:
 
-## 2. Connection Lifecycle
+- `ServerConnection`
+  - WebSocket lifecycle
+  - request execution gate for HTTP
+  - event fanout to stores
+- `ServerClients`
+  - typed REST clients
+- `SessionStore`
+  - per-session observables
+  - approvals, conversation history, and realtime event routing
 
-Ordered phases from cold boot to steady state:
+## Readiness Model
 
-```
-Boot
- │
- ▼
-WS Connect ── ping ack ──► Connected
- │                            │
- │                            ▼
- │                     subscribeList()
- │                            │
- │                            ▼
- │                     Sessions List arrives
- │                            │
- │                            ▼
- │                      queryReady = true
- │                            │
- │                            ▼
- │                      HTTP requests allowed
- │                            │
- │                      ┌─────┴──────┐
- │                      │ Steady     │
- │                      │ State      │
- │                      └─────┬──────┘
- │                            │
- │                      disconnect / error
- │                            │
- │                            ▼
- │                    Circuit Breaker
- │                    evaluates attempt
- │                            │
- │               ┌────────────┴────────────┐
- │               │ allowed                 │ blocked
- │               ▼                         ▼
- │          Reconnect                 Wait cooldown
- │          (back to WS Connect)     then halfOpen probe
- │
- ▼
-Failed (breaker open) ── user reconnect ──► Reset breaker, WS Connect
-```
+An endpoint is only query-ready when:
 
-### Phase Details
+1. the WebSocket is connected
+2. the connection handshake has completed
+3. the client has loaded the required bootstrap surface for the workflow it is entering
 
-1. **Boot** — `ServerRuntime.start()` creates shared `URLSession`, passes to `EventStream` + `HTTPTransport`
-2. **WS Connect** — `EventStream.connect(to:)` opens WebSocket task, sends ping
-3. **Connected** — Ping ACK received, status = `.connected`, `subscribeList()` fires
-4. **Sessions List** — Server sends `sessionsList` event, `hasReceivedInitialSessionsList = true`
-5. **Query Ready** — `ServerRuntimeReadiness.derive()` → `queryReady = true`, HTTP requests unblocked
-6. **Steady State** — Keep-alive pings every 30s, HTTP requests flow, subscriptions active
-7. **Reconnect** — On disconnect, circuit breaker checks, exponential backoff if allowed
-8. **Failed** — Circuit breaker open, no connection attempts until cooldown expires
+This matters because “server reachable” is not enough. A healthy socket without a loaded dashboard snapshot should not be treated as a fully bootstrapped client state.
 
----
+## Dashboard Flow
 
-## 3. Readiness Model
+Dashboard must use one bootstrap owner.
 
-`ServerRuntimeReadiness.derive()` computes three flags:
+### Current boot sequence
 
-| Flag | Condition | Meaning |
-|------|-----------|---------|
-| `transportReady` | WS `.connected` | Socket is alive |
-| `controlPlaneReady` | `transportReady` + initial sessions list received | Server handshake complete |
-| `queryReady` | `controlPlaneReady` | Safe to make HTTP requests |
+1. WebSocket connects.
+2. `ServerRuntimeRegistry` fetches `GET /api/dashboard`.
+3. The snapshot is applied to `DashboardProjectionStore`.
+4. The client subscribes to dashboard WS updates with `since_revision = snapshot.revision`.
 
-### Enforcement Patterns
+The important rule is: we do not simultaneously bootstrap dashboard from both REST and an eager WS snapshot path.
 
-**Synchronous check (stores):**
-```swift
-func refreshAll() async {
-  guard let runtime = resolvedRuntime(),
-        runtimeRegistry.runtimeReadiness(for: runtime.endpoint.id).queryReady
-  else { return }
-  // ... HTTP calls
-}
-```
+Some websocket handlers still emit snapshot-shaped reconciliation payloads on reconnect or lifecycle changes. The client should treat those as server-authored corrections, not as permission to reintroduce a parallel bootstrap path.
 
-**Async await (view `.task {}`):**
-```swift
-.task {
-  await runtimeRegistry.waitForAnyQueryReadyRuntime()
-  await registry.refreshAll()
-}
-```
+### Dashboard ownership
 
----
+- `DashboardProjectionStore` is the single app-facing dashboard projection.
+- `AppStore`, Mission Control, and root-window notification flow should read from that projection.
+- Registry-level aggregate arrays are implementation detail and should not be used as separate UI truth.
 
-## 4. Circuit Breaker
+## Session Surface Flow
 
-Replaces the old `connectAttempts` / `maxConnectAttempts` counters with a proper state machine.
+The client should subscribe only to the surfaces it actually renders.
 
-### States
+### Detail screens
 
-```
-closed ──failure──► open(until: Date)
-  ▲                      │
-  │                  cooldown expires
-  │                      │
-  │                      ▼
-  └──success──── halfOpen
-```
+Load:
 
-| State | Behavior |
-|-------|----------|
-| `closed` | All connection attempts allowed |
-| `open(until:)` | Blocked until cooldown expires, then transitions to `halfOpen` |
-| `halfOpen` | One probe attempt allowed; success → `closed`, failure → `open` with longer cooldown |
+1. HTTP detail snapshot
+2. HTTP conversation bootstrap if the screen renders the timeline
 
-### Parameters
+Then subscribe:
 
-| Param | Local | Remote |
-|-------|-------|--------|
-| `failureThreshold` | 3 | 3 |
-| `initialCooldown` | 5s | 10s |
-| `maxCooldown` | 60s | 120s |
-| `multiplier` | 2x | 2x |
+1. detail surface replay/deltas
+2. conversation surface replay/deltas
 
-### Reset Conditions
+### Composer screens
 
-- **Stable connection**: Connected for 30s continuously → `recordSuccess()` → `closed`
-- **User reconnect**: Explicit action → `reset()` → `closed`
+Load:
 
-### Owner
+1. HTTP composer snapshot
 
-`ConnectionCircuitBreaker` is owned by `EventStream`. Created during init with params based on `isRemote`.
+Then subscribe:
 
----
+1. composer surface replay/deltas
 
-## 5. Session Subscription Flow
-
-### Subscribe
-
-1. HTTP bootstrap: `GET /api/sessions/{id}` fetches full state
-2. WS: `subscribeSession(sinceRevision:)` for live deltas
-3. `inFlightBootstraps` dict coalesces concurrent requests for same session
+Only add conversation bootstrap/subscription if that composer surface also renders history.
 
 ### Unsubscribe
 
-1. Cancel in-flight bootstrap task
-2. WS: `unsubscribeSession`
-3. Trim stored payload
+When a session view goes away, the client must explicitly unsubscribe every active surface:
 
-### Reconnect
+- `detail`
+- `composer`
+- `conversation`
 
-1. Cancel all existing subscription tasks
-2. REST: `GET /api/sessions` refreshes session list
-3. Sequential re-bootstrap for active subscriptions
+## SessionStore Responsibilities
 
----
+`SessionStore` should be the transport coordinator and normalized server-state holder, not a catch-all presentation cache.
 
-## 6. HTTP Request Policy
+Good responsibilities:
 
-| Category | Examples | Gate |
-|----------|----------|------|
-| **Gated** | Usage refresh, session bootstrap, sessions list | Check `queryReady` before firing |
-| **User-initiated** | Send message, approve tool, answer question | Fire immediately via WS, surface errors |
+- hold `SessionObservable`
+- apply HTTP snapshots
+- apply WS deltas
+- manage in-flight bootstrap/recovery tasks
+- manage approval history and conversation pagination
 
-**Gated requests** silently skip if `queryReady` is false. They will naturally fire once readiness arrives (via `.task {}` + `waitForAnyQueryReadyRuntime()`).
+Bad responsibilities:
 
-**User-initiated requests** go through WebSocket, which is only active when connected. No additional gate needed — WS `send()` already guards on `webSocket != nil`.
+- duplicating server state into multiple cached presentation observables
+- inventing control semantics from local heuristics
+- rebuilding whole render trees for every tiny event
 
----
+## Mutation Handling
 
-## 7. Shared URLSession
+The client treats mutation responses as authoritative state.
 
-One `URLSession` per endpoint, created in `ServerRuntime.init`:
+Example for send:
 
-```swift
-private static func makeSharedSession() -> URLSession {
-  let config = URLSessionConfiguration.default
-  config.timeoutIntervalForRequest = 10
-  config.timeoutIntervalForResource = 60
-  config.requestCachePolicy = .reloadIgnoringLocalCacheData
-  config.urlCache = nil
-  return URLSession(configuration: config)
-}
-```
+1. `POST /api/sessions/{id}/messages`
+2. if success, apply returned row immediately
+3. later WS events reconcile any additional changes
 
-Passed to both:
-- `EventStream(authToken:urlSession:)` — for WebSocket tasks
-- `ServerClients(serverURL:authToken:urlSession:)` → `HTTPTransport(urlSession:)` — for HTTP data tasks
+If the mutation fails:
 
-This eliminates the previous pattern where `EventStream` and `HTTPTransport` each created independent sessions, doubling the connection pool.
+- keep the draft
+- show the error
+- do not invent a successful local state and wait for WS to disagree
 
----
+## Reconnect Behavior
 
-## 8. Scale Path
+Reconnect should be surface-local and revision-aware.
 
-### 100+ agents scenario
+For each active surface:
 
-- **WS** delivers hints (session deltas, status changes) — lightweight
-- **REST** handles data fetches (bootstrap, usage) — gated by readiness
-- **Readiness gating** prevents HTTP flood when server is unreachable
-- **Circuit breaker** caps socket errors at ~3 per endpoint
+1. keep the last accepted revision
+2. reconnect WS
+3. resubscribe with `since_revision`
+4. if replay succeeds, apply missing events
+5. if replay cannot satisfy the gap, refetch the matching HTTP snapshot
 
-### Subscription tiering (future)
+The client should not recover by rebuilding unrelated surfaces or by depending on a full catch-all session snapshot.
 
-- **Visible sessions**: Full fidelity — conversation rows, token updates, diffs
-- **Background sessions**: State-only — status changes, approval requests
+## Error Handling Rules
 
----
+- HTTP auth/bootstrap failures are real endpoint failures and should be surfaced as such.
+- A JSON decode failure from an API route is not a “maybe empty” state.
+- `connector_unavailable` is distinct from `not_found`.
+- Transport errors should not be silently swallowed if they prevent the client from loading a required surface.
 
-## Key Files
+## Testing Expectations
 
-| File | Role |
-|------|------|
-| `Services/Server/ServerRuntime.swift` | Creates shared URLSession, owns lifecycle |
-| `Services/Server/EventStream.swift` | WS connection, circuit breaker integration |
-| `Services/Server/ConnectionCircuitBreaker.swift` | Circuit breaker state machine |
-| `Services/Server/API/HTTPTransport.swift` | Accepts shared URLSession |
-| `Services/Server/API/ServerClients.swift` | Threads URLSession to transport |
-| `Services/Server/ServerRuntimeReadiness.swift` | Readiness derivation |
-| `Services/Server/NetworkFileLogger.swift` | `.circuit` log category |
-| `Services/UsageServiceRegistry.swift` | Readiness-gated HTTP example |
+The highest-value client networking tests are:
+
+- dashboard boot uses HTTP snapshot first, then WS replay
+- session reconnect resubscribes all active surfaces
+- successful mutations apply their HTTP response immediately
+- failed sends do not create local ghost rows
+- unrelated surface updates do not rebuild whole presentation state
