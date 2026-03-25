@@ -8,12 +8,11 @@ use orbitdock_connector_codex::rollout_parser::{
     RolloutFileProcessor, SessionSource, SubAgentSource, DEBOUNCE_MS, SESSION_TIMEOUT_SECS,
     STARTUP_SEED_RECENT_SECS,
 };
-use orbitdock_protocol::conversation_contracts::RowPageSummary;
 use orbitdock_protocol::{
     conversation_contracts::{ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow},
     domain_events::{ToolFamily, ToolKind, ToolStatus},
     provider_normalization::shared::ProviderEventEnvelope,
-    CodexIntegrationMode, Provider, ServerMessage, SessionListItem, SessionStatus, StateChanges,
+    CodexIntegrationMode, Provider, ServerMessage, SessionStatus, StateChanges,
     TokenUsageSnapshotKind, WorkStatus,
 };
 use tokio::sync::mpsc;
@@ -515,10 +514,7 @@ impl WatcherRuntime {
         if is_direct || is_direct_in_db {
             self.subagent_cache.remove(&session_id);
             if self.app_state.remove_session(&session_id).is_some() {
-                self.app_state
-                    .broadcast_to_list(ServerMessage::SessionListItemRemoved {
-                        session_id: session_id.clone(),
-                    });
+                self.app_state.publish_dashboard_snapshot();
             }
             return;
         }
@@ -527,10 +523,7 @@ impl WatcherRuntime {
         if matches!(source, SessionSource::Mcp) {
             self.subagent_cache.remove(&session_id);
             if self.app_state.remove_session(&session_id).is_some() {
-                self.app_state
-                    .broadcast_to_list(ServerMessage::SessionListItemRemoved {
-                        session_id: session_id.clone(),
-                    });
+                self.app_state.publish_dashboard_snapshot();
             }
 
             let _ = self
@@ -552,10 +545,7 @@ impl WatcherRuntime {
         ) {
             self.subagent_cache.remove(&session_id);
             if self.app_state.remove_session(&session_id).is_some() {
-                self.app_state
-                    .broadcast_to_list(ServerMessage::SessionListItemRemoved {
-                        session_id: session_id.clone(),
-                    });
+                self.app_state.publish_dashboard_snapshot();
             }
 
             let _ = self
@@ -589,10 +579,8 @@ impl WatcherRuntime {
 
             let summary = handle.summary();
             self.app_state.add_session(handle);
-            self.app_state
-                .broadcast_to_list(ServerMessage::SessionCreated {
-                    session: SessionListItem::from_summary(&summary),
-                });
+            let _ = summary;
+            self.app_state.publish_dashboard_snapshot();
         } else if let Some(actor) = self.app_state.get_session(&session_id) {
             let snap = actor.snapshot();
             actor
@@ -633,11 +621,8 @@ impl WatcherRuntime {
                 })
                 .await;
 
-            if let Ok(summary) = actor.summary().await {
-                self.app_state
-                    .broadcast_to_list(ServerMessage::SessionListItemUpdated {
-                        session: SessionListItem::from_summary(&summary),
-                    });
+            if actor.summary().await.is_ok() {
+                self.app_state.publish_dashboard_snapshot();
             }
         }
 
@@ -1147,11 +1132,8 @@ impl WatcherRuntime {
                     reply: tx,
                 })
                 .await;
-            if let Ok(summary) = rx.await {
-                self.app_state
-                    .broadcast_to_list(ServerMessage::SessionListItemUpdated {
-                        session: SessionListItem::from_summary(&summary),
-                    });
+            if rx.await.is_ok() {
+                self.app_state.publish_dashboard_snapshot();
             }
         }
     }
@@ -1292,26 +1274,7 @@ impl WatcherRuntime {
         )
         .await;
 
-        if let Some(actor) = self.app_state.get_session(session_id) {
-            if has_attention_payload {
-                if let Ok(state) = actor.retained_state().await {
-                    actor
-                        .send(SessionCommand::Broadcast {
-                            msg: ServerMessage::ConversationBootstrap {
-                                session: Box::new(state),
-                                conversation: RowPageSummary {
-                                    rows: vec![],
-                                    total_row_count: 0,
-                                    has_more_before: false,
-                                    oldest_sequence: None,
-                                    newest_sequence: None,
-                                },
-                            },
-                        })
-                        .await;
-                }
-            }
-        }
+        let _ = has_attention_payload;
 
         self.schedule_session_timeout(session_id);
     }
@@ -1344,11 +1307,8 @@ impl WatcherRuntime {
                 }
             }
 
-            if let Ok(summary) = actor.summary().await {
-                self.app_state
-                    .broadcast_to_list(ServerMessage::SessionListItemUpdated {
-                        session: SessionListItem::from_summary(&summary),
-                    });
+            if actor.summary().await.is_ok() {
+                self.app_state.publish_dashboard_snapshot();
             }
         }
     }

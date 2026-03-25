@@ -59,11 +59,29 @@ fn ensure_session_control_plane_columns(conn: &Connection) -> anyhow::Result<()>
     ensure_column(conn, "sessions", "service_tier", "TEXT")?;
     ensure_column(conn, "sessions", "developer_instructions", "TEXT")?;
     ensure_column(conn, "sessions", "last_progress_at", "TEXT")?;
+    ensure_column(conn, "sessions", "control_mode", "TEXT")?;
+    ensure_column(
+        conn,
+        "sessions",
+        "lifecycle_state",
+        "TEXT NOT NULL DEFAULT 'open'",
+    )?;
     ensure_column(
         conn,
         "sessions",
         "allow_bypass_permissions",
         "INTEGER DEFAULT 0",
+    )?;
+
+    conn.execute(
+        "UPDATE sessions
+         SET control_mode = CASE
+             WHEN provider = 'codex' AND codex_integration_mode = 'direct' THEN 'direct'
+             WHEN provider = 'claude' AND claude_integration_mode = 'direct' THEN 'direct'
+             ELSE 'passive'
+         END
+         WHERE control_mode IS NULL OR trim(control_mode) = ''",
+        [],
     )?;
 
     Ok(())

@@ -1,9 +1,10 @@
+use std::collections::HashSet;
 use std::time::Duration;
 
-use orbitdock_protocol::conversation_contracts::RowPageSummary;
 use orbitdock_protocol::{
-    ClientMessage, Provider, ServerMessage, SessionState, SessionStatus, ToolApprovalDecision,
-    WorkStatus,
+    conversation_contracts::extract_row_content_str_summary, ClientMessage,
+    ConversationSnapshotPage, Provider, ServerMessage, SessionDetailSnapshot, SessionState,
+    SessionStatus, SessionSummary, SessionSurface, ToolApprovalDecision, WorkStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -25,8 +26,60 @@ struct SessionsResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct SessionResponse {
-    session: SessionState,
+struct CreateSessionRequest {
+    provider: Provider,
+    cwd: String,
+    model: Option<String>,
+    approval_policy: Option<String>,
+    approval_policy_details: Option<orbitdock_protocol::CodexApprovalPolicy>,
+    sandbox_mode: Option<String>,
+    permission_mode: Option<String>,
+    allowed_tools: Vec<String>,
+    disallowed_tools: Vec<String>,
+    effort: Option<String>,
+    collaboration_mode: Option<String>,
+    multi_agent: Option<bool>,
+    personality: Option<String>,
+    service_tier: Option<String>,
+    developer_instructions: Option<String>,
+    system_prompt: Option<String>,
+    append_system_prompt: Option<String>,
+    allow_bypass_permissions: bool,
+    codex_config_mode: Option<orbitdock_protocol::CodexConfigMode>,
+    codex_config_profile: Option<String>,
+    codex_model_provider: Option<String>,
+    codex_config_source: Option<orbitdock_protocol::CodexConfigSource>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct CreateSessionResponse {
+    session_id: String,
+    session: SessionSummary,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ResumeSessionResponse {
+    session_id: String,
+    session: SessionSummary,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ForkSessionRequest {
+    nth_user_message: Option<u32>,
+    model: Option<String>,
+    approval_policy: Option<String>,
+    sandbox_mode: Option<String>,
+    cwd: Option<String>,
+    permission_mode: Option<String>,
+    allowed_tools: Vec<String>,
+    disallowed_tools: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ForkSessionResponse {
+    source_session_id: String,
+    new_session_id: String,
+    session: SessionSummary,
 }
 
 pub async fn run(
@@ -72,7 +125,7 @@ pub async fn run(
                     .unwrap_or_else(|_| ".".to_string()),
             };
             create(CreateSessionArgs {
-                config,
+                rest,
                 output,
                 provider_filter: provider,
                 cwd: &resolved_cwd,
@@ -146,7 +199,7 @@ pub async fn run(
             model,
         } => {
             fork(
-                config,
+                rest,
                 output,
                 session_id,
                 *nth_user_message,
@@ -176,11 +229,11 @@ pub async fn run(
             session_id,
             filter,
             timeout,
-        } => watch(config, output, session_id, filter, *timeout).await,
+        } => watch(rest, config, output, session_id, filter, *timeout).await,
         SessionAction::Rename { session_id, name } => {
             rename(config, output, session_id, name).await
         }
-        SessionAction::Resume { session_id } => resume(config, output, session_id).await,
+        SessionAction::Resume { session_id } => resume(rest, output, session_id).await,
     }
 }
 
@@ -194,6 +247,62 @@ async fn ws_connect(config: &ClientConfig, output: &Output) -> Option<WsClient> 
             None
         }
     }
+}
+
+async fn fetch_session_detail_snapshot(
+    config: &ClientConfig,
+    session_id: &str,
+) -> Result<SessionDetailSnapshot, CliError> {
+    let rest = RestClient::new(config);
+    rest.get::<SessionDetailSnapshot>(&format!("/api/sessions/{session_id}/detail"))
+        .await
+        .into_result()
+        .map_err(|(_, err)| err)
+}
+
+async fn fetch_conversation_snapshot(
+    config: &ClientConfig,
+    session_id: &str,
+    limit: usize,
+) -> Result<ConversationSnapshotPage, CliError> {
+    let rest = RestClient::new(config);
+    rest.get::<ConversationSnapshotPage>(&format!(
+        "/api/sessions/{session_id}/conversation?limit={limit}"
+    ))
+    .await
+    .into_result()
+    .map_err(|(_, err)| err)
+}
+
+async fn subscribe_session_surface(
+    ws: &mut WsClient,
+    session_id: &str,
+    surface: SessionSurface,
+    since_revision: Option<u64>,
+) -> Result<(), CliError> {
+    ws.send(&ClientMessage::SubscribeSessionSurface {
+        session_id: session_id.to_string(),
+        surface,
+        since_revision,
+    })
+    .await
+    .map_err(|error| CliError::connection(error.to_string()))
+}
+
+async fn bootstrap_session_subscription(
+    config: &ClientConfig,
+    ws: &mut WsClient,
+    session_id: &str,
+) -> Result<SessionState, CliError> {
+    let snapshot = fetch_session_detail_snapshot(config, session_id).await?;
+    subscribe_session_surface(
+        ws,
+        session_id,
+        SessionSurface::Detail,
+        Some(snapshot.revision),
+    )
+    .await?;
+    Ok(snapshot.session)
 }
 
 fn pending_request_id(session: &SessionState) -> Option<&str> {
@@ -274,16 +383,16 @@ async fn list(
 
 async fn get(rest: &RestClient, output: &Output, session_id: &str, messages: bool) -> i32 {
     let path = if messages {
-        format!("/api/sessions/{session_id}?include_messages=true")
+        format!("/api/sessions/{session_id}/detail?include_messages=true")
     } else {
-        format!("/api/sessions/{session_id}")
+        format!("/api/sessions/{session_id}/detail")
     };
-    match rest.get::<SessionResponse>(&path).await.into_result() {
-        Ok(resp) => {
+    match rest.get::<SessionDetailSnapshot>(&path).await.into_result() {
+        Ok(snapshot) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json(&snapshot);
             } else {
-                print_session_detail(&resp.session, messages);
+                print_session_detail(&snapshot.session, messages);
             }
             EXIT_SUCCESS
         }
@@ -297,7 +406,7 @@ async fn get(rest: &RestClient, output: &Output, session_id: &str, messages: boo
 // ── WS Commands ──────────────────────────────────────────────
 
 struct CreateSessionArgs<'a> {
-    config: &'a ClientConfig,
+    rest: &'a RestClient,
     output: &'a Output,
     provider_filter: &'a ProviderFilter,
     cwd: &'a str,
@@ -309,7 +418,7 @@ struct CreateSessionArgs<'a> {
 
 async fn create(args: CreateSessionArgs<'_>) -> i32 {
     let CreateSessionArgs {
-        config,
+        rest,
         output,
         provider_filter,
         cwd,
@@ -319,78 +428,65 @@ async fn create(args: CreateSessionArgs<'_>) -> i32 {
         system_prompt,
     } = args;
 
-    let Some(mut ws) = ws_connect(config, output).await else {
-        return EXIT_CONNECTION_ERROR;
-    };
-
     let provider = match provider_filter {
         ProviderFilter::Claude => Provider::Claude,
         ProviderFilter::Codex => Provider::Codex,
     };
 
-    if let Err(e) = ws
-        .send(&ClientMessage::CreateSession {
-            provider,
-            cwd: cwd.to_string(),
-            model: model.map(str::to_string),
-            approval_policy: None,
-            approval_policy_details: None,
-            sandbox_mode: None,
-            permission_mode: permission_mode.map(|m| m.as_str().to_string()),
-            allowed_tools: vec![],
-            disallowed_tools: vec![],
-            effort: effort.map(|e| e.as_str().to_string()),
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
-            system_prompt: system_prompt.map(str::to_string),
-            append_system_prompt: None,
-        })
-        .await
-    {
-        output.print_error(&CliError::connection(e.to_string()));
-        return EXIT_CONNECTION_ERROR;
-    }
+    let request = CreateSessionRequest {
+        provider,
+        cwd: cwd.to_string(),
+        model: model.map(str::to_string),
+        approval_policy: None,
+        approval_policy_details: None,
+        sandbox_mode: None,
+        permission_mode: permission_mode.map(|m| m.as_str().to_string()),
+        allowed_tools: vec![],
+        disallowed_tools: vec![],
+        effort: effort.map(|e| e.as_str().to_string()),
+        collaboration_mode: None,
+        multi_agent: None,
+        personality: None,
+        service_tier: None,
+        developer_instructions: None,
+        system_prompt: system_prompt.map(str::to_string),
+        append_system_prompt: None,
+        allow_bypass_permissions: false,
+        codex_config_mode: None,
+        codex_config_profile: None,
+        codex_model_provider: None,
+        codex_config_source: None,
+    };
 
-    loop {
-        match ws.recv_timeout(Duration::from_secs(30)).await {
-            Ok(Some(ServerMessage::ConversationBootstrap { session, .. })) => {
-                if output.json {
-                    output.print_json(&serde_json::json!({
-                        "session_id": session.id,
-                        "provider": provider_str(&session.provider),
-                        "project_path": session.project_path,
-                        "status": work_status_str(&session.work_status),
-                    }));
-                } else {
-                    let bold = console::Style::new().bold();
-                    println!("{} {}", bold.apply_to("Created session:"), session.id);
-                    println!(
-                        "{} {}",
-                        bold.apply_to("Provider:"),
-                        provider_str(&session.provider)
-                    );
-                    println!("{} {}", bold.apply_to("Project:"), session.project_path);
-                }
-                return EXIT_SUCCESS;
+    match rest
+        .post_json::<_, CreateSessionResponse>("/api/sessions", &request)
+        .await
+        .into_result()
+    {
+        Ok(resp) => {
+            let session = resp.session;
+            if output.json {
+                output.print_json(&serde_json::json!({
+                    "session_id": session.id,
+                    "provider": provider_str(&session.provider),
+                    "project_path": session.project_path,
+                    "status": work_status_str(&session.work_status),
+                }));
+            } else {
+                let bold = console::Style::new().bold();
+                println!("{} {}", bold.apply_to("Created session:"), session.id);
+                println!(
+                    "{} {}",
+                    bold.apply_to("Provider:"),
+                    provider_str(&session.provider)
+                );
+                println!("{} {}", bold.apply_to("Project:"), session.project_path);
             }
-            Ok(Some(ServerMessage::Error { code, message, .. })) => {
-                output.print_error(&CliError::new(code, message));
-                return EXIT_SERVER_ERROR;
-            }
-            Ok(Some(_)) => continue,
-            Ok(None) => {
-                output.print_error(&CliError::connection(
-                    "Timed out waiting for session creation",
-                ));
-                return EXIT_CONNECTION_ERROR;
-            }
-            Err(e) => {
-                output.print_error(&CliError::connection(e.to_string()));
-                return EXIT_CONNECTION_ERROR;
-            }
+            EXIT_SUCCESS
+        }
+        Err((code, err)) => {
+            output.print_error(&err);
+            code
         }
     }
 }
@@ -408,9 +504,29 @@ async fn send_message(
         return EXIT_CONNECTION_ERROR;
     };
 
-    if let Err(e) = ws.subscribe_session(session_id).await {
-        output.print_error(&CliError::new("subscribe_error", e.to_string()));
+    if let Err(err) = bootstrap_session_subscription(config, &mut ws, session_id).await {
+        output.print_error(&err);
         return EXIT_SERVER_ERROR;
+    }
+
+    let conversation_revision = match fetch_conversation_snapshot(config, session_id, 50).await {
+        Ok(snapshot) => snapshot.revision,
+        Err(err) => {
+            output.print_error(&err);
+            return EXIT_SERVER_ERROR;
+        }
+    };
+
+    if let Err(err) = subscribe_session_surface(
+        &mut ws,
+        session_id,
+        SessionSurface::Conversation,
+        Some(conversation_revision),
+    )
+    .await
+    {
+        output.print_error(&err);
+        return EXIT_CONNECTION_ERROR;
     }
 
     if let Err(e) = ws
@@ -453,10 +569,15 @@ async fn approve_tool(
         return EXIT_CONNECTION_ERROR;
     };
 
-    let session = match ws.subscribe_session(session_id).await {
-        Ok(s) => s,
-        Err(e) => {
-            output.print_error(&CliError::new("subscribe_error", e.to_string()));
+    if let Err(err) = bootstrap_session_subscription(config, &mut ws, session_id).await {
+        output.print_error(&err);
+        return EXIT_SERVER_ERROR;
+    }
+
+    let session = match bootstrap_session_subscription(config, &mut ws, session_id).await {
+        Ok(session) => session,
+        Err(err) => {
+            output.print_error(&err);
             return EXIT_SERVER_ERROR;
         }
     };
@@ -549,10 +670,15 @@ async fn answer_question(
         return EXIT_CONNECTION_ERROR;
     };
 
-    let session = match ws.subscribe_session(session_id).await {
-        Ok(s) => s,
-        Err(e) => {
-            output.print_error(&CliError::new("subscribe_error", e.to_string()));
+    if let Err(err) = bootstrap_session_subscription(config, &mut ws, session_id).await {
+        output.print_error(&err);
+        return EXIT_SERVER_ERROR;
+    }
+
+    let session = match bootstrap_session_subscription(config, &mut ws, session_id).await {
+        Ok(session) => session,
+        Err(err) => {
+            output.print_error(&err);
             return EXIT_SERVER_ERROR;
         }
     };
@@ -624,8 +750,8 @@ async fn interrupt(config: &ClientConfig, output: &Output, session_id: &str) -> 
         return EXIT_CONNECTION_ERROR;
     };
 
-    if let Err(e) = ws.subscribe_session(session_id).await {
-        output.print_error(&CliError::new("subscribe_error", e.to_string()));
+    if let Err(err) = bootstrap_session_subscription(config, &mut ws, session_id).await {
+        output.print_error(&err);
         return EXIT_SERVER_ERROR;
     }
 
@@ -642,7 +768,7 @@ async fn interrupt(config: &ClientConfig, output: &Output, session_id: &str) -> 
     loop {
         match ws.recv_timeout(Duration::from_secs(5)).await {
             Ok(Some(ServerMessage::SessionDelta { changes, .. })) => {
-                if let Some(ref status) = changes.work_status {
+                if let Some(status) = changes.work_status.as_ref() {
                     if *status != WorkStatus::Working {
                         if output.json {
                             output.print_json(
@@ -681,8 +807,8 @@ async fn end_session(config: &ClientConfig, output: &Output, session_id: &str) -
         return EXIT_CONNECTION_ERROR;
     };
 
-    if let Err(e) = ws.subscribe_session(session_id).await {
-        output.print_error(&CliError::new("subscribe_error", e.to_string()));
+    if let Err(err) = bootstrap_session_subscription(config, &mut ws, session_id).await {
+        output.print_error(&err);
         return EXIT_SERVER_ERROR;
     }
 
@@ -728,94 +854,49 @@ async fn end_session(config: &ClientConfig, output: &Output, session_id: &str) -
 }
 
 async fn fork(
-    config: &ClientConfig,
+    rest: &RestClient,
     output: &Output,
     session_id: &str,
     nth_user_message: Option<u32>,
     model: Option<&str>,
 ) -> i32 {
-    let Some(mut ws) = ws_connect(config, output).await else {
-        return EXIT_CONNECTION_ERROR;
+    let request = ForkSessionRequest {
+        nth_user_message,
+        model: model.map(str::to_string),
+        approval_policy: None,
+        sandbox_mode: None,
+        cwd: None,
+        permission_mode: None,
+        allowed_tools: vec![],
+        disallowed_tools: vec![],
     };
 
-    // Subscribe to receive the forked session response
-    if let Err(e) = ws.subscribe_session(session_id).await {
-        output.print_error(&CliError::new("subscribe_error", e.to_string()));
-        return EXIT_SERVER_ERROR;
-    }
-
-    if let Err(e) = ws
-        .send(&ClientMessage::ForkSession {
-            source_session_id: session_id.to_string(),
-            nth_user_message,
-            model: model.map(str::to_string),
-            approval_policy: None,
-            approval_policy_details: None,
-            sandbox_mode: None,
-            cwd: None,
-            permission_mode: None,
-            allowed_tools: vec![],
-            disallowed_tools: vec![],
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
-        })
+    match rest
+        .post_json::<_, ForkSessionResponse>(&format!("/api/sessions/{session_id}/fork"), &request)
         .await
+        .into_result()
     {
-        output.print_error(&CliError::connection(e.to_string()));
-        return EXIT_CONNECTION_ERROR;
-    }
-
-    loop {
-        match ws.recv_timeout(Duration::from_secs(30)).await {
-            Ok(Some(ServerMessage::SessionForked {
-                new_session_id,
-                source_session_id,
-                ..
-            })) => {
-                if output.json {
-                    output.print_json(&serde_json::json!({
-                        "forked": true,
-                        "source_session_id": source_session_id,
-                        "new_session_id": new_session_id,
-                    }));
-                } else {
-                    let bold = console::Style::new().bold();
-                    println!(
-                        "{} {} (from {source_session_id})",
-                        bold.apply_to("Forked:"),
-                        new_session_id,
-                    );
-                }
-                return EXIT_SUCCESS;
+        Ok(resp) => {
+            if output.json {
+                output.print_json(&serde_json::json!({
+                    "forked": true,
+                    "source_session_id": resp.source_session_id,
+                    "new_session_id": resp.new_session_id,
+                }));
+            } else {
+                let bold = console::Style::new().bold();
+                println!(
+                    "{} {} (from {})",
+                    bold.apply_to("Forked:"),
+                    resp.new_session_id,
+                    resp.source_session_id
+                );
             }
-            Ok(Some(ServerMessage::ConversationBootstrap { session, .. })) => {
-                if output.json {
-                    output.print_json(&serde_json::json!({
-                        "forked": true,
-                        "new_session_id": session.id,
-                    }));
-                } else {
-                    let bold = console::Style::new().bold();
-                    println!("{} {}", bold.apply_to("Forked session:"), session.id);
-                }
-                return EXIT_SUCCESS;
-            }
-            Ok(Some(ServerMessage::Error { code, message, .. })) => {
-                output.print_error(&CliError::new(code, message));
-                return EXIT_SERVER_ERROR;
-            }
-            Ok(Some(_)) => continue,
-            Ok(None) => {
-                output.print_error(&CliError::connection("Timed out waiting for fork"));
-                return EXIT_CONNECTION_ERROR;
-            }
-            Err(e) => {
-                output.print_error(&CliError::connection(e.to_string()));
-                return EXIT_CONNECTION_ERROR;
-            }
+            EXIT_SUCCESS
+        }
+        Err((code, err)) => {
+            output.print_error(&err);
+            code
         }
     }
 }
@@ -825,8 +906,8 @@ async fn steer(config: &ClientConfig, output: &Output, session_id: &str, content
         return EXIT_CONNECTION_ERROR;
     };
 
-    if let Err(e) = ws.subscribe_session(session_id).await {
-        output.print_error(&CliError::new("subscribe_error", e.to_string()));
+    if let Err(err) = bootstrap_session_subscription(config, &mut ws, session_id).await {
+        output.print_error(&err);
         return EXIT_SERVER_ERROR;
     }
 
@@ -856,8 +937,8 @@ async fn compact(config: &ClientConfig, output: &Output, session_id: &str) -> i3
         return EXIT_CONNECTION_ERROR;
     };
 
-    if let Err(e) = ws.subscribe_session(session_id).await {
-        output.print_error(&CliError::new("subscribe_error", e.to_string()));
+    if let Err(err) = bootstrap_session_subscription(config, &mut ws, session_id).await {
+        output.print_error(&err);
         return EXIT_SERVER_ERROR;
     }
 
@@ -903,8 +984,8 @@ async fn undo(config: &ClientConfig, output: &Output, session_id: &str) -> i32 {
         return EXIT_CONNECTION_ERROR;
     };
 
-    if let Err(e) = ws.subscribe_session(session_id).await {
-        output.print_error(&CliError::new("subscribe_error", e.to_string()));
+    if let Err(err) = bootstrap_session_subscription(config, &mut ws, session_id).await {
+        output.print_error(&err);
         return EXIT_SERVER_ERROR;
     }
 
@@ -965,8 +1046,8 @@ async fn rollback(config: &ClientConfig, output: &Output, session_id: &str, turn
         return EXIT_CONNECTION_ERROR;
     };
 
-    if let Err(e) = ws.subscribe_session(session_id).await {
-        output.print_error(&CliError::new("subscribe_error", e.to_string()));
+    if let Err(err) = bootstrap_session_subscription(config, &mut ws, session_id).await {
+        output.print_error(&err);
         return EXIT_SERVER_ERROR;
     }
 
@@ -1009,44 +1090,81 @@ async fn rollback(config: &ClientConfig, output: &Output, session_id: &str, turn
 }
 
 async fn watch(
+    rest: &RestClient,
     config: &ClientConfig,
     output: &Output,
     session_id: &str,
     filter: &[String],
     timeout_secs: Option<u64>,
 ) -> i32 {
+    let detail = match rest
+        .get::<SessionDetailSnapshot>(&format!("/api/sessions/{session_id}/detail"))
+        .await
+        .into_result()
+    {
+        Ok(snapshot) => snapshot,
+        Err((code, err)) => {
+            output.print_error(&err);
+            return code;
+        }
+    };
+    let conversation = match rest
+        .get::<ConversationSnapshotPage>(&format!(
+            "/api/sessions/{session_id}/conversation?limit=200"
+        ))
+        .await
+        .into_result()
+    {
+        Ok(snapshot) => snapshot,
+        Err((code, err)) => {
+            output.print_error(&err);
+            return code;
+        }
+    };
+
     let Some(mut ws) = ws_connect(config, output).await else {
         return EXIT_CONNECTION_ERROR;
     };
 
-    let session = match ws.subscribe_session(session_id).await {
-        Ok(s) => s,
-        Err(e) => {
-            output.print_error(&CliError::new("subscribe_error", e.to_string()));
-            return EXIT_SERVER_ERROR;
-        }
-    };
+    if let Err(e) = ws
+        .subscribe_session_surface(session_id, SessionSurface::Detail, Some(detail.revision))
+        .await
+    {
+        output.print_error(&CliError::connection(e.to_string()));
+        return EXIT_CONNECTION_ERROR;
+    }
+    if let Err(e) = ws
+        .subscribe_session_surface(
+            session_id,
+            SessionSurface::Conversation,
+            Some(conversation.revision),
+        )
+        .await
+    {
+        output.print_error(&CliError::connection(e.to_string()));
+        return EXIT_CONNECTION_ERROR;
+    }
 
     if output.json {
-        output.print_json(&ServerMessage::ConversationBootstrap {
-            session: Box::new(session.clone()),
-            conversation: RowPageSummary {
-                rows: vec![],
-                total_row_count: 0,
-                has_more_before: false,
-                oldest_sequence: None,
-                newest_sequence: None,
-            },
-        });
+        output.print_json(&serde_json::json!({
+            "type": "bootstrap_detail",
+            "snapshot": detail,
+        }));
+        output.print_json(&serde_json::json!({
+            "type": "bootstrap_conversation",
+            "snapshot": conversation,
+        }));
     } else {
         let bold = console::Style::new().bold();
         println!(
             "{} {} ({} / {})",
             bold.apply_to("Watching:"),
             session_id,
-            provider_str(&session.provider),
-            work_status_str(&session.work_status)
+            provider_str(&detail.session.provider),
+            work_status_str(&detail.session.work_status)
         );
+        let mut seen_row_ids = HashSet::new();
+        print_conversation_snapshot_rows(&conversation, &mut seen_row_ids);
         println!("Press Ctrl+C to stop.\n");
     }
 
@@ -1125,55 +1243,34 @@ async fn rename(config: &ClientConfig, output: &Output, session_id: &str, name: 
     EXIT_SUCCESS
 }
 
-async fn resume(config: &ClientConfig, output: &Output, session_id: &str) -> i32 {
-    let Some(mut ws) = ws_connect(config, output).await else {
-        return EXIT_CONNECTION_ERROR;
-    };
-
-    if let Err(e) = ws
-        .send(&ClientMessage::ResumeSession {
-            session_id: session_id.to_string(),
-        })
+async fn resume(rest: &RestClient, output: &Output, session_id: &str) -> i32 {
+    match rest
+        .post_json::<_, ResumeSessionResponse>(
+            &format!("/api/sessions/{session_id}/resume"),
+            &serde_json::json!({}),
+        )
         .await
+        .into_result()
     {
-        output.print_error(&CliError::connection(e.to_string()));
-        return EXIT_CONNECTION_ERROR;
-    }
-
-    loop {
-        match ws.recv_timeout(Duration::from_secs(30)).await {
-            Ok(Some(ServerMessage::ConversationBootstrap { session, .. })) => {
-                if output.json {
-                    output.print_json(&serde_json::json!({
-                        "resumed": true,
-                        "session_id": session.id,
-                        "work_status": work_status_str(&session.work_status),
-                    }));
-                } else {
-                    println!(
-                        "Session resumed. Status: {}",
-                        work_status_str(&session.work_status)
-                    );
-                }
-                return EXIT_SUCCESS;
+        Ok(resp) => {
+            let session = resp.session;
+            if output.json {
+                output.print_json(&serde_json::json!({
+                    "resumed": true,
+                    "session_id": session.id,
+                    "work_status": work_status_str(&session.work_status),
+                }));
+            } else {
+                println!(
+                    "Session resumed. Status: {}",
+                    work_status_str(&session.work_status)
+                );
             }
-            Ok(Some(ServerMessage::Error { code, message, .. })) => {
-                output.print_error(&CliError::new(code, message));
-                return EXIT_SERVER_ERROR;
-            }
-            Ok(Some(_)) => continue,
-            Ok(None) => {
-                if output.json {
-                    output.print_json(&serde_json::json!({"resumed": true}));
-                } else {
-                    println!("Resume request sent.");
-                }
-                return EXIT_SUCCESS;
-            }
-            Err(e) => {
-                output.print_error(&CliError::connection(e.to_string()));
-                return EXIT_CONNECTION_ERROR;
-            }
+            EXIT_SUCCESS
+        }
+        Err((code, err)) => {
+            output.print_error(&err);
+            code
         }
     }
 }
@@ -1194,10 +1291,37 @@ async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
                         if !output.json {
                             for entry in upserted {
                                 let role = format_row_type_summary(&entry.row);
-                                let content = orbitdock_protocol::conversation_contracts::extract_row_content_str_summary(&entry.row);
+                                let content = extract_row_content_str_summary(&entry.row);
                                 if !content.is_empty() {
                                     println!("[{role}] {content}");
                                 }
+                            }
+                        }
+                    }
+                    ServerMessage::SessionDelta { changes, .. } => {
+                        if !output.json {
+                            let dim = console::Style::new().dim();
+                            if let Some(status) = &changes.work_status {
+                                println!(
+                                    "{} work_status -> {}",
+                                    dim.apply_to("delta"),
+                                    work_status_str(status)
+                                );
+                                match status {
+                                    WorkStatus::Working | WorkStatus::Waiting => {}
+                                    _ => return EXIT_SUCCESS,
+                                }
+                            }
+                            if let Some(Some(name)) = &changes.custom_name {
+                                println!("{} name -> {name}", dim.apply_to("delta"));
+                            }
+                            if let Some(Some(summary)) = &changes.summary {
+                                println!("{} summary -> {summary}", dim.apply_to("delta"));
+                            }
+                        } else if let Some(status) = &changes.work_status {
+                            match status {
+                                WorkStatus::Working | WorkStatus::Waiting => {}
+                                _ => return EXIT_SUCCESS,
                             }
                         }
                     }
@@ -1212,22 +1336,6 @@ async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
                             println!("\nApproval needed: {tool} — {preview}");
                         }
                         return EXIT_SUCCESS;
-                    }
-                    ServerMessage::SessionDelta { changes, .. } => {
-                        if let Some(status) = &changes.work_status {
-                            match status {
-                                WorkStatus::Working | WorkStatus::Waiting => {}
-                                _ => {
-                                    if !output.json {
-                                        println!(
-                                            "\nTurn complete. Status: {}",
-                                            work_status_str(status)
-                                        );
-                                    }
-                                    return EXIT_SUCCESS;
-                                }
-                            }
-                        }
                     }
                     ServerMessage::SessionEnded { reason, .. } => {
                         if !output.json {
@@ -1275,8 +1383,7 @@ fn format_row_type_summary(
 
 fn event_type_name(msg: &ServerMessage) -> &'static str {
     match msg {
-        ServerMessage::SessionsList { .. } => "sessions_list",
-        ServerMessage::ConversationBootstrap { .. } => "conversation_bootstrap",
+        ServerMessage::Hello { .. } => "hello",
         ServerMessage::SessionDelta { .. } => "session_delta",
         ServerMessage::ConversationRowsChanged { .. } => "conversation_rows_changed",
         ServerMessage::ApprovalRequested { .. } => "approval_requested",
@@ -1284,10 +1391,6 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
         ServerMessage::ApprovalDeleted { .. } => "approval_deleted",
         ServerMessage::ApprovalsList { .. } => "approvals_list",
         ServerMessage::TokensUpdated { .. } => "tokens_updated",
-        ServerMessage::SessionCreated { .. } => "session_created",
-        ServerMessage::SessionListItemUpdated { .. } => "session_list_item_updated",
-        ServerMessage::SessionListItemRemoved { .. } => "session_list_item_removed",
-        ServerMessage::DashboardConversationsUpdated { .. } => "dashboard_conversations_updated",
         ServerMessage::SessionEnded { .. } => "session_ended",
         ServerMessage::SessionForked { .. } => "session_forked",
         ServerMessage::ContextCompacted { .. } => "context_compacted",
@@ -1330,6 +1433,8 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
         ServerMessage::DirectoryListing { .. } => "directory_listing",
         ServerMessage::RecentProjectsList { .. } => "recent_projects_list",
         ServerMessage::PermissionRules { .. } => "permission_rules",
+        ServerMessage::DashboardInvalidated { .. } => "dashboard_invalidated",
+        ServerMessage::MissionsInvalidated { .. } => "missions_invalidated",
         ServerMessage::MissionsList { .. } => "missions_list",
         ServerMessage::MissionDelta { .. } => "mission_delta",
         ServerMessage::MissionHeartbeat { .. } => "mission_heartbeat",
@@ -1342,6 +1447,15 @@ fn print_watch_event(msg: &ServerMessage) {
     let bold = console::Style::new().bold();
 
     match msg {
+        ServerMessage::Hello { hello } => {
+            println!(
+                "{} protocol {}.{} ({})",
+                dim.apply_to("hello"),
+                hello.protocol_major,
+                hello.protocol_minor,
+                hello.server_version
+            );
+        }
         ServerMessage::SessionDelta { changes, .. } => {
             if let Some(status) = &changes.work_status {
                 println!(
@@ -1360,10 +1474,7 @@ fn print_watch_event(msg: &ServerMessage) {
         ServerMessage::ConversationRowsChanged { upserted, .. } => {
             for entry in upserted {
                 let role = format_row_type_summary(&entry.row);
-                let content =
-                    orbitdock_protocol::conversation_contracts::extract_row_content_str_summary(
-                        &entry.row,
-                    );
+                let content = extract_row_content_str_summary(&entry.row);
                 let content = truncate(&content, 120);
                 println!("{} [{role}] {content}", bold.apply_to("+row"));
             }
@@ -1427,6 +1538,22 @@ fn print_watch_event(msg: &ServerMessage) {
         }
         _ => {
             println!("{} {}", dim.apply_to("event"), event_type_name(msg));
+        }
+    }
+}
+
+fn print_conversation_snapshot_rows(
+    snapshot: &ConversationSnapshotPage,
+    seen_row_ids: &mut HashSet<String>,
+) {
+    for entry in &snapshot.rows {
+        if !seen_row_ids.insert(entry.id().to_string()) {
+            continue;
+        }
+        let role = format_row_type_summary(&entry.row);
+        let content = truncate(&extract_row_content_str_summary(&entry.row), 120);
+        if !content.is_empty() {
+            println!("[{role}] {content}");
         }
     }
 }

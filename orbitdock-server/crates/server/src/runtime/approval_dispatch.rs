@@ -206,6 +206,8 @@ pub(crate) async fn dispatch_approve_tool(
             id: session_id.to_string(),
             status: None,
             work_status: Some(resolved_work_status),
+            control_mode: None,
+            lifecycle_state: None,
             last_activity_at: None,
             last_progress_at: None,
         })

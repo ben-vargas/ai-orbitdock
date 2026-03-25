@@ -516,7 +516,44 @@ async fn handle_agent_message_preserves_memory_citations() {
 }
 
 #[test]
-fn handle_guardian_assessment_creates_guardian_tool_row() {
+fn handle_guardian_assessment_creates_guardian_tool_row_while_running() {
+    let events =
+        guardian::handle_guardian_assessment(codex_protocol::approvals::GuardianAssessmentEvent {
+            id: "guardian-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            status: codex_protocol::approvals::GuardianAssessmentStatus::InProgress,
+            action: Some(serde_json::json!({ "command": "rm -rf /tmp/cache" })),
+            risk_score: Some(87),
+            risk_level: Some(codex_protocol::approvals::GuardianRiskLevel::High),
+            rationale: Some("Deletes a broad path".to_string()),
+        });
+
+    let row = match &events[0] {
+        ConnectorEvent::ConversationRowCreated(entry) => &entry.row,
+        other => panic!("expected row creation event, got {other:?}"),
+    };
+
+    let tool = match row {
+        ConversationRow::Tool(tool) => tool,
+        other => panic!("expected tool row, got {other:?}"),
+    };
+
+    assert_eq!(
+        tool.kind,
+        orbitdock_protocol::domain_events::ToolKind::GuardianAssessment
+    );
+    assert_eq!(
+        tool.status,
+        orbitdock_protocol::domain_events::ToolStatus::Running
+    );
+    assert_eq!(tool.grouping_key.as_deref(), Some("turn-1"));
+    assert_eq!(tool.title, "Guardian review");
+    assert_eq!(tool.subtitle.as_deref(), Some("high risk"));
+    assert_eq!(tool.summary.as_deref(), Some("Deletes a broad path"));
+}
+
+#[test]
+fn handle_guardian_assessment_updates_guardian_tool_row_when_terminal() {
     let events =
         guardian::handle_guardian_assessment(codex_protocol::approvals::GuardianAssessmentEvent {
             id: "guardian-1".to_string(),
@@ -529,8 +566,11 @@ fn handle_guardian_assessment_creates_guardian_tool_row() {
         });
 
     let row = match &events[0] {
-        ConnectorEvent::ConversationRowCreated(entry) => &entry.row,
-        other => panic!("expected row creation event, got {other:?}"),
+        ConnectorEvent::ConversationRowUpdated { row_id, entry } => {
+            assert_eq!(row_id, "guardian-guardian-1");
+            &entry.row
+        }
+        other => panic!("expected row update event, got {other:?}"),
     };
 
     let tool = match row {

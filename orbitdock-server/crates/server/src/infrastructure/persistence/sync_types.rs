@@ -4,7 +4,8 @@ use serde_json::Value;
 use orbitdock_protocol::conversation_contracts::{ConversationRowEntry, TurnStatus};
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, CodexConfigMode, CodexConfigSource,
-    Provider, SessionStatus, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    Provider, SessionControlMode, SessionLifecycleState, SessionStatus, SubagentInfo, TokenUsage,
+    TokenUsageSnapshotKind, WorkStatus,
 };
 
 use super::super::commands::{ApprovalRequestedParams, SessionCreateParams};
@@ -17,6 +18,8 @@ pub enum SyncCommand {
         id: String,
         status: Option<SessionStatus>,
         work_status: Option<WorkStatus>,
+        control_mode: Option<SessionControlMode>,
+        lifecycle_state: Option<SessionLifecycleState>,
         last_activity_at: Option<String>,
         last_progress_at: Option<String>,
     },
@@ -331,6 +334,7 @@ pub struct SyncBatchRequest {
 pub struct SyncSessionCreateParams {
     pub id: String,
     pub provider: Provider,
+    pub control_mode: SessionControlMode,
     pub project_path: String,
     pub project_name: Option<String>,
     pub branch: Option<String>,
@@ -360,6 +364,7 @@ impl From<&SessionCreateParams> for SyncSessionCreateParams {
         Self {
             id: value.id.clone(),
             provider: value.provider,
+            control_mode: value.control_mode,
             project_path: value.project_path.clone(),
             project_name: value.project_name.clone(),
             branch: value.branch.clone(),
@@ -391,6 +396,7 @@ impl From<SyncSessionCreateParams> for SessionCreateParams {
         Self {
             id: value.id,
             provider: value.provider,
+            control_mode: value.control_mode,
             project_path: value.project_path,
             project_name: value.project_name,
             branch: value.branch,

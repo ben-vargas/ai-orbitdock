@@ -16,7 +16,7 @@ use std::time::Instant;
 use serde_json::Value;
 use tracing::warn;
 
-use orbitdock_protocol::{ClientMessage, Provider, ServerMessage, SubagentInfo, SubagentStatus};
+use orbitdock_protocol::{ClientMessage, Provider, SubagentInfo, SubagentStatus};
 
 use crate::domain::sessions::transition::{
     approval_preview, approval_question, approval_question_prompts, ApprovalPreviewInput,
@@ -208,7 +208,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 .await;
 
             if state.remove_session(&session_id).is_some() {
-                state.broadcast_to_list(ServerMessage::SessionListItemRemoved { session_id });
+                state.publish_dashboard_snapshot();
             }
         }
 
@@ -1517,8 +1517,9 @@ fn apply_claude_subagent_update(
 #[cfg(test)]
 mod tests {
     use orbitdock_protocol::{
-        ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionStatus, SessionSummary,
-        SubagentInfo, SubagentStatus, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+        ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionControlMode,
+        SessionLifecycleState, SessionStatus, SessionSummary, SubagentInfo, SubagentStatus,
+        TokenUsage, TokenUsageSnapshotKind, WorkStatus,
     };
     use serde_json::json;
 
@@ -1555,6 +1556,9 @@ mod tests {
             last_message: None,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
+            control_mode: SessionControlMode::Passive,
+            lifecycle_state: SessionLifecycleState::Open,
+            accepts_user_input: false,
             steerable: false,
             token_usage: TokenUsage::default(),
             token_usage_snapshot_kind: TokenUsageSnapshotKind::default(),

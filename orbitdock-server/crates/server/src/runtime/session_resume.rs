@@ -4,8 +4,7 @@ use std::time::Duration;
 use tracing::{error, info};
 
 use orbitdock_protocol::{
-    CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider, ServerMessage,
-    SessionListItem, SessionSummary,
+    CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider, SessionSummary,
 };
 
 use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
@@ -15,7 +14,10 @@ use crate::runtime::codex_config::{resolve_codex_settings, CodexConfigSelection}
 use crate::runtime::restored_sessions::PreparedResumeSession;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session;
+use crate::runtime::session_runtime_helpers::{
+    activate_direct_session_runtime, claim_codex_thread_for_direct_session,
+    direct_resume_failure_changes,
+};
 use crate::support::session_paths::resolve_claude_resume_cwd;
 
 pub(crate) struct ResumeSessionLaunch {
@@ -59,9 +61,6 @@ pub(crate) async fn launch_resumed_session(
 
     let session_id = session_id.to_string();
     let summary = prepared.summary.clone();
-    state.broadcast_to_list(ServerMessage::SessionListItemUpdated {
-        session: SessionListItem::from_summary(&summary),
-    });
 
     let persist_tx = state.persist().clone();
     let _ = persist_tx
@@ -83,7 +82,10 @@ pub(crate) async fn launch_resumed_session(
                 .clone()
                 .and_then(orbitdock_protocol::ProviderSessionId::new)
             else {
-                state.add_session(prepared.handle);
+                let mut handle = prepared.handle;
+                handle.apply_changes(&direct_resume_failure_changes(Provider::Claude));
+                state.add_session(handle);
+                state.publish_dashboard_snapshot();
                 return Err(ResumeSessionError::MissingClaudeResumeId);
             };
 
@@ -195,6 +197,7 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
                 );
                 state.add_session_actor(actor_handle);
                 state.set_claude_action_tx(&session_id, action_tx);
+                activate_direct_session_runtime(&state, &session_id, Provider::Claude).await;
 
                 if let Some(ref mode) = restored_permission_mode {
                     if let Some(actor) = state.get_session(&session_id) {
@@ -225,9 +228,12 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
                     messages = message_count,
                     "HTTP: Resumed Claude session"
                 );
+                state.publish_dashboard_snapshot();
             }
             Ok(Ok(Err(error))) => {
+                handle.apply_changes(&direct_resume_failure_changes(Provider::Claude));
                 state.add_session(handle);
+                state.publish_dashboard_snapshot();
                 error!(
                     component = "session",
                     event = "session.resume.http.claude_failed",
@@ -237,7 +243,9 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
                 );
             }
             Ok(Err(join_error)) => {
+                handle.apply_changes(&direct_resume_failure_changes(Provider::Claude));
                 state.add_session(handle);
+                state.publish_dashboard_snapshot();
                 error!(
                     component = "session",
                     event = "session.resume.http.claude_panicked",
@@ -247,7 +255,9 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
                 );
             }
             Err(_) => {
+                handle.apply_changes(&direct_resume_failure_changes(Provider::Claude));
                 state.add_session(handle);
+                state.publish_dashboard_snapshot();
                 error!(
                     component = "session",
                     event = "session.resume.http.claude_timeout",
@@ -409,6 +419,7 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
                 );
                 state.add_session_actor(actor_handle);
                 state.set_codex_action_tx(&session_id, action_tx);
+                activate_direct_session_runtime(&state, &session_id, Provider::Codex).await;
                 info!(
                     component = "session",
                     event = "session.resume.http.codex_connected",
@@ -416,9 +427,12 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
                     messages = message_count,
                     "HTTP: Resumed Codex session"
                 );
+                state.publish_dashboard_snapshot();
             }
             Err(error) => {
+                handle.apply_changes(&direct_resume_failure_changes(Provider::Codex));
                 state.add_session(handle);
+                state.publish_dashboard_snapshot();
                 error!(
                     component = "session",
                     event = "session.resume.http.codex_failed",

@@ -7,36 +7,13 @@ use orbitdock_protocol::conversation_contracts::{
     RowPageSummary,
 };
 use orbitdock_protocol::domain_events::ToolStatus;
-use orbitdock_protocol::DashboardConversationItem;
-use orbitdock_protocol::SessionListItem;
+use orbitdock_protocol::{
+    ConversationSnapshotPage, DashboardSnapshot, SessionComposerSnapshot, SessionDetailSnapshot,
+};
 use std::collections::BTreeMap;
 
 const DEFAULT_CONVERSATION_PAGE_SIZE: usize = 50;
 const MAX_CONVERSATION_PAGE_SIZE: usize = 200;
-
-#[derive(Debug, Serialize)]
-pub struct SessionsResponse {
-    pub sessions: Vec<SessionListItem>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct DashboardConversationsResponse {
-    pub conversations: Vec<DashboardConversationItem>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SessionResponse {
-    pub session: SessionState,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ConversationBootstrapResponse {
-    pub session: SessionState,
-    pub total_row_count: u64,
-    pub has_more_before: bool,
-    pub oldest_sequence: Option<u64>,
-    pub newest_sequence: Option<u64>,
-}
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ConversationPageQuery {
@@ -140,27 +117,22 @@ fn duration_ms(started_at: Option<&str>, last_activity_at: Option<&str>) -> u64 
     end.saturating_sub(start).saturating_mul(1000)
 }
 
-pub async fn list_sessions(State(state): State<Arc<SessionRegistry>>) -> Json<SessionsResponse> {
-    Json(SessionsResponse {
-        sessions: state.get_session_list_items(),
-    })
-}
-
-pub async fn list_dashboard_conversations(
+pub async fn get_dashboard_snapshot(
     State(state): State<Arc<SessionRegistry>>,
-) -> Json<DashboardConversationsResponse> {
-    Json(DashboardConversationsResponse {
-        conversations: state.get_dashboard_conversations(),
-    })
+) -> Json<DashboardSnapshot> {
+    Json(state.current_dashboard_snapshot())
 }
 
-pub async fn get_session(
+pub async fn get_session_detail(
     Path(session_id): Path<String>,
     Query(query): Query<SessionSnapshotQuery>,
     State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<SessionResponse> {
+) -> ApiResult<SessionDetailSnapshot> {
     match load_full_session_state(&state, &session_id, query.include_messages).await {
-        Ok(session) => Ok(Json(SessionResponse { session })),
+        Ok(session) => Ok(Json(SessionDetailSnapshot {
+            revision: session.revision.unwrap_or_default(),
+            session,
+        })),
         Err(SessionLoadError::NotFound) => Err((
             StatusCode::NOT_FOUND,
             Json(ApiErrorResponse {
@@ -203,20 +175,65 @@ pub async fn get_session(
     }
 }
 
-pub async fn get_conversation_bootstrap(
+pub async fn get_session_composer(
+    Path(session_id): Path<String>,
+    Query(query): Query<SessionSnapshotQuery>,
+    State(state): State<Arc<SessionRegistry>>,
+) -> ApiResult<SessionComposerSnapshot> {
+    match load_full_session_state(&state, &session_id, query.include_messages).await {
+        Ok(session) => Ok(Json(SessionComposerSnapshot {
+            revision: session.revision.unwrap_or_default(),
+            session,
+        })),
+        Err(SessionLoadError::NotFound) => Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiErrorResponse {
+                code: "not_found",
+                error: format!("Session {} not found", session_id),
+            }),
+        )),
+        Err(SessionLoadError::Db(err)) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiErrorResponse {
+                code: "db_error",
+                error: err,
+            }),
+        )),
+        Err(SessionLoadError::Runtime(err)) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorResponse {
+                code: "runtime_error",
+                error: err,
+            }),
+        )),
+    }
+}
+
+pub async fn get_conversation_snapshot(
     Path(session_id): Path<String>,
     Query(query): Query<ConversationPageQuery>,
     State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<ConversationBootstrapResponse> {
+) -> ApiResult<ConversationSnapshotPage> {
     let limit = clamp_conversation_limit(query.limit);
     match load_conversation_bootstrap(&state, &session_id, limit).await {
-        Ok(bootstrap) => Ok(Json(ConversationBootstrapResponse {
-            session: bootstrap.session,
-            total_row_count: bootstrap.total_row_count,
-            has_more_before: bootstrap.has_more_before,
-            oldest_sequence: bootstrap.oldest_sequence,
-            newest_sequence: bootstrap.newest_sequence,
-        })),
+        Ok(bootstrap) => {
+            let rows = bootstrap
+                .session
+                .rows
+                .iter()
+                .map(|entry| entry.to_summary())
+                .collect();
+            Ok(Json(ConversationSnapshotPage {
+                revision: bootstrap.session.revision.unwrap_or_default(),
+                session_id,
+                session: bootstrap.session,
+                rows,
+                total_row_count: bootstrap.total_row_count,
+                has_more_before: bootstrap.has_more_before,
+                oldest_sequence: bootstrap.oldest_sequence,
+                newest_sequence: bootstrap.newest_sequence,
+            }))
+        }
         Err(SessionLoadError::NotFound) => Err((
             StatusCode::NOT_FOUND,
             Json(ApiErrorResponse {
@@ -584,15 +601,15 @@ mod tests {
             .expect("session should exist for search test");
 
         actor
-            .send(SessionCommand::AddRow {
-                entry: test_tool_row(
+            .send(SessionCommand::ProcessEvent {
+                event: crate::domain::sessions::transition::Input::RowCreated(test_tool_row(
                     &session_id,
                     "tool-1",
                     1,
                     "Deploy preview build",
                     ToolStatus::Completed,
                     Some(1200),
-                ),
+                )),
             })
             .await;
         tokio::task::yield_now().await;
@@ -650,7 +667,11 @@ mod tests {
                 Some(3000),
             ),
         ] {
-            actor.send(SessionCommand::AddRow { entry }).await;
+            actor
+                .send(SessionCommand::ProcessEvent {
+                    event: crate::domain::sessions::transition::Input::RowCreated(entry),
+                })
+                .await;
         }
         tokio::task::yield_now().await;
         tokio::task::yield_now().await;

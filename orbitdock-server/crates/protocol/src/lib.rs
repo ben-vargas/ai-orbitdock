@@ -22,6 +22,19 @@ pub use types::*;
 /// Prefix for OrbitDock-generated session IDs, distinguishing them from
 /// provider SDK IDs (Claude CLI, Codex thread IDs) which are plain UUIDs.
 pub const OD_ID_PREFIX: &str = "od-";
+pub const PROTOCOL_MAJOR: u16 = 2;
+pub const PROTOCOL_MINOR: u16 = 0;
+pub const HTTP_HEADER_SERVER_VERSION: &str = "X-OrbitDock-Server-Version";
+pub const HTTP_HEADER_PROTOCOL_MAJOR: &str = "X-OrbitDock-Protocol-Major";
+pub const HTTP_HEADER_PROTOCOL_MINOR: &str = "X-OrbitDock-Protocol-Minor";
+pub const HTTP_HEADER_CLIENT_VERSION: &str = "X-OrbitDock-Client-Version";
+pub const HTTP_HEADER_CLIENT_PROTOCOL_MAJOR: &str = "X-OrbitDock-Client-Protocol-Major";
+pub const HTTP_HEADER_CLIENT_PROTOCOL_MINOR: &str = "X-OrbitDock-Client-Protocol-Minor";
+pub const CAPABILITY_DASHBOARD_PROJECTION_V1: &str = "dashboard_projection_v1";
+pub const CAPABILITY_MISSIONS_PROJECTION_V1: &str = "missions_projection_v1";
+pub const CAPABILITY_SESSION_DETAIL_SURFACE_V1: &str = "session_detail_surface_v1";
+pub const CAPABILITY_SESSION_COMPOSER_SURFACE_V1: &str = "session_composer_surface_v1";
+pub const CAPABILITY_CONVERSATION_SURFACE_V1: &str = "conversation_surface_v1";
 
 /// Generate a new unique OrbitDock session ID with the `od-` prefix.
 pub fn new_id() -> String {

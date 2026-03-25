@@ -1,14 +1,12 @@
 use bytes::Bytes;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::warn;
 
-use orbitdock_protocol::conversation_contracts::RowPageSummary;
-use orbitdock_protocol::{ServerMessage, SessionState, WorkStatus};
+use orbitdock_protocol::{ServerMessage, WorkStatus};
 
 use crate::support::snapshot_compaction::{
-    prepare_snapshot_for_transport, replay_has_oversize_event, sanitize_replay_event_for_transport,
-    WS_MAX_TEXT_MESSAGE_BYTES,
+    replay_has_oversize_event, sanitize_replay_event_for_transport, WS_MAX_TEXT_MESSAGE_BYTES,
 };
 
 /// Messages that can be sent through the WebSocket.
@@ -50,7 +48,7 @@ pub(crate) async fn send_rest_only_error(
     .await;
 }
 
-pub(crate) async fn send_replay_or_snapshot_fallback(
+pub(crate) async fn send_replay_or_resync_fallback(
     tx: &mpsc::Sender<OutboundMessage>,
     session_id: &str,
     events: Vec<String>,
@@ -101,40 +99,6 @@ pub(crate) async fn send_replay_or_snapshot_fallback(
     }
 }
 
-pub(crate) async fn send_snapshot_if_requested(
-    tx: &mpsc::Sender<OutboundMessage>,
-    session_id: &str,
-    snapshot: SessionState,
-    include_snapshot: bool,
-    conn_id: u64,
-) {
-    if include_snapshot {
-        send_json(
-            tx,
-            ServerMessage::ConversationBootstrap {
-                session: Box::new(prepare_snapshot_for_transport(snapshot)),
-                conversation: RowPageSummary {
-                    rows: vec![],
-                    total_row_count: 0,
-                    has_more_before: false,
-                    oldest_sequence: None,
-                    newest_sequence: None,
-                },
-            },
-        )
-        .await;
-        return;
-    }
-
-    info!(
-        component = "websocket",
-        event = "ws.subscribe.snapshot_suppressed",
-        connection_id = conn_id,
-        session_id = %session_id,
-        "Session snapshot suppressed (client requested replay-only subscribe)"
-    );
-}
-
 pub(crate) async fn send_raw(tx: &mpsc::Sender<OutboundMessage>, json: String) {
     let _ = tx.send(OutboundMessage::Raw(json)).await;
 }
@@ -146,14 +110,29 @@ pub(crate) async fn send_raw(tx: &mpsc::Sender<OutboundMessage>, json: String) {
 /// If `session_id` is provided and the subscriber lags behind the broadcast buffer,
 /// a `lagged` error is sent to the client so it can re-bootstrap the conversation.
 pub(crate) fn spawn_broadcast_forwarder(
-    mut rx: tokio::sync::broadcast::Receiver<ServerMessage>,
+    rx: tokio::sync::broadcast::Receiver<ServerMessage>,
     outbound_tx: mpsc::Sender<OutboundMessage>,
     session_id: Option<String>,
 ) -> JoinHandle<()> {
+    spawn_filtered_broadcast_forwarder(rx, outbound_tx, session_id, |_| true)
+}
+
+pub(crate) fn spawn_filtered_broadcast_forwarder<F>(
+    mut rx: tokio::sync::broadcast::Receiver<ServerMessage>,
+    outbound_tx: mpsc::Sender<OutboundMessage>,
+    session_id: Option<String>,
+    filter: F,
+) -> JoinHandle<()>
+where
+    F: Fn(&ServerMessage) -> bool + Send + 'static,
+{
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(mut msg) => {
+                    if !filter(&msg) {
+                        continue;
+                    }
                     normalize_transport_message(&mut msg);
                     if outbound_tx
                         .send(OutboundMessage::Json(Box::new(msg)))

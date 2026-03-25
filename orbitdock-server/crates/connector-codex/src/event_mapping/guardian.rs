@@ -38,6 +38,10 @@ fn with_display(mut row: ToolRow) -> ToolRow {
 pub(crate) fn handle_guardian_assessment(
     event: codex_protocol::approvals::GuardianAssessmentEvent,
 ) -> Vec<ConnectorEvent> {
+    let is_in_progress = matches!(
+        event.status,
+        codex_protocol::approvals::GuardianAssessmentStatus::InProgress
+    );
     let status = match event.status {
         codex_protocol::approvals::GuardianAssessmentStatus::InProgress => ToolStatus::Running,
         codex_protocol::approvals::GuardianAssessmentStatus::Approved => ToolStatus::Completed,
@@ -101,5 +105,11 @@ pub(crate) fn handle_guardian_assessment(
         tool_display: None,
     };
 
-    vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(row))]
+    let row_id = row.id.clone();
+    let entry = tool_row_entry(row);
+    vec![if is_in_progress {
+        ConnectorEvent::ConversationRowCreated(entry)
+    } else {
+        ConnectorEvent::ConversationRowUpdated { row_id, entry }
+    }]
 }

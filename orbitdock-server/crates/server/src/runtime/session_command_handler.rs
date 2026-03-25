@@ -13,14 +13,13 @@ use orbitdock_protocol::conversation_contracts::{
 };
 use orbitdock_protocol::domain_events::ToolKind;
 use orbitdock_protocol::{
-    CodexIntegrationMode, Provider, ServerMessage, SessionListItem, SessionStatus, StateChanges,
-    WorkStatus,
+    CodexIntegrationMode, Provider, ServerMessage, SessionStatus, StateChanges, WorkStatus,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
-use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
+use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::transition;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_broadcasts::{
@@ -37,12 +36,15 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
             id,
             status,
             work_status,
+            lifecycle_state,
             last_activity_at,
             last_progress_at,
         } => PersistCommand::SessionUpdate {
             id,
             status,
             work_status,
+            control_mode: None,
+            lifecycle_state,
             last_activity_at,
             last_progress_at,
         },
@@ -95,9 +97,6 @@ async fn persist_and_broadcast_mark_read(
             unread_count: Some(0),
             ..Default::default()
         }),
-    });
-    handle.broadcast(ServerMessage::SessionListItemUpdated {
-        session: SessionListItem::from_summary(&handle.summary()),
     });
 }
 
@@ -187,29 +186,10 @@ pub async fn handle_session_command(
             }
             let rx = handle.subscribe();
             persist_and_broadcast_mark_read(handle, persist_tx).await;
-            let state = handle.retained_state();
-            let _ = reply.send(SubscribeResult::Snapshot {
-                state: Box::new(state),
-                rx,
-            });
-        }
-        SessionCommand::GetWorkStatus { reply } => {
-            let _ = reply.send(handle.work_status());
+            let _ = reply.send(SubscribeResult::ResyncRequired { rx });
         }
         SessionCommand::GetLastTool { reply } => {
             let _ = reply.send(handle.last_tool().map(String::from));
-        }
-        SessionCommand::GetCustomName { reply } => {
-            let _ = reply.send(handle.custom_name().map(String::from));
-        }
-        SessionCommand::GetProvider { reply } => {
-            let _ = reply.send(handle.provider());
-        }
-        SessionCommand::GetProjectPath { reply } => {
-            let _ = reply.send(handle.project_path().to_string());
-        }
-        SessionCommand::GetMessageCount { reply } => {
-            let _ = reply.send(handle.message_count());
         }
         SessionCommand::GetConversationBootstrap { limit, reply } => {
             let _ = reply.send(handle.conversation_bootstrap(limit));
@@ -239,24 +219,11 @@ pub async fn handle_session_command(
             let session_id = handle.id().to_string();
             dispatch_transition_input(&session_id, event, handle, persist_tx).await;
         }
-        SessionCommand::SetCustomName { name } => {
-            handle.set_custom_name(name);
-        }
         SessionCommand::SetWorkStatus { status } => {
             handle.set_work_status(status);
         }
         SessionCommand::SetModel { model } => {
             handle.set_model(model);
-        }
-        SessionCommand::SetConfig {
-            approval_policy,
-            sandbox_mode,
-        } => {
-            handle.set_config(SessionConfigPatch {
-                approval_policy,
-                sandbox_mode,
-                ..Default::default()
-            });
         }
         SessionCommand::SetTranscriptPath { path } => {
             handle.set_transcript_path(path);
@@ -267,20 +234,11 @@ pub async fn handle_session_command(
         SessionCommand::SetStatus { status } => {
             handle.set_status(status);
         }
-        SessionCommand::SetStartedAt { ts } => {
-            handle.set_started_at(ts);
-        }
         SessionCommand::SetLastActivityAt { ts } => {
             handle.set_last_activity_at(ts);
         }
         SessionCommand::SetCodexIntegrationMode { mode } => {
             handle.set_codex_integration_mode(mode);
-        }
-        SessionCommand::SetClaudeIntegrationMode { mode } => {
-            handle.set_claude_integration_mode(mode);
-        }
-        SessionCommand::SetForkedFrom { source_id } => {
-            handle.set_forked_from(source_id);
         }
         SessionCommand::SetLastTool { tool } => {
             handle.set_last_tool(tool);
@@ -363,18 +321,16 @@ pub async fn handle_session_command(
         }
 
         // -- Row operations --
-        SessionCommand::AddRow { entry } => {
-            let _ = handle.add_row(entry);
-        }
         SessionCommand::ReplaceRows { rows } => {
             handle.replace_rows(rows);
-            // Force resync is rare — broadcast all rows so clients recover.
-            let all_rows: Vec<_> = handle.rows().iter().map(|e| e.to_summary()).collect();
-            handle.broadcast(ServerMessage::ConversationRowsChanged {
-                session_id: handle.id().to_string(),
-                upserted: all_rows,
-                removed_row_ids: vec![],
-                total_row_count: handle.message_count() as u64,
+            handle.broadcast(ServerMessage::Error {
+                code: "conversation_resync_required".to_string(),
+                message: format!(
+                    "Conversation changed for session {}; refetch GET /api/sessions/{}/conversation",
+                    handle.id(),
+                    handle.id()
+                ),
+                session_id: Some(handle.id().to_string()),
             });
         }
         SessionCommand::AddRowAndBroadcast { entry } => {
@@ -430,41 +386,6 @@ pub async fn handle_session_command(
                     changes: Box::new(changes),
                 });
             }
-        }
-        SessionCommand::UpsertRowAndBroadcast { entry } => {
-            let session_id = handle.id().to_string();
-            let entry = handle.upsert_row(entry);
-            let row_id = entry.id().to_string();
-
-            // Persist-first: send to DB with response channel, await DB-assigned sequence.
-            let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
-            let _ = persist_tx
-                .send(PersistCommand::RowUpsert {
-                    session_id: session_id.clone(),
-                    entry: entry.clone(),
-                    viewer_present: handle.has_active_viewers(),
-                    assigned_sequence: None,
-                    sequence_tx: Some(seq_tx),
-                })
-                .await;
-
-            // Update in-memory row with DB-authoritative sequence before broadcasting.
-            if let Ok(db_seq) = seq_rx.await {
-                handle.set_row_sequence(&row_id, db_seq);
-            }
-
-            // Re-derive summary from the now-updated in-memory row.
-            let summary = handle
-                .row_by_id(&row_id)
-                .map(|r| r.to_summary())
-                .unwrap_or_else(|| entry.to_summary());
-            let rows_changed = ServerMessage::ConversationRowsChanged {
-                session_id,
-                upserted: vec![summary],
-                removed_row_ids: vec![],
-                total_row_count: handle.message_count() as u64,
-            };
-            handle.broadcast(rows_changed);
         }
         SessionCommand::UpdateSteerOutcome {
             message_id,
@@ -750,7 +671,6 @@ pub(crate) async fn dispatch_transition_input(
     };
 
     let now = chrono_now();
-    let previous_list_item = SessionListItem::from_summary(&handle.summary());
     let state = handle.extract_state();
     let (new_state, effects) = transition::transition(state, input, &now);
     handle.apply_state(new_state);
@@ -880,13 +800,6 @@ pub(crate) async fn dispatch_transition_input(
         handle.broadcast(ServerMessage::SessionDelta {
             session_id: handle.id().to_string(),
             changes: Box::new(changes),
-        });
-    }
-
-    let next_list_item = SessionListItem::from_summary(&handle.summary());
-    if next_list_item != previous_list_item {
-        handle.broadcast(ServerMessage::SessionListItemUpdated {
-            session: next_list_item,
         });
     }
 

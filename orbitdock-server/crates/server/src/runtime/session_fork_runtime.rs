@@ -4,9 +4,7 @@ use tracing::{debug, info, warn};
 
 use orbitdock_connector_codex::CodexConnector;
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
-use orbitdock_protocol::{
-    ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionState, SessionSummary,
-};
+use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionSummary};
 
 use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
@@ -25,8 +23,6 @@ use crate::runtime::session_runtime_helpers::{
 pub(crate) struct ForkedSessionStart {
     pub new_session_id: String,
     pub summary: SessionSummary,
-    pub snapshot: SessionState,
-    pub forked_from_thread_id: Option<String>,
 }
 
 pub(crate) struct FinalizeCodexForkRequest<'a> {
@@ -83,7 +79,6 @@ pub(crate) async fn start_claude_fork_session(
     }
 
     let summary = handle.summary();
-    let snapshot = handle.retained_state();
     let persist_tx = state.persist().clone();
 
     let _ = persist_tx
@@ -91,6 +86,7 @@ pub(crate) async fn start_claude_fork_session(
             SessionCreateParams {
                 id: new_session_id.clone(),
                 provider: Provider::Claude,
+                control_mode: orbitdock_protocol::SessionControlMode::Direct,
                 project_path: effective_cwd.to_string(),
                 project_name,
                 branch: fork_branch,
@@ -131,8 +127,6 @@ pub(crate) async fn start_claude_fork_session(
     Ok(ForkedSessionStart {
         new_session_id,
         summary,
-        snapshot,
-        forked_from_thread_id: None,
     })
 }
 
@@ -189,7 +183,6 @@ pub(crate) async fn finalize_codex_fork_session(
     }
 
     let summary = handle.summary();
-    let snapshot = handle.retained_state();
     let persist_tx = state.persist().clone();
 
     let _ = persist_tx
@@ -197,6 +190,7 @@ pub(crate) async fn finalize_codex_fork_session(
             SessionCreateParams {
                 id: new_session_id.clone(),
                 provider: Provider::Codex,
+                control_mode: orbitdock_protocol::SessionControlMode::Direct,
                 project_path: effective_cwd.to_string(),
                 project_name,
                 branch: fork_branch,
@@ -261,8 +255,6 @@ pub(crate) async fn finalize_codex_fork_session(
     Ok(ForkedSessionStart {
         new_session_id,
         summary,
-        snapshot,
-        forked_from_thread_id: Some(new_thread_id),
     })
 }
 

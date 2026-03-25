@@ -722,26 +722,23 @@ pub fn transition(
                 })
             });
 
-            if !is_dup {
-                // In-memory sequence for live ordering; DB assigns authoritative sequence on persist.
-                entry.sequence = state.rows.last().map(|r| r.sequence + 1).unwrap_or(0);
-                state.rows.push(entry.clone());
-                state.total_row_count = entry.sequence + 1;
+            if is_dup {
+                return (state, effects);
+            }
+
+            if let Some(existing_pos) = state.rows.iter().position(|row| row.id() == entry.id()) {
+                if entry.sequence == 0 {
+                    entry.sequence = state.rows[existing_pos].sequence;
+                }
+
+                state.rows[existing_pos] = entry.clone();
                 state.last_activity_at = Some(now.to_string());
                 state.last_progress_at = Some(now.to_string());
 
-                effects.push(Effect::Persist(Box::new(PersistOp::RowAppend {
+                effects.push(Effect::Persist(Box::new(PersistOp::RowUpsert {
                     session_id: sid.clone(),
                     entry: entry.clone(),
                 })));
-
-                // Increment tool_count for tool rows
-                if matches!(&entry.row, ConversationRow::Tool(_)) {
-                    effects.push(Effect::Persist(Box::new(PersistOp::ToolCountIncrement {
-                        session_id: sid.clone(),
-                    })));
-                }
-
                 effects.push(Effect::Emit(Box::new(
                     ServerMessage::ConversationRowsChanged {
                         session_id: sid,
@@ -750,10 +747,39 @@ pub fn transition(
                         total_row_count: state.total_row_count,
                     },
                 )));
+                return (state, effects);
             }
+
+            // In-memory sequence for live ordering; DB assigns authoritative sequence on persist.
+            entry.sequence = state.rows.last().map(|r| r.sequence + 1).unwrap_or(0);
+            state.rows.push(entry.clone());
+            state.total_row_count = entry.sequence + 1;
+            state.last_activity_at = Some(now.to_string());
+            state.last_progress_at = Some(now.to_string());
+
+            effects.push(Effect::Persist(Box::new(PersistOp::RowAppend {
+                session_id: sid.clone(),
+                entry: entry.clone(),
+            })));
+
+            // Increment tool_count for tool rows
+            if matches!(&entry.row, ConversationRow::Tool(_)) {
+                effects.push(Effect::Persist(Box::new(PersistOp::ToolCountIncrement {
+                    session_id: sid.clone(),
+                })));
+            }
+
+            effects.push(Effect::Emit(Box::new(
+                ServerMessage::ConversationRowsChanged {
+                    session_id: sid,
+                    upserted: vec![entry.to_summary()],
+                    removed_row_ids: vec![],
+                    total_row_count: state.total_row_count,
+                },
+            )));
         }
 
-        Input::RowUpdated { row_id, entry } => {
+        Input::RowUpdated { row_id, mut entry } => {
             let found = state
                 .rows
                 .iter()
@@ -767,9 +793,18 @@ pub fn transition(
                 "Processing RowUpdated input"
             );
 
-            // Replace the existing row in state if found
+            // Replace the existing row in state if found, otherwise upsert it into
+            // the retained window so out-of-order provider updates do not vanish.
             if let Some(existing) = state.rows.iter_mut().find(|e| e.id() == row_id.as_str()) {
+                if entry.sequence == 0 {
+                    entry.sequence = existing.sequence;
+                }
                 *existing = entry.clone();
+            } else {
+                entry.session_id = sid.clone();
+                entry.sequence = state.rows.last().map(|row| row.sequence + 1).unwrap_or(0);
+                state.rows.push(entry.clone());
+                state.total_row_count = state.total_row_count.max(entry.sequence + 1);
             }
             state.last_activity_at = Some(now.to_string());
             state.last_progress_at = Some(now.to_string());
@@ -3077,6 +3112,40 @@ mod tests {
     }
 
     #[test]
+    fn row_created_with_existing_id_upserts_instead_of_appending() {
+        let mut state = test_state();
+        let mut entry = test_assistant_row("first");
+        if let ConversationRow::Assistant(ref mut msg) = entry.row {
+            msg.id = "guardian-call-1".to_string();
+        }
+        entry.sequence = 7;
+        state.rows.push(entry.clone());
+        state.total_row_count = 1;
+
+        let mut updated_entry = entry.clone();
+        if let ConversationRow::Assistant(ref mut msg) = updated_entry.row {
+            msg.content = "updated".to_string();
+        }
+        updated_entry.sequence = 0;
+
+        let (new_state, effects) = transition(state, Input::RowCreated(updated_entry), NOW);
+
+        assert_eq!(new_state.rows.len(), 1);
+        assert_eq!(new_state.rows[0].sequence, 7);
+        if let ConversationRow::Assistant(ref msg) = new_state.rows[0].row {
+            assert_eq!(msg.id, "guardian-call-1");
+            assert_eq!(msg.content, "updated");
+        } else {
+            panic!("expected Assistant row");
+        }
+        assert!(matches!(
+            effects[0],
+            Effect::Persist(ref op)
+                if matches!(op.as_ref(), PersistOp::RowUpsert { .. })
+        ));
+    }
+
+    #[test]
     fn row_updated_mutates_existing_state_row() {
         let mut state = test_state();
         let mut entry = test_assistant_row("I");
@@ -3115,6 +3184,34 @@ mod tests {
         }
         assert_eq!(new_state.last_activity_at.as_deref(), Some(NOW));
         assert_eq!(effects.len(), 2); // Persist + Emit
+    }
+
+    #[test]
+    fn row_updated_inserts_when_row_is_missing() {
+        let state = test_state();
+        let mut entry = test_assistant_row("late arrival");
+        if let ConversationRow::Assistant(ref mut msg) = entry.row {
+            msg.id = "guardian-call-2".to_string();
+        }
+        entry.sequence = 0;
+
+        let (new_state, effects) = transition(
+            state,
+            Input::RowUpdated {
+                row_id: "guardian-call-2".to_string(),
+                entry,
+            },
+            NOW,
+        );
+
+        assert_eq!(new_state.rows.len(), 1);
+        assert_eq!(new_state.rows[0].sequence, 0);
+        assert_eq!(new_state.total_row_count, 1);
+        assert!(matches!(
+            effects[0],
+            Effect::Persist(ref op)
+                if matches!(op.as_ref(), PersistOp::RowUpsert { .. })
+        ));
     }
 
     #[test]

@@ -105,6 +105,7 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
     let provider = parse_provider(&restored.provider);
     let status = parse_session_status(restored.end_reason.as_ref(), &restored.status);
     let work_status = parse_work_status(status, &restored.work_status);
+    let control_mode = restored.control_mode;
     let total_row_count = restored.rows.len() as u64;
     let oldest_sequence = restored.rows.first().map(|entry| entry.sequence);
     let newest_sequence = restored.rows.last().map(|entry| entry.sequence);
@@ -132,6 +133,12 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         last_message: restored.last_message,
         status,
         work_status,
+        control_mode,
+        lifecycle_state: restored.lifecycle_state,
+        accepts_user_input: restored.lifecycle_state
+            == orbitdock_protocol::SessionLifecycleState::Open
+            && control_mode == orbitdock_protocol::SessionControlMode::Direct
+            && status == SessionStatus::Active,
         steerable: work_status == WorkStatus::Working,
         rows: restored.rows,
         total_row_count,
@@ -284,6 +291,8 @@ pub(crate) fn restored_session_to_handle(
         },
         status,
         work_status,
+        control_mode: restored.control_mode,
+        lifecycle_state: restored.lifecycle_state,
         permission_mode: restored.permission_mode,
         token_usage: TokenUsage {
             input_tokens: restored.input_tokens.max(0) as u64,
@@ -336,6 +345,7 @@ pub(crate) fn restored_session_to_handle(
         approval_version: restored.approval_version,
         unread_count: restored.unread_count,
     });
+    handle.set_control_mode(restored.control_mode);
     handle.set_mission_context(mission_id, issue_identifier);
     if allow_bypass {
         handle.set_allow_bypass_permissions(true);

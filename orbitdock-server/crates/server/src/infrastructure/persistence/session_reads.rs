@@ -2,7 +2,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
-    CodexConfigMode, CodexConfigSource, CodexSessionOverrides, TokenUsageSnapshotKind,
+    CodexConfigMode, CodexConfigSource, CodexSessionOverrides, SessionControlMode,
+    SessionLifecycleState, TokenUsageSnapshotKind,
 };
 
 use super::chrono_now;
@@ -29,6 +30,8 @@ struct ActiveSessionRow {
     provider: String,
     status: String,
     work_status: String,
+    control_mode: Option<String>,
+    lifecycle_state: SessionLifecycleState,
     project_path: String,
     transcript_path: Option<String>,
     project_name: Option<String>,
@@ -61,6 +64,8 @@ pub struct RestoredSession {
     pub provider: String,
     pub status: String,
     pub work_status: String,
+    pub control_mode: SessionControlMode,
+    pub lifecycle_state: SessionLifecycleState,
     pub project_path: String,
     pub transcript_path: Option<String>,
     pub project_name: Option<String>,
@@ -124,6 +129,78 @@ fn resolve_custom_name_from_first_prompt(
     _first_prompt: Option<&str>,
 ) -> Result<Option<String>, rusqlite::Error> {
     Ok(custom_name)
+}
+
+fn parse_lifecycle_state(value: Option<String>) -> SessionLifecycleState {
+    match value.as_deref().map(str::to_ascii_lowercase).as_deref() {
+        Some("resumable") => SessionLifecycleState::Resumable,
+        Some("ended") => SessionLifecycleState::Ended,
+        _ => SessionLifecycleState::Open,
+    }
+}
+
+fn parse_control_mode(value: Option<String>) -> Option<SessionControlMode> {
+    match value.as_deref().map(str::to_ascii_lowercase).as_deref() {
+        Some("direct") => Some(SessionControlMode::Direct),
+        Some("passive") => Some(SessionControlMode::Passive),
+        _ => None,
+    }
+}
+
+fn control_mode_to_integration_mode(
+    provider: &str,
+    control_mode: SessionControlMode,
+) -> (Option<String>, Option<String>) {
+    match provider.to_ascii_lowercase().as_str() {
+        "claude" => (
+            None,
+            Some(match control_mode {
+                SessionControlMode::Direct => "direct".to_string(),
+                SessionControlMode::Passive => "passive".to_string(),
+            }),
+        ),
+        _ => (
+            Some(match control_mode {
+                SessionControlMode::Direct => "direct".to_string(),
+                SessionControlMode::Passive => "passive".to_string(),
+            }),
+            None,
+        ),
+    }
+}
+
+/// Load just the persisted lifecycle state for a session.
+#[cfg(test)]
+pub async fn load_session_lifecycle_state(
+    id: &str,
+) -> Result<Option<SessionLifecycleState>, anyhow::Error> {
+    let db_path = crate::infrastructure::paths::db_path();
+    let id_owned = id.to_string();
+
+    tokio::task::spawn_blocking(move || -> Result<Option<SessionLifecycleState>, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(None);
+        }
+
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        let lifecycle_state: Option<String> = conn
+            .query_row(
+                "SELECT COALESCE(lifecycle_state, CASE WHEN status = 'ended' THEN 'ended' ELSE 'open' END)
+                 FROM sessions
+                 WHERE id = ?1",
+                params![&id_owned],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        Ok(lifecycle_state.map(|value| parse_lifecycle_state(Some(value))))
+    })
+    .await?
 }
 
 /// Load recent sessions from the database for server restart recovery.
@@ -230,8 +307,44 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 [],
             )?;
 
+            conn.execute(
+                "UPDATE sessions
+                 SET lifecycle_state = 'open'
+                 WHERE status = 'active'
+                   AND ((provider = 'claude' AND claude_integration_mode = 'direct')
+                     OR (provider = 'codex' AND codex_integration_mode = 'direct'))
+                   AND COALESCE(lifecycle_state, 'open') != 'open'",
+                [],
+            )?;
+
+            conn.execute(
+                "UPDATE sessions
+                 SET lifecycle_state = 'ended'
+                 WHERE status = 'ended'
+                   AND COALESCE(lifecycle_state, 'ended') != 'ended'",
+                [],
+            )?;
+
+            conn.execute(
+                "UPDATE sessions
+                 SET control_mode = CASE
+                     WHEN provider = 'claude' AND claude_integration_mode = 'direct' THEN 'direct'
+                     WHEN provider = 'codex' AND codex_integration_mode = 'direct' THEN 'direct'
+                     ELSE 'passive'
+                 END
+                 WHERE control_mode IS NULL OR trim(control_mode) = ''",
+                [],
+            )?;
+
             let mut stmt = conn.prepare(
-                "SELECT s.id, s.provider, s.status, s.work_status, s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.codex_integration_mode, s.codex_thread_id, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
+                "SELECT s.id, s.provider, s.status, s.work_status,
+                        COALESCE(s.control_mode, CASE
+                            WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
+                            WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct' THEN 'direct'
+                            ELSE 'passive'
+                        END),
+                        COALESCE(s.lifecycle_state, CASE WHEN s.status = 'ended' THEN 'ended' ELSE 'open' END),
+                        s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.codex_integration_mode, s.codex_thread_id, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
                         s.pending_tool_name, s.pending_tool_input, s.pending_question,
                         COALESCE(uss.snapshot_input_tokens, s.input_tokens, 0),
                         COALESCE(uss.snapshot_output_tokens, s.output_tokens, 0),
@@ -253,36 +366,38 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
 
             let session_rows: Vec<ActiveSessionRow> = stmt
                 .query_map([], |row| {
-                    Ok(ActiveSessionRow {
-                        id: row.get(0)?,
-                        provider: row.get(1)?,
-                        status: row.get(2)?,
-                        work_status: row.get(3)?,
-                        project_path: row.get(4)?,
-                        transcript_path: row.get(5)?,
-                        project_name: row.get(6)?,
-                        model: row.get(7)?,
-                        custom_name: row.get(8)?,
-                        first_prompt: row.get(9)?,
-                        summary: row.get(10)?,
-                        codex_integration_mode: row.get(11)?,
-                        codex_thread_id: row.get(12)?,
-                        started_at: row.get(13)?,
-                        last_activity_at: row.get(14)?,
-                        last_progress_at: row.get(15)?,
-                        approval_policy: row.get(16)?,
-                        sandbox_mode: row.get(17)?,
-                        permission_mode: row.get(18)?,
-                        pending_tool_name: row.get(19)?,
-                        pending_tool_input: row.get(20)?,
-                        pending_question: row.get(21)?,
-                        input_tokens: row.get(22)?,
-                        output_tokens: row.get(23)?,
-                        cached_tokens: row.get(24)?,
-                        context_window: row.get(25)?,
-                        token_usage_snapshot_kind_str: row.get(26)?,
-                    })
-                })?
+                        Ok(ActiveSessionRow {
+                            id: row.get(0)?,
+                            provider: row.get(1)?,
+                            status: row.get(2)?,
+                            work_status: row.get(3)?,
+                            control_mode: row.get(4)?,
+                            lifecycle_state: parse_lifecycle_state(row.get(5)?),
+                            project_path: row.get(6)?,
+                            transcript_path: row.get(7)?,
+                            project_name: row.get(8)?,
+                            model: row.get(9)?,
+                            custom_name: row.get(10)?,
+                            first_prompt: row.get(11)?,
+                            summary: row.get(12)?,
+                            codex_integration_mode: row.get(13)?,
+                            codex_thread_id: row.get(14)?,
+                            started_at: row.get(15)?,
+                            last_activity_at: row.get(16)?,
+                            last_progress_at: row.get(17)?,
+                            approval_policy: row.get(18)?,
+                            sandbox_mode: row.get(19)?,
+                            permission_mode: row.get(20)?,
+                            pending_tool_name: row.get(21)?,
+                            pending_tool_input: row.get(22)?,
+                            pending_question: row.get(23)?,
+                            input_tokens: row.get(24)?,
+                            output_tokens: row.get(25)?,
+                            cached_tokens: row.get(26)?,
+                            context_window: row.get(27)?,
+                            token_usage_snapshot_kind_str: row.get(28)?,
+                        })
+                    })?
                 .filter_map(|row| row.ok())
                 .collect();
 
@@ -294,6 +409,8 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     provider,
                     status,
                     work_status,
+                    control_mode,
+                    lifecycle_state,
                     project_path,
                     transcript_path,
                     project_name,
@@ -301,7 +418,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     custom_name,
                     first_prompt,
                     summary: _summary,
-                    codex_integration_mode,
+                    codex_integration_mode: raw_codex_integration_mode,
                     codex_thread_id,
                     started_at,
                     last_activity_at,
@@ -320,6 +437,18 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 } = row;
                 let token_usage_snapshot_kind =
                     snapshot_kind_from_str(Some(token_usage_snapshot_kind_str.as_str()));
+                let control_mode = parse_control_mode(control_mode)
+                    .unwrap_or_else(|| {
+                        if provider == "codex"
+                            && raw_codex_integration_mode.as_deref() == Some("direct")
+                        {
+                            SessionControlMode::Direct
+                        } else {
+                            SessionControlMode::Passive
+                        }
+                    });
+                let (codex_integration_mode, claude_integration_mode) =
+                    control_mode_to_integration_mode(&provider, control_mode);
 
                 let end_reason_val: Option<String> = conn
                     .query_row(
@@ -410,14 +539,6 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     )
                     .unwrap_or((None, None, None));
 
-                let claude_integration_mode: Option<String> = conn
-                    .query_row(
-                        "SELECT claude_integration_mode FROM sessions WHERE id = ?1",
-                        params![id],
-                        |row| row.get(0),
-                    )
-                    .unwrap_or(None);
-
                 let claude_sdk_session_id: Option<String> = conn
                     .query_row(
                         "SELECT claude_sdk_session_id FROM sessions WHERE id = ?1",
@@ -476,6 +597,24 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 };
                 let codex_config_overrides = codex_config_overrides_raw
                     .and_then(|value| serde_json::from_str::<CodexSessionOverrides>(&value).ok());
+                let codex_integration_mode = if provider == "codex" {
+                    let mode = match control_mode {
+                        SessionControlMode::Direct => "direct",
+                        SessionControlMode::Passive => "passive",
+                    };
+                    Some(mode.to_string())
+                } else {
+                    codex_integration_mode
+                };
+                let claude_integration_mode = if provider == "claude" {
+                    let mode = match control_mode {
+                        SessionControlMode::Direct => "direct",
+                        SessionControlMode::Passive => "passive",
+                    };
+                    Some(mode.to_string())
+                } else {
+                    claude_integration_mode
+                };
 
                 let (terminal_session_id, terminal_app): (Option<String>, Option<String>) = conn
                     .query_row(
@@ -552,6 +691,8 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     provider,
                     status,
                     work_status,
+                    control_mode,
+                    lifecycle_state,
                     project_path,
                     transcript_path,
                     project_name,
@@ -635,14 +776,19 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             )?;
 
             let mut stmt = conn.prepare(
-                "SELECT s.id, s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
+                "SELECT s.id, s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.status, s.work_status, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
                         s.pending_tool_name, s.pending_tool_input, s.pending_question,
                         COALESCE(uss.snapshot_input_tokens, s.input_tokens, 0),
                         COALESCE(uss.snapshot_output_tokens, s.output_tokens, 0),
                         COALESCE(uss.snapshot_cached_tokens, s.cached_tokens, 0),
                         COALESCE(uss.snapshot_context_window, s.context_window, 0),
-                        s.provider, s.codex_integration_mode, s.claude_integration_mode,
+                        s.provider, COALESCE(s.control_mode, CASE
+                            WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
+                            WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct' THEN 'direct'
+                            ELSE 'passive'
+                        END), s.codex_integration_mode, s.claude_integration_mode,
                         s.claude_sdk_session_id, s.codex_thread_id, s.end_reason,
+                        COALESCE(s.lifecycle_state, CASE WHEN s.status = 'ended' THEN 'ended' ELSE 'open' END),
                         s.terminal_session_id, s.terminal_app,
                         COALESCE(uss.snapshot_kind, 'unknown')
                  FROM sessions s
@@ -661,8 +807,8 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                         row.get::<_, Option<String>>(5)?,
                         row.get::<_, Option<String>>(6)?,
                         row.get::<_, Option<String>>(7)?,
-                        row.get::<_, Option<String>>(8)?,
-                        row.get::<_, Option<String>>(9)?,
+                        row.get::<_, String>(8)?,
+                        row.get::<_, String>(9)?,
                         row.get::<_, Option<String>>(10)?,
                         row.get::<_, Option<String>>(11)?,
                         row.get::<_, Option<String>>(12)?,
@@ -670,19 +816,23 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                         row.get::<_, Option<String>>(14)?,
                         row.get::<_, Option<String>>(15)?,
                         row.get::<_, Option<String>>(16)?,
-                        row.get::<_, i64>(17)?,
-                        row.get::<_, i64>(18)?,
+                        row.get::<_, Option<String>>(17)?,
+                        row.get::<_, Option<String>>(18)?,
                         row.get::<_, i64>(19)?,
                         row.get::<_, i64>(20)?,
-                        row.get::<_, String>(21)?,
-                        row.get::<_, Option<String>>(22)?,
-                        row.get::<_, Option<String>>(23)?,
-                        row.get::<_, Option<String>>(24)?,
+                        row.get::<_, i64>(21)?,
+                        row.get::<_, i64>(22)?,
+                        row.get::<_, String>(23)?,
+                        row.get::<_, String>(24)?,
                         row.get::<_, Option<String>>(25)?,
                         row.get::<_, Option<String>>(26)?,
                         row.get::<_, Option<String>>(27)?,
                         row.get::<_, Option<String>>(28)?,
-                        row.get::<_, String>(29)?,
+                        row.get::<_, Option<String>>(29)?,
+                        row.get::<_, String>(30)?,
+                        row.get::<_, Option<String>>(31)?,
+                        row.get::<_, Option<String>>(32)?,
+                        row.get::<_, String>(33)?,
                     ))
                 })
                 .optional()?;
@@ -696,6 +846,8 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 custom_name,
                 first_prompt,
                 summary,
+                status,
+                work_status,
                 started_at,
                 last_activity_at,
                 last_progress_at,
@@ -710,11 +862,13 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 cached_tokens,
                 context_window,
                 provider,
-                codex_integration_mode,
-                claude_integration_mode,
+                control_mode,
+                _codex_integration_mode,
+                _claude_integration_mode,
                 claude_sdk_session_id,
                 codex_thread_id,
                 end_reason,
+                lifecycle_state,
                 terminal_session_id,
                 terminal_app,
                 token_usage_snapshot_kind_str,
@@ -725,6 +879,10 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
 
             let token_usage_snapshot_kind =
                 snapshot_kind_from_str(Some(token_usage_snapshot_kind_str.as_str()));
+            let control_mode = parse_control_mode(Some(control_mode))
+                .unwrap_or(SessionControlMode::Passive);
+            let (codex_integration_mode, claude_integration_mode) =
+                control_mode_to_integration_mode(&provider, control_mode);
 
             let rows = load_messages_from_db(&conn, &id)?;
             let custom_name = resolve_custom_name_from_first_prompt(
@@ -877,8 +1035,10 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             Ok(Some(RestoredSession {
                 id,
                 provider,
-                status: "active".to_string(),
-                work_status: "waiting".to_string(),
+                status,
+                work_status,
+                control_mode,
+                lifecycle_state: parse_lifecycle_state(Some(lifecycle_state)),
                 project_path,
                 transcript_path,
                 project_name,

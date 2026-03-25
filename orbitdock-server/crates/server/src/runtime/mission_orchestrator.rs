@@ -778,6 +778,7 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
     };
 
     let _ = registry.list_tx().send(msg);
+    registry.publish_missions_snapshot();
 }
 
 /// Broadcast a MissionDelta by loading the mission from DB.

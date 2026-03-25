@@ -41,6 +41,9 @@ fn log_unhandled_wrapper(
     let Some(wrapper_hint) = wrapper_hint(&message.content) else {
         return;
     };
+    if is_known_wrapper_hint(&wrapper_hint) {
+        return;
+    }
     if !message_passthrough_unmodified(original, upgraded) {
         return;
     }
@@ -134,6 +137,10 @@ fn wrapper_hint(content: &str) -> Option<String> {
     }
 }
 
+fn is_known_wrapper_hint(wrapper_hint: &str) -> bool {
+    matches!(wrapper_hint, "collaboration_mode")
+}
+
 fn content_preview(content: &str) -> String {
     const MAX_LEN: usize = 160;
 
@@ -147,7 +154,7 @@ fn content_preview(content: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::wrapper_hint;
+    use super::{is_known_wrapper_hint, wrapper_hint};
 
     #[test]
     fn detects_agents_instruction_wrapper_hint() {
@@ -178,5 +185,11 @@ mod tests {
     #[test]
     fn ignores_plain_text_content() {
         assert_eq!(wrapper_hint("Hello there"), None);
+    }
+
+    #[test]
+    fn ignores_known_collaboration_mode_wrapper_for_logging() {
+        assert!(is_known_wrapper_hint("collaboration_mode"));
+        assert!(!is_known_wrapper_hint("image"));
     }
 }

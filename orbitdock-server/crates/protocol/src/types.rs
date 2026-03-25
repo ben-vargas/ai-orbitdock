@@ -161,6 +161,23 @@ pub enum SessionStatus {
     Ended,
 }
 
+/// Normalized control ownership for a session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionControlMode {
+    Direct,
+    Passive,
+}
+
+/// Normalized runtime lifecycle for a session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionLifecycleState {
+    Open,
+    Resumable,
+    Ended,
+}
+
 /// Outcome of a steer-turn attempt, surfaced to clients.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -522,6 +539,12 @@ pub struct SessionSummary {
     pub last_message: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
+    #[serde(default = "SessionSummary::default_control_mode")]
+    pub control_mode: SessionControlMode,
+    #[serde(default = "SessionSummary::default_lifecycle_state")]
+    pub lifecycle_state: SessionLifecycleState,
+    #[serde(default)]
+    pub accepts_user_input: bool,
     #[serde(default)]
     pub steerable: bool,
     #[serde(default)]
@@ -628,6 +651,14 @@ pub struct SessionSummary {
 }
 
 impl SessionSummary {
+    fn default_control_mode() -> SessionControlMode {
+        SessionControlMode::Passive
+    }
+
+    fn default_lifecycle_state() -> SessionLifecycleState {
+        SessionLifecycleState::Ended
+    }
+
     pub fn display_title_from_parts(
         custom_name: Option<&str>,
         summary: Option<&str>,
@@ -778,6 +809,8 @@ impl SessionSummary {
             model: self.model.clone(),
             status: self.status,
             work_status: self.work_status,
+            control_mode: self.control_mode,
+            lifecycle_state: self.lifecycle_state,
             codex_integration_mode: self.codex_integration_mode,
             claude_integration_mode: self.claude_integration_mode,
             started_at: self.started_at.clone(),
@@ -820,6 +853,8 @@ impl From<SessionSummary> for SessionListItem {
             model: summary.model,
             status: summary.status,
             work_status: summary.work_status,
+            control_mode: summary.control_mode,
+            lifecycle_state: summary.lifecycle_state,
             codex_integration_mode: summary.codex_integration_mode,
             claude_integration_mode: summary.claude_integration_mode,
             started_at: summary.started_at,
@@ -935,6 +970,13 @@ pub struct SessionState {
     pub last_message: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
+    #[serde(default = "SessionSummary::default_control_mode")]
+    pub control_mode: SessionControlMode,
+    #[serde(default = "SessionSummary::default_lifecycle_state")]
+    pub lifecycle_state: SessionLifecycleState,
+    /// Server-computed: true when the session currently accepts user prompts.
+    #[serde(default)]
+    pub accepts_user_input: bool,
     /// Server-computed: true when the session accepts steer requests.
     #[serde(default)]
     pub steerable: bool,
@@ -1068,6 +1110,10 @@ pub struct SessionListItem {
     pub model: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
+    #[serde(default = "SessionSummary::default_control_mode")]
+    pub control_mode: SessionControlMode,
+    #[serde(default = "SessionSummary::default_lifecycle_state")]
+    pub lifecycle_state: SessionLifecycleState,
     #[serde(default)]
     pub steerable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1138,6 +1184,8 @@ impl SessionListItem {
             model: summary.model.clone(),
             status: summary.status,
             work_status: summary.work_status,
+            control_mode: summary.control_mode,
+            lifecycle_state: summary.lifecycle_state,
             steerable: summary.steerable,
             codex_integration_mode: summary.codex_integration_mode,
             claude_integration_mode: summary.claude_integration_mode,
@@ -1204,6 +1252,10 @@ pub struct DashboardConversationItem {
     pub claude_integration_mode: Option<ClaudeIntegrationMode>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
+    #[serde(default = "SessionSummary::default_control_mode")]
+    pub control_mode: SessionControlMode,
+    #[serde(default = "SessionSummary::default_lifecycle_state")]
+    pub lifecycle_state: SessionLifecycleState,
     pub list_status: SessionListStatus,
     pub display_title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1247,6 +1299,12 @@ pub struct StateChanges {
     pub status: Option<SessionStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_status: Option<WorkStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub control_mode: Option<SessionControlMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle_state: Option<SessionLifecycleState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accepts_user_input: Option<bool>,
     /// Server-computed flag: true when the session accepts steer requests.
     /// Derived from work_status (and potentially other factors in the future).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1642,6 +1700,83 @@ pub struct ClientPrimaryClaim {
     pub device_name: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionSurface {
+    Detail,
+    Composer,
+    Conversation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerHello {
+    pub server_version: String,
+    pub protocol_major: u16,
+    pub protocol_minor: u16,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerMeta {
+    pub server_version: String,
+    pub protocol_major: u16,
+    pub protocol_minor: u16,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
+    pub is_primary: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub client_primary_claims: Vec<ClientPrimaryClaim>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardCounts {
+    pub attention: u32,
+    pub running: u32,
+    pub ready: u32,
+    pub direct: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardSnapshot {
+    pub revision: u64,
+    pub sessions: Vec<SessionListItem>,
+    pub conversations: Vec<DashboardConversationItem>,
+    pub counts: DashboardCounts,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MissionsSnapshot {
+    pub revision: u64,
+    pub missions: Vec<MissionSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionDetailSnapshot {
+    pub revision: u64,
+    pub session: SessionState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionComposerSnapshot {
+    pub revision: u64,
+    pub session: SessionState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationSnapshotPage {
+    pub revision: u64,
+    pub session_id: String,
+    pub session: SessionState,
+    pub rows: Vec<crate::conversation_contracts::RowEntrySummary>,
+    pub total_row_count: u64,
+    pub has_more_before: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oldest_sequence: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub newest_sequence: Option<u64>,
+}
+
 /// Codex rate-limit window.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexRateLimitWindow {
@@ -1926,6 +2061,14 @@ pub struct MissionSummary {
     pub tracker_key_source: Option<String>,
 }
 
+/// Server-authored prompt metadata for mission worktree cleanup UX.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MissionCleanupPrompt {
+    /// Number of mission-linked worktrees that are still present on disk and
+    /// eligible for review/cleanup in the client.
+    pub lingering_worktree_count: u32,
+}
+
 /// A single issue tracked by a mission.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MissionIssueItem {
@@ -1999,9 +2142,9 @@ pub enum SessionPermissionRules {
 #[cfg(test)]
 mod tests {
     use super::{
-        CodexApprovalPolicy, CodexGranularApprovalPolicy, Provider, SessionListItem,
-        SessionListStatus, SessionStatus, SessionSummary, TokenUsage, TokenUsageSnapshotKind,
-        WorkStatus,
+        CodexApprovalPolicy, CodexGranularApprovalPolicy, Provider, SessionControlMode,
+        SessionLifecycleState, SessionListItem, SessionListStatus, SessionStatus, SessionSummary,
+        SessionSurface, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
     };
 
     #[test]
@@ -2073,6 +2216,9 @@ mod tests {
             last_message: None,
             status: SessionStatus::Active,
             work_status: WorkStatus::Working,
+            control_mode: SessionControlMode::Direct,
+            lifecycle_state: SessionLifecycleState::Open,
+            accepts_user_input: true,
             steerable: true,
             token_usage: TokenUsage::default(),
             token_usage_snapshot_kind: TokenUsageSnapshotKind::default(),
@@ -2169,6 +2315,32 @@ mod tests {
                     mcp_elicitations: false,
                 },
             }
+        );
+    }
+
+    #[test]
+    fn session_authority_enums_round_trip() {
+        let control_json = serde_json::to_string(&SessionControlMode::Direct)
+            .expect("serialize session control mode");
+        let lifecycle_json = serde_json::to_string(&SessionLifecycleState::Resumable)
+            .expect("serialize session lifecycle state");
+        let surface_json = serde_json::to_string(&SessionSurface::Conversation)
+            .expect("serialize session surface");
+
+        assert_eq!(
+            serde_json::from_str::<SessionControlMode>(&control_json)
+                .expect("deserialize session control mode"),
+            SessionControlMode::Direct
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionLifecycleState>(&lifecycle_json)
+                .expect("deserialize session lifecycle state"),
+            SessionLifecycleState::Resumable
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionSurface>(&surface_json)
+                .expect("deserialize session surface"),
+            SessionSurface::Conversation
         );
     }
 

@@ -7,7 +7,10 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use orbitdock_protocol::{MissionIssueItem, MissionSummary, OrchestrationState, Provider};
+use orbitdock_protocol::{
+    MissionCleanupPrompt, MissionIssueItem, MissionSummary, MissionsSnapshot, OrchestrationState,
+    Provider,
+};
 
 use crate::domain::mission_control::compute_orchestrator_status;
 use crate::domain::mission_control::config::{
@@ -35,6 +38,7 @@ pub struct MissionsListResponse {
 pub struct MissionDetailResponse {
     pub summary: MissionSummary,
     pub issues: Vec<MissionIssueItem>,
+    pub cleanup_prompt: Option<MissionCleanupPrompt>,
     pub settings: Option<MissionSettingsResponse>,
     pub mission_file_exists: bool,
     pub mission_file_path: Option<String>,
@@ -139,7 +143,7 @@ pub struct UpdateMissionSettingsRequest {
 /// GET /api/missions
 pub async fn list_missions(
     State(registry): State<Arc<SessionRegistry>>,
-) -> ApiResult<MissionsListResponse> {
+) -> ApiResult<MissionsSnapshot> {
     let orchestrator_running = registry.is_orchestrator_running();
     let rows = db_read(&registry, load_missions_with_counts).await?;
 
@@ -150,7 +154,10 @@ pub async fn list_missions(
         })
         .collect();
 
-    Ok(Json(MissionsListResponse { missions }))
+    Ok(Json(MissionsSnapshot {
+        revision: registry.current_missions_snapshot().revision,
+        missions,
+    }))
 }
 
 /// POST /api/missions
@@ -1889,7 +1896,7 @@ fn build_settings_response(mission: &MissionRow) -> Option<MissionSettingsRespon
 /// Set `check_workflow_migration` to `true` only for the detail GET
 /// endpoint — all mutation responses skip the check.
 async fn build_detail_response(
-    registry: &SessionRegistry,
+    registry: &Arc<SessionRegistry>,
     mission: &MissionRow,
     issue_rows: Vec<MissionIssueRow>,
     orchestrator_running: bool,
@@ -1897,6 +1904,7 @@ async fn build_detail_response(
     check_workflow_migration: bool,
 ) -> MissionDetailResponse {
     let summary = mission_row_to_summary_with_issues(mission, &issue_rows, orchestrator_running);
+    let cleanup_prompt = build_cleanup_prompt(registry, &mission.id).await;
     let issues = issue_rows
         .into_iter()
         .map(|row| issue_row_to_item(row, registry))
@@ -1926,6 +1934,7 @@ async fn build_detail_response(
     MissionDetailResponse {
         summary,
         issues,
+        cleanup_prompt,
         settings,
         mission_file_exists,
         mission_file_path: mission.mission_file_path.clone(),
@@ -1933,8 +1942,39 @@ async fn build_detail_response(
     }
 }
 
+async fn build_cleanup_prompt(
+    registry: &Arc<SessionRegistry>,
+    mission_id: &str,
+) -> Option<MissionCleanupPrompt> {
+    let mid = mission_id.to_string();
+    let candidates = db_read(registry, move |conn| {
+        crate::infrastructure::persistence::load_mission_cleanup_candidates(conn, &mid)
+    })
+    .await
+    .ok()?;
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let mut lingering_worktree_count = 0u32;
+    for candidate in candidates {
+        if crate::domain::git::repo::worktree_exists_on_disk(&candidate.worktree_path).await {
+            lingering_worktree_count += 1;
+        }
+    }
+
+    if lingering_worktree_count == 0 {
+        None
+    } else {
+        Some(MissionCleanupPrompt {
+            lingering_worktree_count,
+        })
+    }
+}
+
 /// Build MissionSummary from row, pulling provider strategy from config_json if available.
-fn summary_from_row(
+pub(crate) fn summary_from_row(
     row: &MissionRow,
     active: u32,
     queued: u32,

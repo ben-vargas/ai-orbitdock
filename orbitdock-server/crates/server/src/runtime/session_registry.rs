@@ -6,17 +6,20 @@ mod recent_projects;
 
 use dashmap::DashMap;
 use orbitdock_protocol::{
-    ClientPrimaryClaim, DashboardConversationItem, DashboardDiffPreview, SessionListItem,
-    SessionSummary,
+    ClientPrimaryClaim, DashboardConversationItem, DashboardCounts, DashboardDiffPreview,
+    DashboardSnapshot, MissionsSnapshot, SessionListItem, SessionSummary,
 };
+use rusqlite::Connection;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
+use tracing::warn;
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
-use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session::{accepts_user_input_from_parts, SessionHandle};
 use crate::infrastructure::persistence::PersistCommand;
 use crate::infrastructure::shell::ShellService;
 use crate::runtime::session_actor::SessionActorHandle;
@@ -76,6 +79,9 @@ pub struct SessionRegistry {
     /// Primary claim and WebSocket connection state.
     connections: ConnectionState,
 
+    dashboard_revision: AtomicU64,
+    mission_revision: AtomicU64,
+
     /// Channel for manual mission trigger requests (HTTP → orchestrator).
     mission_trigger_tx: mpsc::Sender<String>,
     mission_trigger_rx: std::sync::Mutex<Option<mpsc::Receiver<String>>>,
@@ -132,6 +138,8 @@ impl SessionRegistry {
             pending_claude_sessions: DashMap::new(),
             shell_service: Arc::new(ShellService::new()),
             connections: ConnectionState::new(is_primary),
+            dashboard_revision: AtomicU64::new(0),
+            mission_revision: AtomicU64::new(0),
             mission_trigger_tx,
             mission_trigger_rx: std::sync::Mutex::new(Some(mission_trigger_rx)),
         }
@@ -264,6 +272,10 @@ impl SessionRegistry {
             .map(|entry| {
                 let actor = entry.value();
                 let snap = actor.snapshot();
+                let control_mode = snap.control_mode;
+                let lifecycle_state = snap.lifecycle_state;
+                let accepts_user_input =
+                    accepts_user_input_from_parts(snap.status, control_mode, lifecycle_state);
                 let display_title = SessionSummary::display_title_from_parts(
                     snap.custom_name.as_deref(),
                     snap.summary.as_deref(),
@@ -287,6 +299,9 @@ impl SessionRegistry {
                     summary: snap.summary.clone(),
                     status: snap.status,
                     work_status: snap.work_status,
+                    control_mode,
+                    lifecycle_state,
+                    accepts_user_input,
                     token_usage: snap.token_usage.clone(),
                     token_usage_snapshot_kind: snap.token_usage_snapshot_kind,
                     has_pending_approval: snap.has_pending_approval,
@@ -386,6 +401,8 @@ impl SessionRegistry {
                     snap.last_message.as_deref(),
                     context_line.as_deref(),
                 );
+                let control_mode = snap.control_mode;
+                let lifecycle_state = snap.lifecycle_state;
 
                 DashboardConversationItem {
                     session_id: snap.id.clone(),
@@ -401,6 +418,8 @@ impl SessionRegistry {
                     claude_integration_mode: snap.claude_integration_mode,
                     status: snap.status,
                     work_status: snap.work_status,
+                    control_mode,
+                    lifecycle_state,
                     list_status: SessionSummary::list_status_from_parts(
                         snap.status,
                         snap.work_status,
@@ -548,38 +567,153 @@ impl SessionRegistry {
         self.connectors.claude_sdk_id_for_session(session_id)
     }
 
-    /// Check if a session already has a live connector (action channel registered)
-    pub fn has_codex_connector(&self, session_id: &str) -> bool {
-        self.connectors.has_codex_connector(session_id)
-    }
-
-    /// Check if a session already has a live Claude connector
-    pub fn has_claude_connector(&self, session_id: &str) -> bool {
-        self.connectors.has_claude_connector(session_id)
-    }
-
     /// Subscribe to list updates
     pub fn subscribe_list(&self) -> broadcast::Receiver<orbitdock_protocol::ServerMessage> {
         self.list_tx.subscribe()
+    }
+
+    pub fn current_dashboard_revision(&self) -> u64 {
+        self.dashboard_revision.load(Ordering::Relaxed)
+    }
+
+    pub fn current_dashboard_snapshot(&self) -> DashboardSnapshot {
+        let sessions = self.get_session_list_items();
+        let conversations = self.get_dashboard_conversations();
+        let counts = DashboardCounts {
+            attention: conversations
+                .iter()
+                .filter(|conversation| {
+                    matches!(
+                        conversation.list_status,
+                        orbitdock_protocol::SessionListStatus::Permission
+                            | orbitdock_protocol::SessionListStatus::Question
+                    )
+                })
+                .count() as u32,
+            running: conversations
+                .iter()
+                .filter(|conversation| {
+                    matches!(
+                        conversation.list_status,
+                        orbitdock_protocol::SessionListStatus::Working
+                    )
+                })
+                .count() as u32,
+            ready: conversations
+                .iter()
+                .filter(|conversation| {
+                    matches!(
+                        conversation.list_status,
+                        orbitdock_protocol::SessionListStatus::Reply
+                    )
+                })
+                .count() as u32,
+            direct: conversations
+                .iter()
+                .filter(|conversation| {
+                    matches!(
+                        (
+                            conversation.provider,
+                            conversation.codex_integration_mode,
+                            conversation.claude_integration_mode
+                        ),
+                        (
+                            orbitdock_protocol::Provider::Codex,
+                            Some(orbitdock_protocol::CodexIntegrationMode::Direct),
+                            _
+                        ) | (
+                            orbitdock_protocol::Provider::Claude,
+                            _,
+                            Some(orbitdock_protocol::ClaudeIntegrationMode::Direct)
+                        )
+                    )
+                })
+                .count() as u32,
+        };
+
+        DashboardSnapshot {
+            revision: self.dashboard_revision.load(Ordering::Relaxed),
+            sessions,
+            conversations,
+            counts,
+        }
+    }
+
+    pub fn current_missions_snapshot(&self) -> MissionsSnapshot {
+        let rows = match Connection::open(&self.db_path) {
+            Ok(conn) => {
+                match crate::infrastructure::persistence::load_missions_with_counts(&conn) {
+                    Ok(rows) => rows,
+                    Err(error) => {
+                        warn!(
+                            component = "mission_control",
+                            event = "missions.snapshot.load_failed",
+                            error = %error,
+                            "Failed to build missions snapshot from persistence"
+                        );
+                        Vec::new()
+                    }
+                }
+            }
+            Err(error) => {
+                warn!(
+                    component = "mission_control",
+                    event = "missions.snapshot.load_failed",
+                    error = %error,
+                    "Failed to build missions snapshot from persistence"
+                );
+                Vec::new()
+            }
+        };
+        let orchestrator_running = self.is_orchestrator_running();
+        let missions = rows
+            .into_iter()
+            .map(|(row, (active, queued, completed, failed))| {
+                crate::transport::http::mission_control::summary_from_row(
+                    &row,
+                    active,
+                    queued,
+                    completed,
+                    failed,
+                    orchestrator_running,
+                )
+            })
+            .collect();
+
+        MissionsSnapshot {
+            revision: self.mission_revision.load(Ordering::Relaxed),
+            missions,
+        }
+    }
+
+    pub fn current_missions_revision(&self) -> u64 {
+        self.mission_revision.load(Ordering::Relaxed)
+    }
+
+    pub fn publish_dashboard_snapshot(&self) {
+        let revision = self.dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
+        let _ = self
+            .list_tx
+            .send(orbitdock_protocol::ServerMessage::DashboardInvalidated { revision });
+    }
+
+    pub fn publish_missions_snapshot(&self) {
+        let revision = self.mission_revision.fetch_add(1, Ordering::Relaxed) + 1;
+        let _ = self
+            .list_tx
+            .send(orbitdock_protocol::ServerMessage::MissionsInvalidated { revision });
     }
 
     /// Broadcast a message to all list subscribers
     pub fn broadcast_to_list(&self, msg: orbitdock_protocol::ServerMessage) {
         let should_emit_dashboard = matches!(
             msg,
-            orbitdock_protocol::ServerMessage::SessionCreated { .. }
-                | orbitdock_protocol::ServerMessage::SessionListItemUpdated { .. }
-                | orbitdock_protocol::ServerMessage::SessionListItemRemoved { .. }
-                | orbitdock_protocol::ServerMessage::SessionEnded { .. }
+            orbitdock_protocol::ServerMessage::SessionEnded { .. }
                 | orbitdock_protocol::ServerMessage::SessionForked { .. }
         );
         let _ = self.list_tx.send(msg);
         if should_emit_dashboard {
-            let _ = self.list_tx.send(
-                orbitdock_protocol::ServerMessage::DashboardConversationsUpdated {
-                    conversations: self.get_dashboard_conversations(),
-                },
-            );
+            self.publish_dashboard_snapshot();
         }
     }
 
@@ -777,7 +911,10 @@ mod tests {
     use super::SessionRegistry;
     use crate::domain::sessions::session::SessionHandle;
     use crate::support::test_support::ensure_server_test_data_dir;
-    use orbitdock_protocol::{CodexIntegrationMode, Provider, SessionStatus, WorkStatus};
+    use orbitdock_protocol::{
+        CodexIntegrationMode, Provider, SessionControlMode, SessionLifecycleState, SessionStatus,
+        WorkStatus,
+    };
     use tokio::sync::mpsc;
 
     #[test]
@@ -860,5 +997,34 @@ mod tests {
             Some("Running Bash")
         );
         assert_eq!(conversation.alert_context.as_deref(), Some("ls -la"));
+    }
+
+    #[tokio::test]
+    async fn dashboard_conversations_project_control_and_lifecycle_state() {
+        ensure_server_test_data_dir();
+        let (persist_tx, _persist_rx) = mpsc::channel(8);
+        let (action_tx, _action_rx) = mpsc::channel(8);
+        let registry = SessionRegistry::new_with_primary(persist_tx, true);
+
+        let mut direct = SessionHandle::new(
+            "direct-session".to_string(),
+            Provider::Codex,
+            "/tmp/orbitdock-direct".to_string(),
+        );
+        direct.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+        direct.set_work_status(WorkStatus::Waiting);
+        direct.set_status(SessionStatus::Active);
+        direct.refresh_snapshot();
+        registry.add_session(direct);
+        registry.set_codex_action_tx("direct-session", action_tx);
+
+        let conversations = registry.get_dashboard_conversations();
+        let conversation = conversations
+            .iter()
+            .find(|entry| entry.session_id == "direct-session")
+            .expect("direct session should be visible");
+
+        assert_eq!(conversation.control_mode, SessionControlMode::Direct);
+        assert_eq!(conversation.lifecycle_state, SessionLifecycleState::Open);
     }
 }

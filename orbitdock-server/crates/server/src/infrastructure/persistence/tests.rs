@@ -1,17 +1,33 @@
 use rusqlite::Connection;
+use std::sync::{Mutex, OnceLock};
 
 use orbitdock_protocol::conversation_contracts::{
     rows::MessageDeliveryStatus, ConversationRow, ConversationRowEntry, MessageRowContent,
 };
+use orbitdock_protocol::{Provider, SessionLifecycleState};
 
-use super::commands::PersistCommand;
+use super::commands::{PersistCommand, SessionCreateParams};
 use super::messages::load_messages_from_db;
 use super::SyncCommand;
 
-fn setup_test_db() -> (Connection, std::path::PathBuf, tempfile::TempDir) {
+fn persistence_test_db_guard() -> &'static Mutex<()> {
+    static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+    GUARD.get_or_init(|| Mutex::new(()))
+}
+
+type PersistenceTestGuard = std::sync::MutexGuard<'static, ()>;
+
+fn setup_test_db() -> (
+    Connection,
+    std::path::PathBuf,
+    tempfile::TempDir,
+    PersistenceTestGuard,
+) {
+    let guard = persistence_test_db_guard().lock().unwrap();
     crate::support::test_support::ensure_server_test_data_dir();
     let dir = tempfile::TempDir::new().unwrap();
-    let db_path = dir.path().join("test.db");
+    crate::infrastructure::paths::init_data_dir(Some(dir.path()));
+    let db_path = dir.path().join("orbitdock.db");
     let conn = Connection::open(&db_path).unwrap();
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
@@ -20,18 +36,80 @@ fn setup_test_db() -> (Connection, std::path::PathBuf, tempfile::TempDir) {
 
          CREATE TABLE IF NOT EXISTS sessions (
            id TEXT PRIMARY KEY,
-           project_path TEXT NOT NULL DEFAULT '',
-           project_name TEXT,
            provider TEXT NOT NULL DEFAULT 'codex',
            status TEXT NOT NULL DEFAULT 'active',
            work_status TEXT NOT NULL DEFAULT 'waiting',
-           model TEXT,
+           lifecycle_state TEXT NOT NULL DEFAULT 'open',
+           control_mode TEXT,
+           project_path TEXT NOT NULL DEFAULT '',
+           project_name TEXT,
            branch TEXT,
+           model TEXT,
+           context_label TEXT,
+           transcript_path TEXT,
+           custom_name TEXT,
+           summary TEXT,
+           first_prompt TEXT,
            last_message TEXT,
-           unread_count INTEGER NOT NULL DEFAULT 0,
+           attention_reason TEXT,
+           pending_tool_name TEXT,
+           pending_tool_input TEXT,
+           pending_question TEXT,
            started_at TEXT,
+           ended_at TEXT,
+           end_reason TEXT,
            last_activity_at TEXT,
-           last_progress_at TEXT
+           last_progress_at TEXT,
+           last_tool TEXT,
+           last_tool_at TEXT,
+           total_tokens INTEGER NOT NULL DEFAULT 0,
+           input_tokens INTEGER NOT NULL DEFAULT 0,
+           output_tokens INTEGER NOT NULL DEFAULT 0,
+           cached_tokens INTEGER NOT NULL DEFAULT 0,
+           context_window INTEGER NOT NULL DEFAULT 0,
+           prompt_count INTEGER NOT NULL DEFAULT 0,
+           tool_count INTEGER NOT NULL DEFAULT 0,
+           compact_count INTEGER NOT NULL DEFAULT 0,
+           effort TEXT,
+           source TEXT,
+           agent_type TEXT,
+           permission_mode TEXT,
+           codex_integration_mode TEXT,
+           codex_thread_id TEXT,
+           claude_integration_mode TEXT,
+           claude_sdk_session_id TEXT,
+           approval_policy TEXT,
+           sandbox_mode TEXT,
+           forked_from_session_id TEXT,
+           current_diff TEXT,
+           current_plan TEXT,
+           current_cwd TEXT,
+           git_branch TEXT,
+           git_sha TEXT,
+           terminal_session_id TEXT,
+           terminal_app TEXT,
+           active_subagent_id TEXT,
+           active_subagent_type TEXT,
+           collaboration_mode TEXT,
+           multi_agent INTEGER,
+           personality TEXT,
+           service_tier TEXT,
+           developer_instructions TEXT,
+           codex_config_mode TEXT,
+           codex_config_profile TEXT,
+           codex_model_provider TEXT,
+           codex_config_source TEXT,
+           codex_config_overrides_json TEXT,
+           pending_approval_id TEXT,
+           approval_version INTEGER NOT NULL DEFAULT 0,
+           unread_count INTEGER NOT NULL DEFAULT 0,
+           last_read_sequence INTEGER NOT NULL DEFAULT 0,
+           mission_id TEXT,
+           issue_identifier TEXT,
+           allow_bypass_permissions INTEGER NOT NULL DEFAULT 0,
+           repository_root TEXT,
+           is_worktree INTEGER NOT NULL DEFAULT 0,
+           worktree_id TEXT
          );
 
          CREATE TABLE IF NOT EXISTS messages (
@@ -49,11 +127,31 @@ fn setup_test_db() -> (Connection, std::path::PathBuf, tempfile::TempDir) {
          CREATE INDEX IF NOT EXISTS idx_messages_session_sequence
            ON messages(session_id, sequence);
 
+         CREATE TABLE IF NOT EXISTS turn_diffs (
+           session_id TEXT NOT NULL,
+           turn_id TEXT NOT NULL,
+           diff TEXT NOT NULL,
+           input_tokens INTEGER NOT NULL DEFAULT 0,
+           output_tokens INTEGER NOT NULL DEFAULT 0,
+           cached_tokens INTEGER NOT NULL DEFAULT 0,
+           context_window INTEGER NOT NULL DEFAULT 0,
+           PRIMARY KEY (session_id, turn_id)
+         );
+
+         CREATE TABLE IF NOT EXISTS usage_session_state (
+           session_id TEXT PRIMARY KEY,
+           snapshot_input_tokens INTEGER,
+           snapshot_output_tokens INTEGER,
+           snapshot_cached_tokens INTEGER,
+           snapshot_context_window INTEGER,
+           snapshot_kind TEXT
+         );
+
          INSERT INTO sessions (id, project_path, provider) VALUES ('test-session', '/tmp/test', 'codex');",
     )
     .unwrap();
 
-    (conn, db_path, dir)
+    (conn, db_path, dir, guard)
 }
 
 fn user_entry(id: &str, sequence: u64) -> ConversationRowEntry {
@@ -113,9 +211,45 @@ fn steer_entry(id: &str, sequence: u64) -> ConversationRowEntry {
     }
 }
 
+fn session_lifecycle_state(conn: &Connection, session_id: &str) -> String {
+    conn.query_row(
+        "SELECT lifecycle_state FROM sessions WHERE id = ?1",
+        [session_id],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+fn session_control_mode(conn: &Connection, session_id: &str) -> String {
+    conn.query_row(
+        "SELECT control_mode FROM sessions WHERE id = ?1",
+        [session_id],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+fn session_last_activity_at(conn: &Connection, session_id: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT last_activity_at FROM sessions WHERE id = ?1",
+        [session_id],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+fn session_last_progress_at(conn: &Connection, session_id: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT last_progress_at FROM sessions WHERE id = ?1",
+        [session_id],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
 #[test]
 fn row_append_stores_correct_sequence() {
-    let (conn, db_path, _dir) = setup_test_db();
+    let (conn, db_path, _dir, _guard) = setup_test_db();
     drop(conn);
 
     let batch = vec![
@@ -221,7 +355,7 @@ fn flush_batch_skips_non_syncable_commands() {
 #[test]
 fn row_append_with_zero_sequence_gets_db_assigned_sequence() {
     // DB computes MAX(sequence)+1 — callers no longer need to assign sequences.
-    let (conn, db_path, _dir) = setup_test_db();
+    let (conn, db_path, _dir, _guard) = setup_test_db();
     drop(conn);
 
     let batch = vec![
@@ -254,7 +388,7 @@ fn row_append_with_zero_sequence_gets_db_assigned_sequence() {
 
 #[test]
 fn row_upsert_preserves_original_sequence_on_conflict() {
-    let (conn, db_path, _dir) = setup_test_db();
+    let (conn, db_path, _dir, _guard) = setup_test_db();
     drop(conn);
 
     // First: insert a row — DB assigns sequence=0
@@ -290,7 +424,7 @@ fn row_upsert_preserves_original_sequence_on_conflict() {
 
 #[test]
 fn row_upsert_inserts_when_not_existing() {
-    let (conn, db_path, _dir) = setup_test_db();
+    let (conn, db_path, _dir, _guard) = setup_test_db();
     drop(conn);
 
     let batch = vec![PersistCommand::RowUpsert {
@@ -313,7 +447,7 @@ fn row_upsert_inserts_when_not_existing() {
 
 #[test]
 fn steer_rows_persist_as_steer_type() {
-    let (conn, db_path, _dir) = setup_test_db();
+    let (conn, db_path, _dir, _guard) = setup_test_db();
     drop(conn);
 
     let batch = vec![PersistCommand::RowAppend {
@@ -345,7 +479,7 @@ fn steer_rows_persist_as_steer_type() {
 
 #[test]
 fn batch_of_appends_preserves_insertion_order() {
-    let (conn, db_path, _dir) = setup_test_db();
+    let (conn, db_path, _dir, _guard) = setup_test_db();
     drop(conn);
 
     // Simulate a burst of 10 rapid messages with correct sequences
@@ -382,7 +516,7 @@ fn batch_of_appends_preserves_insertion_order() {
 
 #[test]
 fn row_append_ignore_deduplicates_by_id() {
-    let (conn, db_path, _dir) = setup_test_db();
+    let (conn, db_path, _dir, _guard) = setup_test_db();
     drop(conn);
 
     // INSERT OR IGNORE means second insert with same id is silently dropped
@@ -418,7 +552,7 @@ fn row_append_ignore_deduplicates_by_id() {
 
 #[test]
 fn user_row_append_does_not_advance_last_progress() {
-    let (conn, db_path, _dir) = setup_test_db();
+    let (conn, db_path, _dir, _guard) = setup_test_db();
     conn.execute(
         "UPDATE sessions SET last_progress_at = '100Z', last_activity_at = '100Z' WHERE id = 'test-session'",
         [],
@@ -451,7 +585,7 @@ fn user_row_append_does_not_advance_last_progress() {
 
 #[test]
 fn assistant_row_append_advances_last_progress() {
-    let (conn, db_path, _dir) = setup_test_db();
+    let (conn, db_path, _dir, _guard) = setup_test_db();
     conn.execute(
         "UPDATE sessions SET last_progress_at = '100Z', last_activity_at = '100Z' WHERE id = 'test-session'",
         [],
@@ -482,9 +616,227 @@ fn assistant_row_append_advances_last_progress() {
     assert_ne!(last_progress_at.as_deref(), Some("100Z"));
 }
 
+#[test]
+fn session_lifecycle_state_transitions_are_persisted() {
+    let (conn, db_path, _dir, _guard) = setup_test_db();
+    drop(conn);
+
+    let session_id = "lifecycle-session";
+
+    let batch = vec![PersistCommand::SessionCreate(Box::new(
+        SessionCreateParams {
+            id: session_id.to_string(),
+            provider: Provider::Codex,
+            control_mode: orbitdock_protocol::SessionControlMode::Direct,
+            project_path: "/tmp/test".to_string(),
+            project_name: Some("Test Project".to_string()),
+            branch: Some("main".to_string()),
+            model: Some("gpt-4.1".to_string()),
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
+            codex_config_mode: None,
+            codex_config_profile: None,
+            codex_model_provider: None,
+            codex_config_source: None,
+            codex_config_overrides_json: None,
+            forked_from_session_id: None,
+            mission_id: None,
+            issue_identifier: None,
+            allow_bypass_permissions: false,
+            worktree_id: None,
+        },
+    ))];
+    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+    let conn = Connection::open(&db_path).unwrap();
+    assert_eq!(session_lifecycle_state(&conn, session_id), "open");
+    assert_eq!(session_control_mode(&conn, session_id), "direct");
+    drop(conn);
+
+    let batch = vec![PersistCommand::SessionEnd {
+        id: session_id.to_string(),
+        reason: "completed".to_string(),
+    }];
+    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+    let conn = Connection::open(&db_path).unwrap();
+    assert_eq!(session_lifecycle_state(&conn, session_id), "ended");
+    assert_eq!(session_control_mode(&conn, session_id), "direct");
+    drop(conn);
+
+    let batch = vec![PersistCommand::ReactivateSession {
+        id: session_id.to_string(),
+    }];
+    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+    let conn = Connection::open(&db_path).unwrap();
+    assert_eq!(session_lifecycle_state(&conn, session_id), "open");
+    assert_eq!(session_control_mode(&conn, session_id), "direct");
+}
+
+#[test]
+fn load_session_by_id_reads_persisted_lifecycle_state() {
+    let (conn, db_path, _dir, _guard) = setup_test_db();
+    drop(conn);
+
+    let session_id = "lifecycle-session";
+
+    let batch = vec![
+        PersistCommand::SessionCreate(Box::new(SessionCreateParams {
+            id: session_id.to_string(),
+            provider: Provider::Codex,
+            control_mode: orbitdock_protocol::SessionControlMode::Direct,
+            project_path: "/tmp/test".to_string(),
+            project_name: Some("Test Project".to_string()),
+            branch: Some("main".to_string()),
+            model: Some("gpt-4.1".to_string()),
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
+            codex_config_mode: None,
+            codex_config_profile: None,
+            codex_model_provider: None,
+            codex_config_source: None,
+            codex_config_overrides_json: None,
+            forked_from_session_id: None,
+            mission_id: None,
+            issue_identifier: None,
+            allow_bypass_permissions: false,
+            worktree_id: None,
+        })),
+        PersistCommand::SessionEnd {
+            id: session_id.to_string(),
+            reason: "completed".to_string(),
+        },
+    ];
+    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let restored = runtime
+        .block_on(super::session_reads::load_session_lifecycle_state(
+            session_id,
+        ))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(restored, SessionLifecycleState::Ended);
+}
+
+#[test]
+fn reactivate_session_preserves_existing_activity_timestamps() {
+    let (conn, db_path, _dir, _guard) = setup_test_db();
+    let session_id = "test-session";
+    let original_last_activity_at = "2026-03-24T10:00:00Z";
+    let original_last_progress_at = "2026-03-24T10:05:00Z";
+
+    conn.execute(
+        "UPDATE sessions
+         SET status = 'ended',
+             work_status = 'ended',
+             lifecycle_state = 'ended',
+             ended_at = '2026-03-24T11:00:00Z',
+             end_reason = 'completed',
+             last_activity_at = ?1,
+             last_progress_at = ?2
+         WHERE id = ?3",
+        [
+            original_last_activity_at,
+            original_last_progress_at,
+            session_id,
+        ],
+    )
+    .unwrap();
+    drop(conn);
+
+    super::writer::flush_batch_for_test(
+        &db_path,
+        vec![PersistCommand::ReactivateSession {
+            id: session_id.to_string(),
+        }],
+    )
+    .unwrap();
+
+    let conn = Connection::open(&db_path).unwrap();
+    assert_eq!(session_lifecycle_state(&conn, session_id), "open");
+    assert_eq!(
+        session_last_activity_at(&conn, session_id).as_deref(),
+        Some(original_last_activity_at)
+    );
+    assert_eq!(
+        session_last_progress_at(&conn, session_id).as_deref(),
+        Some(original_last_progress_at)
+    );
+}
+
+#[test]
+fn load_session_by_id_and_startup_restore_use_persisted_control_mode() {
+    let (conn, db_path, _dir, _guard) = setup_test_db();
+
+    conn.execute(
+        "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state,
+            project_path, codex_integration_mode, claude_integration_mode, control_mode
+         ) VALUES (
+            'control-mode-session', 'codex', 'active', 'waiting', 'open',
+            '/tmp/test', 'passive', NULL, 'direct'
+         )",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let restored = runtime
+        .block_on(super::session_reads::load_session_by_id(
+            "control-mode-session",
+        ))
+        .unwrap()
+        .unwrap();
+    assert_eq!(restored.codex_integration_mode.as_deref(), Some("direct"));
+
+    let sessions = runtime
+        .block_on(super::session_reads::load_sessions_for_startup())
+        .unwrap();
+    let startup = sessions
+        .into_iter()
+        .find(|session| session.id == "control-mode-session")
+        .expect("startup session should be loaded");
+    assert_eq!(startup.codex_integration_mode.as_deref(), Some("direct"));
+
+    let conn = Connection::open(&db_path).unwrap();
+    assert_eq!(
+        session_control_mode(&conn, "control-mode-session"),
+        "direct"
+    );
+}
+
 // ── Mission-scoped tracker credentials ─────────────────────────────
 
-fn setup_mission_db() -> (Connection, std::path::PathBuf, tempfile::TempDir) {
+fn setup_mission_db() -> (
+    Connection,
+    std::path::PathBuf,
+    tempfile::TempDir,
+    PersistenceTestGuard,
+) {
+    let guard = persistence_test_db_guard().lock().unwrap();
     let dir = tempfile::TempDir::new().unwrap();
     let db_path = dir.path().join("test.db");
     let conn = Connection::open(&db_path).unwrap();
@@ -517,12 +869,12 @@ fn setup_mission_db() -> (Connection, std::path::PathBuf, tempfile::TempDir) {
     )
     .unwrap();
 
-    (conn, db_path, dir)
+    (conn, db_path, dir, guard)
 }
 
 #[test]
 fn mission_create_stores_tracker_key() {
-    let (conn, db_path, _dir) = setup_mission_db();
+    let (conn, db_path, _dir, _guard) = setup_mission_db();
     drop(conn);
 
     let batch = vec![PersistCommand::MissionCreate {
@@ -551,7 +903,7 @@ fn mission_create_stores_tracker_key() {
 
 #[test]
 fn mission_set_tracker_key_persists() {
-    let (conn, db_path, _dir) = setup_mission_db();
+    let (conn, db_path, _dir, _guard) = setup_mission_db();
 
     // Insert a mission directly
     conn.execute(
@@ -592,7 +944,7 @@ fn mission_set_tracker_key_persists() {
 
 #[test]
 fn mission_clear_tracker_key() {
-    let (conn, db_path, _dir) = setup_mission_db();
+    let (conn, db_path, _dir, _guard) = setup_mission_db();
 
     // Insert a mission with a plaintext key (bypasses encryption for test simplicity)
     conn.execute(

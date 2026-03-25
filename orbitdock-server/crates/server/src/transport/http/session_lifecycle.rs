@@ -398,9 +398,7 @@ pub async fn create_session(
         );
     }
 
-    state.broadcast_to_list(ServerMessage::SessionCreated {
-        session: summary.clone().into(),
-    });
+    state.publish_dashboard_snapshot();
 
     Ok(Json(CreateSessionResponse {
         session_id,
@@ -733,9 +731,7 @@ pub async fn fork_session(
             .await
             .map_err(|error| internal("fork_failed", error))?;
 
-            state.broadcast_to_list(ServerMessage::SessionCreated {
-                session: started.summary.clone().into(),
-            });
+            state.publish_dashboard_snapshot();
 
             Ok(Json(ForkSessionResponse {
                 source_session_id,
@@ -800,9 +796,7 @@ pub async fn fork_session(
             .await
             .map_err(|error| internal("fork_failed", error))?;
 
-            state.broadcast_to_list(ServerMessage::SessionCreated {
-                session: started.summary.clone().into(),
-            });
+            state.publish_dashboard_snapshot();
 
             Ok(Json(ForkSessionResponse {
                 source_session_id,

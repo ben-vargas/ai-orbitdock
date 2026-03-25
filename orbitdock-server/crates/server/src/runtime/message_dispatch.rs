@@ -3,11 +3,11 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::oneshot;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use orbitdock_protocol::conversation_contracts::rows::MessageDeliveryStatus;
 use orbitdock_protocol::PermissionGrantScope;
-use orbitdock_protocol::{ImageInput, MentionInput, SkillInput, WorkStatus};
+use orbitdock_protocol::{ImageInput, MentionInput, Provider, SkillInput, WorkStatus};
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
@@ -22,8 +22,10 @@ use crate::support::normalization::{
     build_question_answers, normalize_non_empty, normalize_permission_response,
 };
 
+#[derive(Debug)]
 pub(crate) enum DispatchMessageError {
-    NotFound,
+    SessionNotFound,
+    ConnectorUnavailable,
 }
 
 pub(crate) struct AnswerQuestionResult {
@@ -61,26 +63,156 @@ pub(crate) async fn dispatch_send_message(
     let codex_tx = state.get_codex_action_tx(&session_id);
     let claude_tx = state.get_claude_action_tx(&session_id);
     let Some(actor) = state.get_session(&session_id) else {
-        return Err(DispatchMessageError::NotFound);
+        warn!(
+            component = "session",
+            event = "session.message.dispatch_failed",
+            session_id = %session_id,
+            reason = "session_not_found",
+            "Failed to dispatch message because the session actor was missing"
+        );
+        return Err(DispatchMessageError::SessionNotFound);
     };
 
+    let snapshot = actor.snapshot();
+    let provider = snapshot.provider;
+    let status = snapshot.status;
+    let work_status = snapshot.work_status;
+    info!(
+        component = "session",
+        event = "session.message.dispatch_requested",
+        session_id = %session_id,
+        provider = ?provider,
+        status = ?status,
+        work_status = ?work_status,
+        has_codex_action_tx = codex_tx.is_some(),
+        has_claude_action_tx = claude_tx.is_some(),
+        content_length = content.len(),
+        images = images.len(),
+        mentions = mentions.len(),
+        skills = skills.len(),
+        "Dispatching session message"
+    );
+
     if codex_tx.is_none() && claude_tx.is_none() {
-        return Err(DispatchMessageError::NotFound);
+        warn!(
+            component = "session",
+            event = "session.message.dispatch_failed",
+            session_id = %session_id,
+            provider = ?provider,
+            status = ?status,
+            work_status = ?work_status,
+            reason = "no_active_connector",
+            "Failed to dispatch message because no active connector action channel was available"
+        );
+        return Err(DispatchMessageError::ConnectorUnavailable);
     }
 
-    let provider = actor.snapshot().provider;
     let requested_effort = normalize_non_empty(effort.clone());
     let plan = plan_send_message(provider, &content, model, effort);
+
+    let ts_millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let persisted_images =
+        crate::infrastructure::images::materialize_images_for_message(&session_id, &images);
+    let connector_images =
+        crate::infrastructure::images::resolve_images_for_connector(&session_id, &persisted_images);
+    let row_content = content.clone();
+    let action_model = plan.action_model.clone();
+    let connector_effort = plan.connector_effort.clone();
+    let first_prompt = plan.first_prompt.clone();
+    let session_effort_update = plan.session_effort_update.clone();
+
+    if let Some(tx) = codex_tx {
+        if tx
+            .send(CodexAction::SendMessage {
+                content,
+                model: action_model.clone(),
+                effort: connector_effort.clone(),
+                skills,
+                images: connector_images,
+                mentions,
+            })
+            .await
+            .is_ok()
+        {
+        } else {
+            state.remove_codex_action_tx(&session_id);
+            crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
+                state,
+                &session_id,
+                Provider::Codex,
+            )
+            .await;
+            warn!(
+                component = "session",
+                event = "session.message.action_channel_closed",
+                session_id = %session_id,
+                provider = "codex",
+                status = ?status,
+                work_status = ?work_status,
+                "Codex action channel closed while sending message"
+            );
+            return Err(DispatchMessageError::ConnectorUnavailable);
+        }
+    } else if let Some(tx) = claude_tx {
+        if tx
+            .send(ClaudeAction::SendMessage {
+                content,
+                model: plan.action_model,
+                effort: plan.connector_effort,
+                images: connector_images,
+            })
+            .await
+            .is_ok()
+        {
+        } else {
+            state.remove_claude_action_tx(&session_id);
+            crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
+                state,
+                &session_id,
+                Provider::Claude,
+            )
+            .await;
+            warn!(
+                component = "session",
+                event = "session.message.action_channel_closed",
+                session_id = %session_id,
+                provider = "claude",
+                status = ?status,
+                work_status = ?work_status,
+                "Claude action channel closed while sending message"
+            );
+            return Err(DispatchMessageError::ConnectorUnavailable);
+        }
+    }
+
+    let user_entry = build_user_row_entry(
+        &session_id,
+        message_id,
+        row_content,
+        ts_millis,
+        persisted_images.clone(),
+        PromptRowKind::User,
+        Some(MessageDeliveryStatus::Accepted),
+    );
+
+    actor
+        .send(SessionCommand::AddRowAndBroadcast {
+            entry: user_entry.clone(),
+        })
+        .await;
 
     let _ = state
         .persist()
         .send(PersistCommand::CodexPromptIncrement {
             id: session_id.clone(),
-            first_prompt: plan.first_prompt.clone(),
+            first_prompt: first_prompt.clone(),
         })
         .await;
 
-    if let Some(prompt) = plan.first_prompt {
+    if let Some(prompt) = first_prompt {
         let changes = orbitdock_protocol::StateChanges {
             first_prompt: Some(Some(prompt.clone())),
             ..Default::default()
@@ -103,7 +235,7 @@ pub(crate) async fn dispatch_send_message(
         }
     }
 
-    if let Some(ref model_name) = plan.action_model {
+    if let Some(ref model_name) = action_model {
         let _ = state
             .persist()
             .send(PersistCommand::ModelUpdate {
@@ -123,7 +255,7 @@ pub(crate) async fn dispatch_send_message(
             .await;
     }
 
-    if let Some(ref effort_name) = plan.session_effort_update {
+    if let Some(ref effort_name) = session_effort_update {
         let _ = state
             .persist()
             .send(PersistCommand::EffortUpdate {
@@ -153,75 +285,7 @@ pub(crate) async fn dispatch_send_message(
         }
     }
 
-    let ts_millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let persisted_images =
-        crate::infrastructure::images::materialize_images_for_message(&session_id, &images);
-    let connector_images =
-        crate::infrastructure::images::resolve_images_for_connector(&session_id, &persisted_images);
-    let user_entry = build_user_row_entry(
-        &session_id,
-        message_id,
-        content.clone(),
-        ts_millis,
-        persisted_images.clone(),
-        PromptRowKind::User,
-        Some(MessageDeliveryStatus::Accepted),
-    );
-
-    actor
-        .send(SessionCommand::AddRowAndBroadcast {
-            entry: user_entry.clone(),
-        })
-        .await;
-
-    if let Some(tx) = codex_tx {
-        if tx
-            .send(CodexAction::SendMessage {
-                content,
-                model: plan.action_model,
-                effort: plan.connector_effort,
-                skills,
-                images: connector_images,
-                mentions,
-            })
-            .await
-            .is_ok()
-        {
-            mark_session_working_after_send(state, &session_id).await;
-        } else {
-            warn!(
-                component = "session",
-                event = "session.message.action_channel_closed",
-                session_id = %session_id,
-                provider = "codex",
-                "Codex action channel closed while sending message"
-            );
-        }
-    } else if let Some(tx) = claude_tx {
-        if tx
-            .send(ClaudeAction::SendMessage {
-                content,
-                model: plan.action_model,
-                effort: plan.connector_effort,
-                images: connector_images,
-            })
-            .await
-            .is_ok()
-        {
-            mark_session_working_after_send(state, &session_id).await;
-        } else {
-            warn!(
-                component = "session",
-                event = "session.message.action_channel_closed",
-                session_id = %session_id,
-                provider = "claude",
-                "Claude action channel closed while sending message"
-            );
-        }
-    }
+    mark_session_working_after_send(state, &session_id).await;
 
     Ok(user_entry)
 }
@@ -238,11 +302,11 @@ pub(crate) async fn dispatch_steer_turn(
     let codex_tx = state.get_codex_action_tx(&session_id);
     let claude_tx = state.get_claude_action_tx(&session_id);
     let Some(actor) = state.get_session(&session_id) else {
-        return Err(DispatchMessageError::NotFound);
+        return Err(DispatchMessageError::SessionNotFound);
     };
 
     if codex_tx.is_none() && claude_tx.is_none() {
-        return Err(DispatchMessageError::NotFound);
+        return Err(DispatchMessageError::ConnectorUnavailable);
     }
 
     let ts_millis = SystemTime::now()
@@ -486,6 +550,8 @@ pub(crate) async fn dispatch_answer_question(
             id: session_id.to_string(),
             status: None,
             work_status: Some(resolved_work_status),
+            control_mode: None,
+            lifecycle_state: None,
             last_activity_at: None,
             last_progress_at: None,
         })
@@ -577,6 +643,8 @@ pub(crate) async fn dispatch_request_permissions_response(
             id: session_id.to_string(),
             status: None,
             work_status: Some(resolved_work_status),
+            control_mode: None,
+            lifecycle_state: None,
             last_activity_at: None,
             last_progress_at: None,
         })
@@ -587,4 +655,68 @@ pub(crate) async fn dispatch_request_permissions_response(
         active_request_id: next_pending_request_id,
         approval_version,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::mpsc;
+
+    use orbitdock_protocol::{
+        CodexIntegrationMode, Provider, SessionLifecycleState, SessionStatus, StateChanges,
+        WorkStatus,
+    };
+
+    use crate::domain::sessions::session::SessionHandle;
+    use crate::support::test_support::new_test_session_registry;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn failed_send_does_not_create_a_ghost_accepted_row() {
+        let state = new_test_session_registry(true);
+        let session_id = "session-ghost-row";
+        let mut handle = SessionHandle::new(
+            session_id.to_string(),
+            Provider::Codex,
+            "/tmp/orbitdock-test".to_string(),
+        );
+        handle.apply_changes(&StateChanges {
+            status: Some(SessionStatus::Active),
+            work_status: Some(WorkStatus::Waiting),
+            lifecycle_state: Some(SessionLifecycleState::Open),
+            codex_integration_mode: Some(Some(CodexIntegrationMode::Direct)),
+            ..Default::default()
+        });
+        state.add_session(handle);
+
+        let (action_tx, action_rx) = mpsc::channel(1);
+        drop(action_rx);
+        state.set_codex_action_tx(session_id, action_tx);
+
+        let result = dispatch_send_message(
+            &state,
+            DispatchSendMessage {
+                session_id: session_id.to_string(),
+                content: "hello world".to_string(),
+                model: None,
+                effort: None,
+                skills: vec![],
+                images: vec![],
+                mentions: vec![],
+                message_id: "message-1".to_string(),
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(DispatchMessageError::ConnectorUnavailable)
+        ));
+
+        let snapshot = state.get_session(session_id).expect("session actor");
+        let snapshot = snapshot.snapshot();
+        assert_eq!(snapshot.message_count, 0);
+        assert_eq!(snapshot.first_prompt.as_deref(), None);
+        assert!(state.get_codex_action_tx(session_id).is_none());
+    }
 }

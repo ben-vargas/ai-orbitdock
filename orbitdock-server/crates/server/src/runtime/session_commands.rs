@@ -2,7 +2,7 @@
 
 use orbitdock_protocol::{
     conversation_contracts::ConversationRowEntry, ApprovalRequest, ApprovalType,
-    ClaudeIntegrationMode, CodexIntegrationMode, ServerMessage, SessionState, SessionStatus,
+    CodexIntegrationMode, ServerMessage, SessionLifecycleState, SessionState, SessionStatus,
     SessionSummary, StateChanges, SubagentInfo, WorkStatus,
 };
 use tokio::sync::{broadcast, oneshot};
@@ -16,6 +16,7 @@ pub enum PersistOp {
         id: String,
         status: Option<SessionStatus>,
         work_status: Option<WorkStatus>,
+        lifecycle_state: Option<SessionLifecycleState>,
         last_activity_at: Option<String>,
         last_progress_at: Option<String>,
     },
@@ -47,7 +48,6 @@ pub struct SessionConfigPersist {
 }
 
 /// A command that can be sent to a session actor.
-#[allow(dead_code)]
 pub enum SessionCommand {
     // -- Queries (use oneshot reply channels) --
     /// Get the retained in-memory session snapshot.
@@ -61,9 +61,8 @@ pub enum SessionCommand {
     },
 
     /// Subscribe to session updates.
-    /// Returns (Option<SessionState>, broadcast::Receiver, Vec<String> for replay).
-    /// If `since_revision` is provided and replay is possible, state is None and
-    /// replay events are returned. Otherwise state is the retained session snapshot.
+    /// Returns replay events when possible, otherwise a resync-required hint
+    /// with the live receiver attached.
     Subscribe {
         since_revision: Option<u64>,
         reply: oneshot::Sender<SubscribeResult>,
@@ -76,18 +75,11 @@ pub enum SessionCommand {
     },
 
     // -- Simple mutations (fire-and-forget) --
-    SetCustomName {
-        name: Option<String>,
-    },
     SetWorkStatus {
         status: WorkStatus,
     },
     SetModel {
         model: Option<String>,
-    },
-    SetConfig {
-        approval_policy: Option<String>,
-        sandbox_mode: Option<String>,
     },
     SetTranscriptPath {
         path: Option<String>,
@@ -98,20 +90,11 @@ pub enum SessionCommand {
     SetStatus {
         status: SessionStatus,
     },
-    SetStartedAt {
-        ts: Option<String>,
-    },
     SetLastActivityAt {
         ts: Option<String>,
     },
     SetCodexIntegrationMode {
         mode: Option<CodexIntegrationMode>,
-    },
-    SetClaudeIntegrationMode {
-        mode: Option<ClaudeIntegrationMode>,
-    },
-    SetForkedFrom {
-        source_id: String,
     },
     SetLastTool {
         tool: Option<String>,
@@ -143,19 +126,11 @@ pub enum SessionCommand {
     },
 
     // -- Row operations --
-    AddRow {
-        entry: ConversationRowEntry,
-    },
     ReplaceRows {
         rows: Vec<ConversationRowEntry>,
     },
     /// Add a row and broadcast ConversationRowsChanged
     AddRowAndBroadcast {
-        entry: ConversationRowEntry,
-    },
-    /// Upsert an existing row (replace by ID) and broadcast.
-    /// Does NOT increment message count when replacing.
-    UpsertRowAndBroadcast {
         entry: ConversationRowEntry,
     },
     /// Update a steer row's delivery status after the provider resolves it.
@@ -201,23 +176,8 @@ pub enum SessionCommand {
     },
 
     // -- Queries that read fields --
-    GetWorkStatus {
-        reply: oneshot::Sender<WorkStatus>,
-    },
     GetLastTool {
         reply: oneshot::Sender<Option<String>>,
-    },
-    GetCustomName {
-        reply: oneshot::Sender<Option<String>>,
-    },
-    GetProvider {
-        reply: oneshot::Sender<orbitdock_protocol::Provider>,
-    },
-    GetProjectPath {
-        reply: oneshot::Sender<String>,
-    },
-    GetMessageCount {
-        reply: oneshot::Sender<usize>,
     },
     GetConversationBootstrap {
         limit: usize,
@@ -257,14 +217,13 @@ pub struct PendingApprovalResolution {
 
 /// Result of a Subscribe command
 pub enum SubscribeResult {
-    /// Retained session snapshot (when replay not possible)
-    Snapshot {
-        state: Box<SessionState>,
-        rx: broadcast::Receiver<ServerMessage>,
-    },
     /// Replay events (when revision is close enough)
     Replay {
         events: Vec<String>,
+        rx: broadcast::Receiver<ServerMessage>,
+    },
+    /// Replay is unavailable; caller should refetch the matching HTTP surface.
+    ResyncRequired {
         rx: broadcast::Receiver<ServerMessage>,
     },
 }

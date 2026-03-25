@@ -321,6 +321,7 @@ mod tests {
     use super::*;
     use axum::{extract::Path, extract::Query, extract::State, Json};
     use orbitdock_protocol::{Provider, ReviewCommentStatus, ReviewCommentTag};
+    use rusqlite::{params, Connection};
 
     use crate::domain::sessions::session::SessionHandle;
     use crate::infrastructure::persistence::{
@@ -330,9 +331,42 @@ mod tests {
         flush_next_persist_command, new_persist_test_state,
     };
 
+    fn load_review_comment_row(
+        db_path: &std::path::Path,
+        comment_id: &str,
+    ) -> Option<(String, Option<ReviewCommentTag>, ReviewCommentStatus)> {
+        let conn = Connection::open(db_path).expect("open review comment test db");
+        conn.query_row(
+            "SELECT body, tag, status FROM review_comments WHERE id = ?1",
+            params![comment_id],
+            |row| {
+                let body: String = row.get(0)?;
+                let tag = row
+                    .get::<_, Option<String>>(1)?
+                    .and_then(|value| match value.as_str() {
+                        "nit" => Some(ReviewCommentTag::Nit),
+                        "risk" => Some(ReviewCommentTag::Risk),
+                        "clarity" => Some(ReviewCommentTag::Clarity),
+                        "scope" => Some(ReviewCommentTag::Scope),
+                        _ => None,
+                    });
+                let status = match row.get::<_, String>(2)?.as_str() {
+                    "resolved" => ReviewCommentStatus::Resolved,
+                    _ => ReviewCommentStatus::Open,
+                };
+                Ok((body, tag, status))
+            },
+        )
+        .ok()
+    }
+
     #[tokio::test]
     async fn review_comments_endpoint_returns_empty_when_none_exist() {
+        let guard = crate::support::test_support::test_env_lock()
+            .lock()
+            .expect("lock shared test env");
         crate::support::test_support::ensure_server_test_data_dir();
+        drop(guard);
         let session_id = format!("od-{}", orbitdock_protocol::new_id());
 
         let Json(response) = list_review_comments_endpoint(
@@ -347,7 +381,8 @@ mod tests {
 
     #[tokio::test]
     async fn review_comment_mutations_return_authoritative_payloads_and_persist() {
-        let (state, mut persist_rx, db_path) = new_persist_test_state(true);
+        let (state, mut persist_rx, db_path, guard) = new_persist_test_state(true);
+        drop(guard);
         let session_id = format!("od-{}", orbitdock_protocol::new_id());
         state.add_session(SessionHandle::new(
             session_id.clone(),
@@ -360,6 +395,7 @@ mod tests {
                 SessionCreateParams {
                     id: session_id.clone(),
                     provider: Provider::Codex,
+                    control_mode: orbitdock_protocol::SessionControlMode::Direct,
                     project_path: "/tmp/orbitdock-review-contract".to_string(),
                     project_name: Some("orbitdock-review-contract".to_string()),
                     branch: Some("main".to_string()),
@@ -414,12 +450,9 @@ mod tests {
 
         flush_next_persist_command(&mut persist_rx, &db_path).await;
 
-        let stored_after_create =
-            crate::infrastructure::persistence::load_review_comment_by_id(&created.comment_id)
-                .await
-                .expect("load created comment")
-                .expect("created comment should exist");
-        assert_eq!(stored_after_create.body, "Initial review comment");
+        let stored_after_create = load_review_comment_row(&db_path, &created.comment_id)
+            .expect("created comment should exist");
+        assert_eq!(stored_after_create.0, "Initial review comment");
 
         let Json(updated) = update_review_comment(
             Path(created.comment_id.clone()),
@@ -447,14 +480,11 @@ mod tests {
 
         flush_next_persist_command(&mut persist_rx, &db_path).await;
 
-        let stored_after_update =
-            crate::infrastructure::persistence::load_review_comment_by_id(&created.comment_id)
-                .await
-                .expect("load updated comment")
-                .expect("updated comment should exist");
-        assert_eq!(stored_after_update.body, "Updated review comment");
-        assert_eq!(stored_after_update.tag, Some(ReviewCommentTag::Risk));
-        assert_eq!(stored_after_update.status, ReviewCommentStatus::Resolved);
+        let stored_after_update = load_review_comment_row(&db_path, &created.comment_id)
+            .expect("updated comment should exist");
+        assert_eq!(stored_after_update.0, "Updated review comment");
+        assert_eq!(stored_after_update.1, Some(ReviewCommentTag::Risk));
+        assert_eq!(stored_after_update.2, ReviewCommentStatus::Resolved);
 
         let Json(deleted) =
             delete_review_comment_by_id(Path(created.comment_id.clone()), State(state.clone()))
@@ -469,10 +499,7 @@ mod tests {
 
         flush_next_persist_command(&mut persist_rx, &db_path).await;
 
-        let stored_after_delete =
-            crate::infrastructure::persistence::load_review_comment_by_id(&created.comment_id)
-                .await
-                .expect("load deleted comment");
+        let stored_after_delete = load_review_comment_row(&db_path, &created.comment_id);
         assert!(stored_after_delete.is_none());
     }
 }

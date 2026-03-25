@@ -1,5 +1,5 @@
 use super::*;
-use crate::runtime::server_info::server_info_message;
+use crate::runtime::server_info::{server_info_message, server_meta};
 
 #[derive(Debug, Serialize)]
 pub struct OpenAiKeyStatusResponse {
@@ -19,6 +19,12 @@ pub struct SetServerRoleRequest {
 #[derive(Debug, Serialize)]
 pub struct ServerRoleResponse {
     pub is_primary: bool,
+}
+
+pub async fn get_server_meta(
+    State(state): State<Arc<SessionRegistry>>,
+) -> Json<orbitdock_protocol::ServerMeta> {
+    Json(server_meta(&state))
 }
 
 #[derive(Debug, Deserialize)]

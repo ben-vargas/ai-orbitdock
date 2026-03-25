@@ -90,9 +90,7 @@ pub fn start_event_loop(
                                 })
                                 .await;
                             if state.remove_session(hook_sid).is_some() {
-                                state.broadcast_to_list(ServerMessage::SessionListItemRemoved {
-                                    session_id: hook_sid.clone(),
-                                });
+                                state.publish_dashboard_snapshot();
                             }
                         }
                     }
@@ -124,9 +122,7 @@ pub fn start_event_loop(
                             if should_remove_shadow_runtime_session(&session_id, &sdk_sid)
                                 && state.remove_session(&sdk_sid).is_some()
                             {
-                                state.broadcast_to_list(ServerMessage::SessionListItemRemoved {
-                                    session_id: sdk_sid,
-                                });
+                                state.publish_dashboard_snapshot();
                             }
                         }
                     }
@@ -354,6 +350,12 @@ pub fn start_event_loop(
             h.abort();
         }
         state.remove_claude_action_tx(&session_id);
+        crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
+            &state,
+            &session_id,
+            orbitdock_protocol::Provider::Claude,
+        )
+        .await;
 
         info!(
             component = "claude_connector",

@@ -8,6 +8,33 @@ pub(crate) struct RestOnlyRoute {
 
 pub(crate) fn rest_only_route(message: &ClientMessage) -> Option<RestOnlyRoute> {
     match message {
+        ClientMessage::CreateSession { .. } => Some(route("POST /api/sessions", None)),
+        ClientMessage::ResumeSession { session_id } => Some(route(
+            "POST /api/sessions/{session_id}/resume",
+            Some(session_id.clone()),
+        )),
+        ClientMessage::TakeoverSession { session_id, .. } => Some(route(
+            "POST /api/sessions/{session_id}/takeover",
+            Some(session_id.clone()),
+        )),
+        ClientMessage::ForkSession {
+            source_session_id, ..
+        } => Some(route(
+            "POST /api/sessions/{session_id}/fork",
+            Some(source_session_id.clone()),
+        )),
+        ClientMessage::ForkSessionToWorktree {
+            source_session_id, ..
+        } => Some(route(
+            "POST /api/sessions/{session_id}/fork-to-worktree",
+            Some(source_session_id.clone()),
+        )),
+        ClientMessage::ForkSessionToExistingWorktree {
+            source_session_id, ..
+        } => Some(route(
+            "POST /api/sessions/{session_id}/fork-to-existing-worktree",
+            Some(source_session_id.clone()),
+        )),
         ClientMessage::BrowseDirectory { .. } => Some(route("GET /api/fs/browse", None)),
         ClientMessage::ListRecentProjects { .. } => {
             Some(route("GET /api/fs/recent-projects", None))

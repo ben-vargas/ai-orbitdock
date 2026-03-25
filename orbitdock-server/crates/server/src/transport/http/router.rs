@@ -33,15 +33,18 @@ fn hook_routes() -> Router<Arc<SessionRegistry>> {
 
 fn session_read_routes() -> Router<Arc<SessionRegistry>> {
     Router::new()
-        .route("/api/sessions", get(super::list_sessions))
+        .route("/api/dashboard", get(super::get_dashboard_snapshot))
         .route(
-            "/api/dashboard/conversations",
-            get(super::list_dashboard_conversations),
+            "/api/sessions/{session_id}/detail",
+            get(super::get_session_detail),
         )
-        .route("/api/sessions/{session_id}", get(super::get_session))
+        .route(
+            "/api/sessions/{session_id}/composer",
+            get(super::get_session_composer),
+        )
         .route(
             "/api/sessions/{session_id}/conversation",
-            get(super::get_conversation_bootstrap),
+            get(super::get_conversation_snapshot),
         )
         .route(
             "/api/sessions/{session_id}/messages",
@@ -263,6 +266,7 @@ fn review_routes() -> Router<Arc<SessionRegistry>> {
 
 fn server_routes() -> Router<Arc<SessionRegistry>> {
     Router::new()
+        .route("/api/server/meta", get(super::get_server_meta))
         .route(
             "/api/server/openai-key",
             get(super::check_open_ai_key).post(super::set_open_ai_key),

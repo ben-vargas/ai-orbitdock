@@ -54,13 +54,6 @@ pub(crate) fn handle_client_message<'a>(
                 .await;
             }
 
-            MessageGroup::SessionLifecycle => {
-                crate::transport::websocket::handlers::session_lifecycle::handle(
-                    msg, client_tx, state, conn_id,
-                )
-                .await;
-            }
-
             MessageGroup::Messaging => {
                 crate::transport::websocket::handlers::messaging::handle(
                     msg, client_tx, state, conn_id,

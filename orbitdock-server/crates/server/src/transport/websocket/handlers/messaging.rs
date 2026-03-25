@@ -50,7 +50,7 @@ pub(crate) async fn handle(
                 .as_millis();
             let message_id = format!("user-ws-{}-{}", ts_millis, conn_id);
 
-            if dispatch_send_message(
+            if let Err(error) = dispatch_send_message(
                 state,
                 crate::runtime::message_dispatch::DispatchSendMessage {
                     session_id: session_id.clone(),
@@ -64,16 +64,16 @@ pub(crate) async fn handle(
                 },
             )
             .await
-            .is_err()
             {
                 warn!(
                     component = "session",
-                    event = "session.message.missing_action_channel",
+                    event = "session.message.send_failed",
                     connection_id = conn_id,
                     session_id = %session_id,
-                    "No action channel for session"
+                    error = ?error,
+                    "Failed to send message to session"
                 );
-                send_not_found(client_tx, &session_id).await;
+                send_dispatch_error(client_tx, &session_id, error).await;
             }
         }
 
@@ -99,7 +99,7 @@ pub(crate) async fn handle(
                 .as_millis();
             let message_id = format!("steer-ws-{}-{}", ts_millis, conn_id);
 
-            if dispatch_steer_turn(
+            if let Err(error) = dispatch_steer_turn(
                 state,
                 session_id.clone(),
                 content,
@@ -108,9 +108,8 @@ pub(crate) async fn handle(
                 message_id,
             )
             .await
-            .is_err()
             {
-                send_not_found(client_tx, &session_id).await;
+                send_dispatch_error(client_tx, &session_id, error).await;
             }
         }
 
@@ -455,6 +454,35 @@ async fn send_not_found(client_tx: &mpsc::Sender<OutboundMessage>, session_id: &
                 "Session {} not found or has no active connector",
                 session_id
             ),
+            session_id: Some(session_id.to_string()),
+        },
+    )
+    .await;
+}
+
+async fn send_dispatch_error(
+    client_tx: &mpsc::Sender<OutboundMessage>,
+    session_id: &str,
+    error: crate::runtime::message_dispatch::DispatchMessageError,
+) {
+    let (code, message) = match error {
+        crate::runtime::message_dispatch::DispatchMessageError::SessionNotFound => {
+            ("not_found", format!("Session {} not found", session_id))
+        }
+        crate::runtime::message_dispatch::DispatchMessageError::ConnectorUnavailable => (
+            "connector_unavailable",
+            format!(
+                "Session {} is direct but has no active connector attached",
+                session_id
+            ),
+        ),
+    };
+
+    send_json(
+        client_tx,
+        ServerMessage::Error {
+            code: code.into(),
+            message,
             session_id: Some(session_id.to_string()),
         },
     )

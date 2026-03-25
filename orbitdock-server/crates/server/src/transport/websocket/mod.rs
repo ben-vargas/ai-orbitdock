@@ -15,8 +15,8 @@ mod transport;
 
 pub use connection::ws_handler;
 pub(crate) use router::handle_client_message;
-pub(crate) use server_info::server_info_message;
+pub(crate) use server_info::{server_hello_message, server_info_message};
 pub(crate) use transport::{
-    send_json, send_replay_or_snapshot_fallback, send_rest_only_error, send_snapshot_if_requested,
-    spawn_broadcast_forwarder, OutboundMessage,
+    send_json, send_replay_or_resync_fallback, send_rest_only_error, spawn_broadcast_forwarder,
+    spawn_filtered_broadcast_forwarder, OutboundMessage,
 };

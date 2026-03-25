@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use orbitdock_protocol::{CodexApprovalPolicy, CodexConfigMode, ServerMessage, SessionListItem};
+use orbitdock_protocol::{CodexApprovalPolicy, CodexConfigMode, ServerMessage};
 
 use orbitdock_protocol::StateChanges;
 
@@ -74,10 +74,8 @@ pub(crate) async fn rename_session(
         })
         .await;
 
-    if let Ok(summary) = reply_rx.await {
-        state.broadcast_to_list(ServerMessage::SessionListItemUpdated {
-            session: SessionListItem::from_summary(&summary),
-        });
+    if reply_rx.await.is_ok() {
+        state.publish_dashboard_snapshot();
     }
 
     if let Some(ref name) = name {
@@ -111,14 +109,7 @@ pub(crate) async fn set_summary(
         })
         .await;
 
-    // Broadcast to dashboard/sidebar list subscribers
-    state.broadcast_to_list(ServerMessage::SessionDelta {
-        session_id: session_id.to_string(),
-        changes: Box::new(StateChanges {
-            summary: Some(Some(summary.clone())),
-            ..Default::default()
-        }),
-    });
+    state.publish_dashboard_snapshot();
 
     // Persist to DB
     let _ = state
@@ -341,10 +332,8 @@ pub(crate) async fn update_session_config(
         })
         .await;
 
-    if let Ok(summary) = actor.summary().await {
-        state.broadcast_to_list(ServerMessage::SessionListItemUpdated {
-            session: SessionListItem::from_summary(&summary),
-        });
+    if actor.summary().await.is_ok() {
+        state.publish_dashboard_snapshot();
     }
 
     if let Some(Some(ref mode)) = permission_mode {

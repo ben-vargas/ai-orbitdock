@@ -10,7 +10,6 @@ pub(crate) mod mission_reconciliation;
 pub(crate) mod query_fallback_policy;
 pub(crate) mod restored_sessions;
 pub(crate) mod server_info;
-pub(crate) mod session_activation;
 pub(crate) mod session_actor;
 pub(crate) mod session_broadcasts;
 pub(crate) mod session_command_handler;

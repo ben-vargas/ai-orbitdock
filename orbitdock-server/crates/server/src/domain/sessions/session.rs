@@ -12,9 +12,9 @@ use orbitdock_protocol::domain_events::ToolFamily;
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalQuestionOption, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType,
     ClaudeIntegrationMode, CodexApprovalPolicy, CodexConfigMode, CodexConfigSource,
-    CodexIntegrationMode, CodexSessionOverrides, Provider, SessionState, SessionStatus,
-    SessionSummary, StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff,
-    WorkStatus,
+    CodexIntegrationMode, CodexSessionOverrides, Provider, SessionControlMode,
+    SessionLifecycleState, SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo,
+    TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 
 pub use super::facets::{
@@ -37,11 +37,7 @@ use crate::domain::sessions::transition::{
 fn is_list_relevant(msg: &ServerMessage) -> bool {
     matches!(
         msg,
-        ServerMessage::SessionCreated { .. }
-            | ServerMessage::SessionListItemUpdated { .. }
-            | ServerMessage::SessionListItemRemoved { .. }
-            | ServerMessage::SessionEnded { .. }
-            | ServerMessage::SessionForked { .. }
+        ServerMessage::SessionEnded { .. } | ServerMessage::SessionForked { .. }
     )
 }
 
@@ -328,6 +324,33 @@ fn pending_tool_family_from_state(
     })
 }
 
+pub fn control_mode_from_parts(
+    provider: Provider,
+    codex_integration_mode: Option<CodexIntegrationMode>,
+    claude_integration_mode: Option<ClaudeIntegrationMode>,
+) -> SessionControlMode {
+    match provider {
+        Provider::Codex => match codex_integration_mode {
+            Some(CodexIntegrationMode::Direct) => SessionControlMode::Direct,
+            Some(CodexIntegrationMode::Passive) | None => SessionControlMode::Passive,
+        },
+        Provider::Claude => match claude_integration_mode {
+            Some(ClaudeIntegrationMode::Direct) => SessionControlMode::Direct,
+            Some(ClaudeIntegrationMode::Passive) | None => SessionControlMode::Passive,
+        },
+    }
+}
+
+pub(crate) fn accepts_user_input_from_parts(
+    status: SessionStatus,
+    control_mode: SessionControlMode,
+    lifecycle_state: SessionLifecycleState,
+) -> bool {
+    status == SessionStatus::Active
+        && control_mode == SessionControlMode::Direct
+        && lifecycle_state == SessionLifecycleState::Open
+}
+
 /// Lightweight, lock-free snapshot of session metadata.
 /// Used by `ArcSwap` so list subscribers and snapshot readers never block
 /// the actor.
@@ -338,6 +361,8 @@ pub struct SessionSnapshot {
     pub provider: Provider,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
+    pub control_mode: SessionControlMode,
+    pub lifecycle_state: SessionLifecycleState,
     pub steerable: bool,
     pub project_path: String,
     pub project_name: Option<String>,
@@ -443,10 +468,12 @@ pub struct SessionHandle {
     // ── Integration mode (set at creation/restore, not via config patch) ──
     codex_integration_mode: Option<CodexIntegrationMode>,
     claude_integration_mode: Option<ClaudeIntegrationMode>,
+    control_mode: SessionControlMode,
 
     // ── Session lifecycle ───────────────────────────────────────────
     status: SessionStatus,
     work_status: WorkStatus,
+    lifecycle_state: SessionLifecycleState,
     steerable: bool,
     last_tool: Option<String>,
 
@@ -536,6 +563,8 @@ pub struct SessionRestoreData {
     pub timestamps: SessionTimestamps,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
+    pub control_mode: SessionControlMode,
+    pub lifecycle_state: SessionLifecycleState,
     pub permission_mode: Option<String>,
     pub token_usage: TokenUsage,
     pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
@@ -621,6 +650,14 @@ struct StreamingRowEmitState {
 }
 
 impl SessionHandle {
+    fn sync_control_mode_from_integrations(&mut self) {
+        self.control_mode = control_mode_from_parts(
+            self.identity.provider,
+            self.codex_integration_mode,
+            self.claude_integration_mode,
+        );
+    }
+
     pub fn has_active_viewers(&self) -> bool {
         self.broadcast_tx.receiver_count() > 0
     }
@@ -747,6 +784,8 @@ impl SessionHandle {
             provider,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
+            control_mode: SessionControlMode::Passive,
+            lifecycle_state: SessionLifecycleState::Open,
             steerable: false,
             project_path: identity.project_path.clone(),
             project_name: None,
@@ -814,6 +853,8 @@ impl SessionHandle {
             claude_integration_mode: None,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
+            lifecycle_state: SessionLifecycleState::Open,
+            control_mode: SessionControlMode::Passive,
             steerable: false,
             last_tool: None,
             rows: Vec::new(),
@@ -861,6 +902,8 @@ impl SessionHandle {
             timestamps,
             status,
             work_status,
+            control_mode,
+            lifecycle_state,
             permission_mode,
             token_usage,
             token_usage_snapshot_kind,
@@ -883,6 +926,8 @@ impl SessionHandle {
             provider: identity.provider,
             status,
             work_status,
+            control_mode,
+            lifecycle_state,
             steerable: work_status == WorkStatus::Working,
             project_path: identity.project_path.clone(),
             project_name: identity.project_name.clone(),
@@ -890,7 +935,7 @@ impl SessionHandle {
             custom_name: display.custom_name.clone(),
             summary: display.summary.clone(),
             model: config.model.clone(),
-            codex_integration_mode: Some(CodexIntegrationMode::Direct),
+            codex_integration_mode: None,
             claude_integration_mode: None,
             approval_policy: config.approval_policy.clone(),
             approval_policy_details: config.approval_policy_details.clone(),
@@ -949,10 +994,12 @@ impl SessionHandle {
             display,
             environment,
             timestamps,
-            codex_integration_mode: Some(CodexIntegrationMode::Direct),
+            codex_integration_mode: None,
             claude_integration_mode: None,
+            control_mode,
             status,
             work_status,
+            lifecycle_state,
             steerable: work_status == WorkStatus::Working,
             last_tool: None,
             rows,
@@ -1007,11 +1054,6 @@ impl SessionHandle {
         &self.identity.id
     }
 
-    /// Get session project path
-    pub fn project_path(&self) -> &str {
-        &self.identity.project_path
-    }
-
     /// Get provider
     pub fn provider(&self) -> Provider {
         self.identity.provider
@@ -1025,6 +1067,8 @@ impl SessionHandle {
 
     /// Get a summary of this session
     pub fn summary(&self) -> SessionSummary {
+        let accepts_user_input =
+            accepts_user_input_from_parts(self.status, self.control_mode, self.lifecycle_state);
         let display_title = SessionSummary::display_title_from_parts(
             self.display.custom_name.as_deref(),
             self.display.summary.as_deref(),
@@ -1048,6 +1092,9 @@ impl SessionHandle {
             summary: self.display.summary.clone(),
             status: self.status,
             work_status: self.work_status,
+            control_mode: self.control_mode,
+            lifecycle_state: self.lifecycle_state,
+            accepts_user_input,
             steerable: self.steerable,
             token_usage: self.token_usage.clone(),
             token_usage_snapshot_kind: self.token_usage_snapshot_kind,
@@ -1116,6 +1163,8 @@ impl SessionHandle {
 
     /// Get the retained in-memory session snapshot.
     pub fn retained_state(&self) -> SessionState {
+        let accepts_user_input =
+            accepts_user_input_from_parts(self.status, self.control_mode, self.lifecycle_state);
         SessionState {
             id: self.identity.id.clone(),
             provider: self.identity.provider,
@@ -1127,6 +1176,9 @@ impl SessionHandle {
             summary: self.display.summary.clone(),
             status: self.status,
             work_status: self.work_status,
+            control_mode: self.control_mode,
+            lifecycle_state: self.lifecycle_state,
+            accepts_user_input,
             pending_approval: self.pending_approval.clone(),
             permission_mode: self.permission_mode.clone(),
             collaboration_mode: self.config.collaboration_mode.clone(),
@@ -1243,11 +1295,6 @@ impl SessionHandle {
         self.display.custom_name = name;
     }
 
-    /// Get custom name
-    pub fn custom_name(&self) -> Option<&str> {
-        self.display.custom_name.as_deref()
-    }
-
     /// Set first prompt
     #[allow(dead_code)]
     pub fn set_first_prompt(&mut self, prompt: Option<String>) {
@@ -1285,12 +1332,20 @@ impl SessionHandle {
     /// Set codex integration mode
     pub fn set_codex_integration_mode(&mut self, mode: Option<CodexIntegrationMode>) {
         self.codex_integration_mode = mode;
+        self.sync_control_mode_from_integrations();
         self.refresh_snapshot();
     }
 
     /// Set claude integration mode
     pub fn set_claude_integration_mode(&mut self, mode: Option<ClaudeIntegrationMode>) {
         self.claude_integration_mode = mode;
+        self.sync_control_mode_from_integrations();
+        self.refresh_snapshot();
+    }
+
+    /// Set the control mode directly.
+    pub fn set_control_mode(&mut self, control_mode: SessionControlMode) {
+        self.control_mode = control_mode;
         self.refresh_snapshot();
     }
 
@@ -1444,10 +1499,6 @@ impl SessionHandle {
     }
 
     /// Get work status
-    pub fn work_status(&self) -> WorkStatus {
-        self.work_status
-    }
-
     /// Set last tool name
     pub fn set_last_tool(&mut self, tool: Option<String>) {
         self.last_tool = tool;
@@ -1997,6 +2048,9 @@ impl SessionHandle {
         if let Some(work_status) = changes.work_status {
             self.work_status = work_status;
         }
+        if let Some(lifecycle_state) = changes.lifecycle_state {
+            self.lifecycle_state = lifecycle_state;
+        }
         if let Some(steerable) = changes.steerable {
             self.steerable = steerable;
         }
@@ -2150,6 +2204,8 @@ impl SessionHandle {
             provider: self.identity.provider,
             status: self.status,
             work_status: self.work_status,
+            control_mode: self.control_mode,
+            lifecycle_state: self.lifecycle_state,
             steerable: self.steerable,
             project_path: self.identity.project_path.clone(),
             project_name: self.identity.project_name.clone(),
@@ -2410,12 +2466,12 @@ mod tests {
         rows::MessageDeliveryStatus, MessageRowContent,
     };
 
+    fn session_handle(provider: Provider) -> SessionHandle {
+        SessionHandle::new("session-1".to_string(), provider, "/repo".to_string())
+    }
+
     fn pending_approval_session() -> SessionHandle {
-        SessionHandle::new(
-            "session-1".to_string(),
-            Provider::Claude,
-            "/repo".to_string(),
-        )
+        session_handle(Provider::Claude)
     }
 
     fn user_entry(session_id: &str, row_id: &str, content: &str) -> ConversationRowEntry {
@@ -2463,6 +2519,84 @@ mod tests {
         assert_eq!(session.approval_version(), version_after_first);
         assert_eq!(session.pending_approvals.len(), 1);
         assert_eq!(session.pending_approval_id.as_deref(), Some("approval-1"));
+    }
+
+    #[test]
+    fn control_mode_from_parts_uses_provider_specific_integration_mode() {
+        assert_eq!(
+            control_mode_from_parts(Provider::Codex, Some(CodexIntegrationMode::Direct), None),
+            SessionControlMode::Direct
+        );
+        assert_eq!(
+            control_mode_from_parts(Provider::Codex, Some(CodexIntegrationMode::Passive), None),
+            SessionControlMode::Passive
+        );
+        assert_eq!(
+            control_mode_from_parts(Provider::Claude, None, Some(ClaudeIntegrationMode::Direct)),
+            SessionControlMode::Direct
+        );
+        assert_eq!(
+            control_mode_from_parts(Provider::Claude, None, Some(ClaudeIntegrationMode::Passive)),
+            SessionControlMode::Passive
+        );
+    }
+
+    #[test]
+    fn accepts_user_input_from_parts_requires_direct_open_active_sessions() {
+        assert!(accepts_user_input_from_parts(
+            SessionStatus::Active,
+            SessionControlMode::Direct,
+            SessionLifecycleState::Open,
+        ));
+        assert!(!accepts_user_input_from_parts(
+            SessionStatus::Active,
+            SessionControlMode::Direct,
+            SessionLifecycleState::Resumable,
+        ));
+        assert!(!accepts_user_input_from_parts(
+            SessionStatus::Active,
+            SessionControlMode::Passive,
+            SessionLifecycleState::Open,
+        ));
+        assert!(!accepts_user_input_from_parts(
+            SessionStatus::Ended,
+            SessionControlMode::Direct,
+            SessionLifecycleState::Open,
+        ));
+    }
+
+    #[test]
+    fn conversation_bootstrap_projects_direct_active_sessions_as_open_and_sendable() {
+        let mut session = session_handle(Provider::Codex);
+        session.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+        session.set_status(SessionStatus::Active);
+        session.set_work_status(WorkStatus::Waiting);
+
+        let bootstrap = session.conversation_bootstrap(10);
+
+        assert_eq!(bootstrap.session.control_mode, SessionControlMode::Direct);
+        assert_eq!(
+            bootstrap.session.lifecycle_state,
+            SessionLifecycleState::Open
+        );
+        assert!(bootstrap.session.accepts_user_input);
+    }
+
+    #[test]
+    fn conversation_bootstrap_projects_passive_sessions_as_open_but_not_sendable() {
+        let mut session = session_handle(Provider::Codex);
+        session.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+        session.set_status(SessionStatus::Active);
+        session.set_work_status(WorkStatus::Waiting);
+
+        let bootstrap = session.conversation_bootstrap(10);
+
+        assert_eq!(bootstrap.session.control_mode, SessionControlMode::Passive);
+        assert_eq!(
+            bootstrap.session.lifecycle_state,
+            SessionLifecycleState::Open
+        );
+        assert!(!bootstrap.session.accepts_user_input);
     }
 
     #[test]

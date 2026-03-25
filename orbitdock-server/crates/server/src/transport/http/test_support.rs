@@ -37,13 +37,18 @@ pub(crate) fn new_persist_test_state(
     Arc<SessionRegistry>,
     mpsc::Receiver<PersistCommand>,
     PathBuf,
+    std::sync::MutexGuard<'static, ()>,
 ) {
+    let guard = crate::support::test_support::test_env_lock()
+        .lock()
+        .expect("lock shared test env");
     let db_path = ensure_test_db();
     let (persist_tx, persist_rx) = mpsc::channel(32);
     (
         Arc::new(SessionRegistry::new_with_primary(persist_tx, is_primary)),
         persist_rx,
         db_path,
+        guard,
     )
 }
 

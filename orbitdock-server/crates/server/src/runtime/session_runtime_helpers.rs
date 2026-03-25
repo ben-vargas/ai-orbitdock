@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
-    ClaudeIntegrationMode, CodexIntegrationMode, Provider, ServerMessage, SessionStatus,
+    ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionLifecycleState, SessionStatus,
     StateChanges, TokenUsage, WorkStatus,
 };
 
@@ -190,6 +190,7 @@ pub(crate) async fn mark_session_working_after_send(
                 id: session_id.to_string(),
                 status: None,
                 work_status: Some(WorkStatus::Working),
+                lifecycle_state: None,
                 last_activity_at: Some(now),
                 last_progress_at: None,
             }),
@@ -213,9 +214,7 @@ pub(crate) async fn claim_codex_thread_for_direct_session(
     state.register_codex_thread(session_id, thread_id);
 
     if thread_id != session_id && state.remove_session(thread_id).is_some() {
-        state.broadcast_to_list(ServerMessage::SessionListItemRemoved {
-            session_id: thread_id.to_string(),
-        });
+        state.publish_dashboard_snapshot();
     }
 
     let _ = persist_tx
@@ -230,6 +229,7 @@ pub(crate) fn direct_mode_activation_changes(provider: Provider) -> StateChanges
     let mut changes = StateChanges {
         status: Some(SessionStatus::Active),
         work_status: Some(WorkStatus::Waiting),
+        lifecycle_state: Some(SessionLifecycleState::Open),
         ..Default::default()
     };
 
@@ -243,6 +243,88 @@ pub(crate) fn direct_mode_activation_changes(provider: Provider) -> StateChanges
     }
 
     changes
+}
+
+pub(crate) fn direct_resume_failure_changes(provider: Provider) -> StateChanges {
+    let mut changes = direct_mode_activation_changes(provider);
+    changes.lifecycle_state = Some(SessionLifecycleState::Resumable);
+    changes.work_status = Some(WorkStatus::Waiting);
+    changes
+}
+
+pub(crate) async fn activate_direct_session_runtime(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    provider: Provider,
+) {
+    let Some(actor) = state.get_session(session_id) else {
+        return;
+    };
+
+    actor
+        .send(SessionCommand::ApplyDelta {
+            changes: Box::new(direct_mode_activation_changes(provider)),
+            persist_op: Some(PersistOp::SessionUpdate {
+                id: session_id.to_string(),
+                status: Some(SessionStatus::Active),
+                work_status: Some(WorkStatus::Waiting),
+                lifecycle_state: Some(SessionLifecycleState::Open),
+                last_activity_at: None,
+                last_progress_at: None,
+            }),
+        })
+        .await;
+}
+
+pub(crate) async fn mark_direct_session_connector_detached(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    provider: Provider,
+) {
+    let Some(actor) = state.get_session(session_id) else {
+        return;
+    };
+
+    let snapshot = actor.snapshot();
+    let control_mode = snapshot.control_mode;
+
+    if snapshot.status != SessionStatus::Active
+        || control_mode != orbitdock_protocol::SessionControlMode::Direct
+        || snapshot.lifecycle_state != SessionLifecycleState::Open
+    {
+        return;
+    }
+
+    let mut changes = StateChanges {
+        lifecycle_state: Some(SessionLifecycleState::Resumable),
+        work_status: Some(WorkStatus::Waiting),
+        ..Default::default()
+    };
+
+    match provider {
+        Provider::Codex => {
+            changes.codex_integration_mode = Some(Some(CodexIntegrationMode::Direct));
+        }
+        Provider::Claude => {
+            changes.claude_integration_mode = Some(Some(ClaudeIntegrationMode::Direct));
+        }
+    }
+
+    actor
+        .send(SessionCommand::ApplyDelta {
+            changes: Box::new(changes),
+            persist_op: Some(PersistOp::SessionUpdate {
+                id: session_id.to_string(),
+                status: None,
+                work_status: Some(WorkStatus::Waiting),
+                lifecycle_state: Some(SessionLifecycleState::Resumable),
+                last_activity_at: None,
+                last_progress_at: None,
+            }),
+        })
+        .await;
+
+    state.publish_dashboard_snapshot();
 }
 
 pub(crate) fn is_stale_empty_claude_shell(
@@ -389,7 +471,8 @@ pub(crate) async fn sync_transcript_messages(
         }
         TranscriptMessageSyncDecision::ForceResync => {
             // Full resync — normalize sequences before persisting (matching
-            // what replace_rows() does internally), then replace in-memory.
+            // what replace_rows() does internally), then replace in-memory and
+            // let the session actor emit a lightweight resync hint.
             let mut rows = plan.new_rows;
             for (i, entry) in rows.iter_mut().enumerate() {
                 entry.sequence = i as u64;
@@ -420,9 +503,38 @@ pub(crate) async fn sync_transcript_messages(
 #[cfg(test)]
 mod tests {
     use orbitdock_protocol::conversation_contracts::{ConversationRow, MessageRowContent};
-    use orbitdock_protocol::TokenUsageSnapshotKind;
+    use orbitdock_protocol::{ClaudeIntegrationMode, TokenUsageSnapshotKind};
 
     use super::*;
+
+    #[test]
+    fn direct_mode_activation_changes_open_the_lifecycle() {
+        let changes = direct_mode_activation_changes(Provider::Codex);
+
+        assert_eq!(changes.status, Some(SessionStatus::Active));
+        assert_eq!(changes.work_status, Some(WorkStatus::Waiting));
+        assert_eq!(changes.lifecycle_state, Some(SessionLifecycleState::Open));
+        assert_eq!(
+            changes.codex_integration_mode,
+            Some(Some(CodexIntegrationMode::Direct))
+        );
+    }
+
+    #[test]
+    fn direct_resume_failure_changes_downgrade_to_resumable() {
+        let changes = direct_resume_failure_changes(Provider::Claude);
+
+        assert_eq!(changes.status, Some(SessionStatus::Active));
+        assert_eq!(changes.work_status, Some(WorkStatus::Waiting));
+        assert_eq!(
+            changes.lifecycle_state,
+            Some(SessionLifecycleState::Resumable)
+        );
+        assert_eq!(
+            changes.claude_integration_mode,
+            Some(Some(ClaudeIntegrationMode::Direct))
+        );
+    }
 
     fn user_row(id: &str, sequence: u64) -> ConversationRowEntry {
         ConversationRowEntry {

@@ -1,218 +1,99 @@
 use std::sync::Arc;
-use std::time::UNIX_EPOCH;
 
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::warn;
 
-use orbitdock_protocol::{ClientMessage, ServerMessage};
+use orbitdock_protocol::{ClientMessage, ServerMessage, SessionSurface};
 
-use crate::runtime::session_activation::{
-    reactivate_passive_and_prepare_subscribe, start_lazy_connector_and_prepare_subscribe,
-};
+use crate::runtime::session_commands::SubscribeResult;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_subscriptions::{
-    plan_session_subscribe, prepare_subscribe_result, request_subscribe, PreparedSubscribeResult,
-    SessionSubscribeInputs,
-};
+use crate::runtime::session_subscriptions::request_subscribe;
 use crate::transport::websocket::connection::ConnectionSubscriptions;
 use crate::transport::websocket::{
-    send_json, send_replay_or_snapshot_fallback, send_rest_only_error, send_snapshot_if_requested,
-    spawn_broadcast_forwarder, OutboundMessage,
+    send_json, send_replay_or_resync_fallback, spawn_broadcast_forwarder,
+    spawn_filtered_broadcast_forwarder, OutboundMessage,
 };
 
-async fn forward_subscribe_result(
+async fn send_http_resync_required(
     client_tx: &mpsc::Sender<OutboundMessage>,
-    subscriptions: &mut ConnectionSubscriptions,
-    session_id: &str,
-    include_snapshot: bool,
-    conn_id: u64,
-    result: PreparedSubscribeResult,
+    code: &str,
+    message: String,
+    session_id: Option<String>,
 ) {
-    match result {
-        PreparedSubscribeResult::Snapshot { state, rx } => {
-            let handle =
-                spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.to_string()));
-            subscriptions.replace_session_forwarder(session_id.to_string(), handle);
-            send_snapshot_if_requested(client_tx, session_id, *state, include_snapshot, conn_id)
-                .await;
-        }
-        PreparedSubscribeResult::Replay { events, rx } => {
-            let handle =
-                spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.to_string()));
-            subscriptions.replace_session_forwarder(session_id.to_string(), handle);
-            send_replay_or_snapshot_fallback(client_tx, session_id, events, conn_id).await;
-        }
-    }
+    send_json(
+        client_tx,
+        ServerMessage::Error {
+            code: code.to_string(),
+            message,
+            session_id,
+        },
+    )
+    .await;
 }
 
 pub(crate) async fn handle(
     msg: ClientMessage,
     client_tx: &mpsc::Sender<OutboundMessage>,
-    state: &Arc<SessionRegistry>,
+    registry: &Arc<SessionRegistry>,
     subscriptions: &mut ConnectionSubscriptions,
-    conn_id: u64,
+    _conn_id: u64,
 ) {
     match msg {
-        ClientMessage::SubscribeList => {
-            let rx = state.subscribe_list();
-            let handle = spawn_broadcast_forwarder(rx, client_tx.clone(), None);
-            subscriptions.replace_list_forwarder(handle);
-            // Initial list fetched via GET /api/sessions. WS delivers incremental updates only.
-        }
+        ClientMessage::SubscribeDashboard { since_revision } => {
+            let current_revision = registry.current_dashboard_revision();
+            let should_send_snapshot =
+                since_revision.is_none_or(|revision| revision < current_revision);
 
-        ClientMessage::SubscribeSession {
-            session_id,
-            since_revision,
-            include_snapshot,
-        } => {
-            if include_snapshot {
-                send_rest_only_error(
+            if should_send_snapshot {
+                send_json(
                     client_tx,
-                    &format!("/api/sessions/{session_id}/conversation"),
-                    Some(session_id.clone()),
+                    ServerMessage::DashboardInvalidated {
+                        revision: current_revision,
+                    },
                 )
                 .await;
             }
 
-            if let Some(actor) = state.get_session(&session_id) {
-                let snap = actor.snapshot();
+            let rx = registry.subscribe_list();
+            let handle = spawn_filtered_broadcast_forwarder(rx, client_tx.clone(), None, |msg| {
+                matches!(msg, ServerMessage::DashboardInvalidated { .. })
+            });
+            subscriptions.replace_dashboard_forwarder(handle);
+        }
 
-                let subscribe_plan = plan_session_subscribe(SessionSubscribeInputs {
-                    provider: snap.provider,
-                    status: snap.status,
-                    codex_integration_mode: snap.codex_integration_mode,
-                    claude_integration_mode: snap.claude_integration_mode,
-                    transcript_path: snap.transcript_path.as_deref(),
-                    transcript_modified_at_secs: snap
-                        .transcript_path
-                        .as_deref()
-                        .and_then(|path| std::fs::metadata(path).ok())
-                        .and_then(|meta| meta.modified().ok())
-                        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
-                        .map(|duration| duration.as_secs()),
-                    last_activity_at: snap.last_activity_at.as_deref(),
-                    has_codex_connector: state.has_codex_connector(&session_id),
-                    has_claude_connector: state.has_claude_connector(&session_id),
-                });
+        ClientMessage::SubscribeMissions { since_revision } => {
+            let current_revision = registry.current_missions_revision();
+            let should_send_snapshot =
+                since_revision.is_none_or(|revision| revision < current_revision);
 
-                if subscribe_plan.reactivate_passive {
-                    match reactivate_passive_and_prepare_subscribe(state, &actor, &session_id).await
-                    {
-                        Ok(result) => {
-                            forward_subscribe_result(
-                                client_tx,
-                                subscriptions,
-                                &session_id,
-                                include_snapshot,
-                                conn_id,
-                                result,
-                            )
-                            .await;
-                        }
-                        Err(error) => {
-                            warn!(
-                                component = "session",
-                                event = "session.subscribe.reactivate_failed",
-                                session_id = %session_id,
-                                error = %error,
-                                "Passive session reactivation failed"
-                            );
-                        }
-                    }
-                    return;
-                }
+            if should_send_snapshot {
+                send_json(
+                    client_tx,
+                    ServerMessage::MissionsInvalidated {
+                        revision: current_revision,
+                    },
+                )
+                .await;
+            }
 
-                if subscribe_plan.start_lazy_connector {
-                    info!(
-                        component = "session",
-                        event = "session.lazy_connector.starting",
-                        connection_id = conn_id,
-                        session_id = %session_id,
-                        provider = ?snap.provider,
-                        "Creating connector lazily on first subscribe"
-                    );
+            let rx = registry.subscribe_list();
+            let handle = spawn_filtered_broadcast_forwarder(rx, client_tx.clone(), None, |msg| {
+                matches!(
+                    msg,
+                    ServerMessage::MissionDelta { .. }
+                        | ServerMessage::MissionHeartbeat { .. }
+                        | ServerMessage::MissionsInvalidated { .. }
+                )
+            });
+            subscriptions.replace_missions_forwarder(handle);
+        }
 
-                    match start_lazy_connector_and_prepare_subscribe(
-                        state,
-                        &actor,
-                        crate::runtime::session_activation::LazyConnectorStartRequest {
-                            session_id: &session_id,
-                            provider: snap.provider,
-                            project_path: &snap.project_path,
-                            model: snap.model.as_deref(),
-                            approval_policy: snap.approval_policy.as_deref(),
-                            sandbox_mode: snap.sandbox_mode.as_deref(),
-                            collaboration_mode: snap.collaboration_mode.as_deref(),
-                            multi_agent: snap.multi_agent,
-                            personality: snap.personality.as_deref(),
-                            service_tier: snap.service_tier.as_deref(),
-                            developer_instructions: snap.developer_instructions.as_deref(),
-                            codex_config_mode: snap.codex_config_mode,
-                            codex_config_profile: snap.codex_config_profile.as_deref(),
-                            codex_model_provider: snap.codex_model_provider.as_deref(),
-                            codex_config_source: snap.codex_config_source,
-                            codex_config_overrides: snap.codex_config_overrides.as_ref(),
-                        },
-                    )
-                    .await
-                    {
-                        Ok(Some(result)) => {
-                            forward_subscribe_result(
-                                client_tx,
-                                subscriptions,
-                                &session_id,
-                                include_snapshot,
-                                conn_id,
-                                result,
-                            )
-                            .await;
-                            return;
-                        }
-                        Ok(None) => {
-                            warn!(
-                                component = "session",
-                                event = "session.lazy_connector.take_failed",
-                                session_id = %session_id,
-                                "Failed to take handle from passive actor, falling through to normal subscribe"
-                            );
-                        }
-                        Err(error) => {
-                            warn!(
-                                component = "session",
-                                event = "session.lazy_connector.subscribe_failed",
-                                session_id = %session_id,
-                                error = %error,
-                                "Lazy connector subscribe failed"
-                            );
-                            return;
-                        }
-                    }
-                }
-
-                match request_subscribe(&actor, since_revision).await {
-                    Ok(result) => {
-                        let prepared = prepare_subscribe_result(result);
-                        forward_subscribe_result(
-                            client_tx,
-                            subscriptions,
-                            &session_id,
-                            include_snapshot,
-                            conn_id,
-                            prepared,
-                        )
-                        .await;
-                    }
-                    Err(error) => {
-                        warn!(
-                            component = "session",
-                            event = "session.subscribe.request_failed",
-                            session_id = %session_id,
-                            error = %error,
-                            "Runtime subscribe request failed"
-                        );
-                    }
-                }
-            } else {
+        ClientMessage::SubscribeSessionSurface {
+            session_id,
+            surface,
+            since_revision,
+        } => {
+            let Some(actor) = registry.get_session(&session_id) else {
                 send_json(
                     client_tx,
                     ServerMessage::Error {
@@ -222,13 +103,65 @@ pub(crate) async fn handle(
                     },
                 )
                 .await;
+                return;
+            };
+
+            match request_subscribe(&actor, since_revision).await {
+                Ok(SubscribeResult::ResyncRequired { rx }) => {
+                    let handle =
+                        spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.clone()));
+                    let message = match surface {
+                        SessionSurface::Detail => format!(
+                            "Detail revision is missing or stale for session {}; refetch GET /api/sessions/{}/detail",
+                            session_id, session_id
+                        ),
+                        SessionSurface::Composer => format!(
+                            "Composer revision is missing or stale for session {}; refetch GET /api/sessions/{}/composer",
+                            session_id, session_id
+                        ),
+                        SessionSurface::Conversation => format!(
+                            "Conversation revision is missing or stale for session {}; refetch GET /api/sessions/{}/conversation",
+                            session_id, session_id
+                        ),
+                    };
+                    let code = match surface {
+                        SessionSurface::Detail => "session_detail_resync_required",
+                        SessionSurface::Composer => "session_composer_resync_required",
+                        SessionSurface::Conversation => "conversation_resync_required",
+                    };
+                    send_http_resync_required(client_tx, code, message, Some(session_id.clone()))
+                        .await;
+
+                    subscriptions.replace_session_surface_forwarder(session_id, surface, handle);
+                }
+                Ok(SubscribeResult::Replay { events, rx }) => {
+                    let handle =
+                        spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.clone()));
+                    subscriptions.replace_session_surface_forwarder(
+                        session_id.clone(),
+                        surface,
+                        handle,
+                    );
+                    send_replay_or_resync_fallback(client_tx, &session_id, events, _conn_id).await;
+                }
+                Err(error) => {
+                    warn!(
+                        component = "websocket",
+                        event = "ws.subscribe.surface_request_failed",
+                        session_id = %session_id,
+                        error = %error,
+                        "Failed to subscribe to session surface"
+                    );
+                }
             }
         }
 
-        ClientMessage::UnsubscribeSession { session_id } => {
-            subscriptions.remove_session_forwarder(&session_id);
+        ClientMessage::UnsubscribeSessionSurface {
+            session_id,
+            surface,
+        } => {
+            subscriptions.remove_session_surface_forwarder(&session_id, surface);
         }
-
         _ => {}
     }
 }

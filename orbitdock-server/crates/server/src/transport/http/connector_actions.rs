@@ -33,13 +33,18 @@ pub(crate) fn messaging_dispatch_error_response(
     session_id: &str,
 ) -> (StatusCode, Json<ApiErrorResponse>) {
     match error {
-        crate::runtime::message_dispatch::DispatchMessageError::NotFound => not_found(
-            "not_found",
-            format!(
-                "Session {} not found or has no active connector",
-                session_id
-            ),
-        ),
+        crate::runtime::message_dispatch::DispatchMessageError::SessionNotFound => {
+            not_found("not_found", format!("Session {} not found", session_id))
+        }
+        crate::runtime::message_dispatch::DispatchMessageError::ConnectorUnavailable => {
+            service_unavailable(
+                "connector_unavailable",
+                format!(
+                    "Session {} is direct but has no active connector attached",
+                    session_id
+                ),
+            )
+        }
     }
 }
 
@@ -88,7 +93,9 @@ pub(crate) async fn subscribe_session_events(
         .await;
 
     match reply_rx.await {
-        Ok(SubscribeResult::Snapshot { rx, .. }) | Ok(SubscribeResult::Replay { rx, .. }) => Ok(rx),
+        Ok(SubscribeResult::Replay { rx, .. }) | Ok(SubscribeResult::ResyncRequired { rx }) => {
+            Ok(rx)
+        }
         Err(_) => Err(codex_action_error_response(
             CodexActionError::ChannelClosed,
             session_id,

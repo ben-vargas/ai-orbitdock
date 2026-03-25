@@ -162,6 +162,8 @@ pub(crate) async fn resolve_pending_approvals_after_tool_outcome(
                 id: session_id.to_string(),
                 status: None,
                 work_status: Some(resolution.work_status),
+                control_mode: None,
+                lifecycle_state: None,
                 last_activity_at: None,
                 last_progress_at: None,
             })
@@ -185,7 +187,8 @@ fn normalized_non_empty(value: Option<&str>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use orbitdock_protocol::{
-        Provider, SessionStatus, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+        Provider, SessionLifecycleState, SessionStatus, TokenUsage, TokenUsageSnapshotKind,
+        WorkStatus,
     };
 
     use super::{permission_request_matches_snapshot, PermissionRequestSnapshotMatch};
@@ -197,6 +200,8 @@ mod tests {
             provider: Provider::Claude,
             status: SessionStatus::Active,
             work_status: WorkStatus::Permission,
+            control_mode: orbitdock_protocol::SessionControlMode::Direct,
+            lifecycle_state: SessionLifecycleState::Open,
             steerable: false,
             project_path: "/repo".to_string(),
             project_name: None,

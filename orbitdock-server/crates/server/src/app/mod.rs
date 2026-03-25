@@ -14,8 +14,8 @@ use axum::{
     Router,
 };
 use orbitdock_protocol::{
-    CodexApprovalPolicy, CodexIntegrationMode, Provider, SessionStatus, TokenUsage, TurnDiff,
-    WorkStatus,
+    ClaudeIntegrationMode, CodexApprovalPolicy, CodexIntegrationMode, Provider, SessionControlMode,
+    SessionLifecycleState, SessionStatus, TokenUsage, TurnDiff, WorkStatus,
 };
 use tokio::sync::mpsc;
 use tower_http::cors::CorsLayer;
@@ -31,7 +31,9 @@ use crate::infrastructure::persistence::{
     create_persistence_channel, create_sync_channel, load_sessions_for_startup, PersistCommand,
     PersistenceWriter, SyncWriter, SyncWriterConfig,
 };
+use crate::runtime::restored_sessions::prepare_restored_session_for_direct_resume;
 use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_resume::launch_resumed_session;
 use crate::transport::websocket::ws_handler;
 use crate::VERSION;
 
@@ -240,19 +242,57 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
             let mut backfill_tasks: Vec<(String, String)> = Vec::new();
 
             for rs in restored {
+                let should_restore_live_direct = rs.status.eq_ignore_ascii_case("active")
+                    && rs.lifecycle_state == SessionLifecycleState::Open
+                    && rs.control_mode == SessionControlMode::Direct;
+
+                if should_restore_live_direct {
+                    let session_id = rs.id.clone();
+                    let provider = rs.provider.clone();
+                    let message_count = rs.rows.len();
+                    let prepared = prepare_restored_session_for_direct_resume(rs, false);
+
+                    match launch_resumed_session(&state, &session_id, prepared).await {
+                        Ok(_) => {
+                            info!(
+                                component = "restore",
+                                event = "restore.session.resumed",
+                                session_id = %session_id,
+                                provider = %provider,
+                                messages = message_count,
+                                "Restored direct open session and reattached connector"
+                            );
+                        }
+                        Err(error) => {
+                            warn!(
+                                component = "restore",
+                                event = "restore.session.resume_failed",
+                                session_id = %session_id,
+                                provider = %provider,
+                                error_code = error.code(),
+                                error = %error.message(),
+                                "Failed to restore direct open session connector"
+                            );
+                        }
+                    }
+                    continue;
+                }
+
                 let crate::infrastructure::persistence::RestoredSession {
                     id,
                     provider,
                     status,
                     work_status,
+                    control_mode,
+                    lifecycle_state,
                     project_path,
                     transcript_path,
                     project_name,
                     model,
                     custom_name,
                     summary,
-                    codex_integration_mode,
-                    claude_integration_mode,
+                    codex_integration_mode: _,
+                    claude_integration_mode: _,
                     codex_thread_id,
                     claude_sdk_session_id,
                     started_at,
@@ -373,6 +413,8 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                             "ended" => WorkStatus::Ended,
                             _ => WorkStatus::Waiting,
                         },
+                        control_mode,
+                        lifecycle_state,
                         permission_mode,
                         token_usage: TokenUsage {
                             input_tokens: input_tokens.max(0) as u64,
@@ -428,22 +470,21 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                 );
                 let is_codex = matches!(provider, Provider::Codex);
                 let is_claude = matches!(provider, Provider::Claude);
-                let is_passive =
-                    is_codex && matches!(codex_integration_mode.as_deref(), Some("passive"));
-                let is_claude_direct =
-                    is_claude && matches!(claude_integration_mode.as_deref(), Some("direct"));
-                handle.set_codex_integration_mode(if is_passive {
-                    Some(CodexIntegrationMode::Passive)
-                } else if is_codex {
-                    Some(CodexIntegrationMode::Direct)
+                let is_direct = control_mode == SessionControlMode::Direct;
+                handle.set_codex_integration_mode(if is_codex {
+                    Some(if is_direct {
+                        CodexIntegrationMode::Direct
+                    } else {
+                        CodexIntegrationMode::Passive
+                    })
                 } else {
                     None
                 });
                 if is_claude {
-                    handle.set_claude_integration_mode(Some(if is_claude_direct {
-                        orbitdock_protocol::ClaudeIntegrationMode::Direct
+                    handle.set_claude_integration_mode(Some(if is_direct {
+                        ClaudeIntegrationMode::Direct
                     } else {
-                        orbitdock_protocol::ClaudeIntegrationMode::Passive
+                        ClaudeIntegrationMode::Passive
                     }));
                 }
                 if let Some(source_id) = forked_from_session_id {
@@ -463,7 +504,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                         }
                     }
                 }
-                if is_claude_direct {
+                if is_claude && is_direct {
                     let sdk_id = claude_sdk_session_id
                         .as_deref()
                         .or(codex_thread_id.as_deref())
@@ -655,6 +696,9 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     app = app.layer(axum::middleware::from_fn_with_state(
         auth_state,
         crate::infrastructure::auth::auth_middleware,
+    ));
+    app = app.layer(axum::middleware::from_fn(
+        crate::infrastructure::protocol_compat::compatibility_middleware,
     ));
 
     let mut app = app.layer(TraceLayer::new_for_http());

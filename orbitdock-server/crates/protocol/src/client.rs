@@ -10,30 +10,29 @@ use crate::types::{
     ReviewCommentStatus, ReviewCommentTag, SkillInput, ToolApprovalDecision,
 };
 
-fn default_include_snapshot() -> bool {
-    true
-}
-
-fn is_true(value: &bool) -> bool {
-    *value
-}
-
 /// Messages sent from client to server
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
     // Subscriptions
-    SubscribeSession {
-        session_id: String,
+    SubscribeDashboard {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         since_revision: Option<u64>,
-        #[serde(default = "default_include_snapshot", skip_serializing_if = "is_true")]
-        include_snapshot: bool,
     },
-    UnsubscribeSession {
+    SubscribeMissions {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since_revision: Option<u64>,
+    },
+    SubscribeSessionSurface {
         session_id: String,
+        surface: crate::types::SessionSurface,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since_revision: Option<u64>,
     },
-    SubscribeList,
+    UnsubscribeSessionSurface {
+        session_id: String,
+        surface: crate::types::SessionSurface,
+    },
 
     // Actions
     SendMessage {
@@ -509,6 +508,7 @@ fn default_shell_timeout() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::ClientMessage;
+    use crate::types::SessionSurface;
 
     #[test]
     fn deserializes_claude_status_event() {
@@ -1159,103 +1159,6 @@ mod tests {
     }
 
     #[test]
-    fn test_subscribe_session_with_revision() {
-        let json = r#"{"type":"subscribe_session","session_id":"sess-r1","since_revision":42}"#;
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse subscribe_session with revision");
-        match &parsed {
-            ClientMessage::SubscribeSession {
-                session_id,
-                since_revision,
-                include_snapshot,
-            } => {
-                assert_eq!(session_id, "sess-r1");
-                assert_eq!(*since_revision, Some(42));
-                assert!(*include_snapshot);
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
-        match reparsed {
-            ClientMessage::SubscribeSession {
-                session_id,
-                since_revision,
-                include_snapshot,
-            } => {
-                assert_eq!(session_id, "sess-r1");
-                assert_eq!(since_revision, Some(42));
-                assert!(include_snapshot);
-            }
-            other => panic!("unexpected variant on roundtrip: {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_subscribe_session_without_revision() {
-        let json = r#"{"type":"subscribe_session","session_id":"sess-r2"}"#;
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse subscribe_session without revision");
-        match &parsed {
-            ClientMessage::SubscribeSession {
-                session_id,
-                since_revision,
-                include_snapshot,
-            } => {
-                assert_eq!(session_id, "sess-r2");
-                assert_eq!(*since_revision, None);
-                assert!(*include_snapshot);
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        // Verify None omits the field (backward compat)
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        assert!(
-            !serialized.contains("since_revision"),
-            "since_revision should be omitted when None"
-        );
-        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
-        match reparsed {
-            ClientMessage::SubscribeSession {
-                since_revision,
-                include_snapshot,
-                ..
-            } => {
-                assert_eq!(since_revision, None);
-                assert!(include_snapshot);
-            }
-            other => panic!("unexpected variant on roundtrip: {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_subscribe_session_without_snapshot_flag_serializes_false_only() {
-        let parsed = ClientMessage::SubscribeSession {
-            session_id: "sess-r3".to_string(),
-            since_revision: Some(7),
-            include_snapshot: false,
-        };
-        let serialized = serde_json::to_string(&parsed).expect("serialize subscribe_session");
-        assert!(
-            serialized.contains("\"include_snapshot\":false"),
-            "include_snapshot=false should be encoded explicitly"
-        );
-        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
-        match reparsed {
-            ClientMessage::SubscribeSession {
-                session_id,
-                since_revision,
-                include_snapshot,
-            } => {
-                assert_eq!(session_id, "sess-r3");
-                assert_eq!(since_revision, Some(7));
-                assert!(!include_snapshot);
-            }
-            other => panic!("unexpected variant on roundtrip: {:?}", other),
-        }
-    }
-
-    #[test]
     fn roundtrip_send_message_mixed_inputs() {
         let json = r#"{
           "type":"send_message",
@@ -1411,6 +1314,34 @@ mod tests {
                 assert_eq!(effort.as_deref(), Some("high"));
             }
             other => panic!("unexpected variant for update_session_config: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn subscribe_session_surface_round_trips_since_revision() {
+        let message = ClientMessage::SubscribeSessionSurface {
+            session_id: "sess-1".to_string(),
+            surface: SessionSurface::Conversation,
+            since_revision: Some(42),
+        };
+
+        let json = serde_json::to_string(&message).expect("serialize subscribe_session_surface");
+        match serde_json::from_str::<ClientMessage>(&json)
+            .expect("deserialize subscribe_session_surface")
+        {
+            ClientMessage::SubscribeSessionSurface {
+                session_id,
+                surface,
+                since_revision,
+            } => {
+                assert_eq!(session_id, "sess-1");
+                assert_eq!(surface, SessionSurface::Conversation);
+                assert_eq!(since_revision, Some(42));
+            }
+            other => panic!(
+                "unexpected variant for subscribe_session_surface: {:?}",
+                other
+            ),
         }
     }
 }

@@ -4,9 +4,7 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tracing::info;
 
-use orbitdock_protocol::{
-    ClaudeIntegrationMode, CodexIntegrationMode, Provider, ServerMessage, SessionListItem,
-};
+use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider, StateChanges};
 
 use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
@@ -19,7 +17,7 @@ use crate::runtime::session_commands::{PersistOp, SessionCommand, SessionConfigP
 use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
-    claim_codex_thread_for_direct_session, direct_mode_activation_changes,
+    activate_direct_session_runtime, claim_codex_thread_for_direct_session,
 };
 use crate::support::session_modes::is_takeover_eligible_passive_session;
 use crate::support::session_paths::resolve_claude_resume_cwd;
@@ -173,10 +171,8 @@ pub(crate) async fn takeover_passive_session(
     }
 
     if let Some(actor) = state.get_session(session_id) {
-        if let Ok(summary) = actor.summary().await {
-            state.broadcast_to_list(ServerMessage::SessionListItemUpdated {
-                session: SessionListItem::from_summary(&summary),
-            });
+        if actor.summary().await.is_ok() {
+            state.publish_dashboard_snapshot();
         }
     }
 
@@ -377,17 +373,20 @@ async fn complete_codex_takeover(
                     .await;
             }
 
+            activate_direct_session_runtime(state, &session_id, Provider::Codex).await;
+
             if let Some(actor) = state.get_session(&session_id) {
-                let mut changes = direct_mode_activation_changes(Provider::Codex);
                 if let Some(ref effort_name) = effective_effort {
-                    changes.effort = Some(Some(effort_name.clone()));
+                    actor
+                        .send(SessionCommand::ApplyDelta {
+                            changes: Box::new(StateChanges {
+                                effort: Some(Some(effort_name.clone())),
+                                ..Default::default()
+                            }),
+                            persist_op: None,
+                        })
+                        .await;
                 }
-                actor
-                    .send(SessionCommand::ApplyDelta {
-                        changes: Box::new(changes),
-                        persist_op: None,
-                    })
-                    .await;
             }
 
             let _ = persist_tx
@@ -530,14 +529,7 @@ async fn complete_claude_takeover(
                 }
             }
 
-            if let Some(actor) = state.get_session(&session_id) {
-                actor
-                    .send(SessionCommand::ApplyDelta {
-                        changes: Box::new(direct_mode_activation_changes(Provider::Claude)),
-                        persist_op: None,
-                    })
-                    .await;
-            }
+            activate_direct_session_runtime(state, &session_id, Provider::Claude).await;
 
             let _ = persist_tx
                 .send(PersistCommand::SetIntegrationMode {

@@ -88,6 +88,13 @@ pub struct MissionIssueRow {
     pub pr_url: Option<String>,
 }
 
+/// Minimal mission-linked worktree row used for cleanup UX summaries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissionCleanupCandidateRow {
+    pub worktree_id: String,
+    pub worktree_path: String,
+}
+
 impl MissionIssueRow {
     /// Map a row whose SELECT list matches the 18-column mission_issues schema.
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
@@ -242,6 +249,43 @@ pub fn load_mission_issues(conn: &Connection, mission_id: &str) -> Result<Vec<Mi
     let rows = stmt
         .query_map(params![mission_id], MissionIssueRow::from_row)
         .context("query load_mission_issues")?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+pub fn load_mission_cleanup_candidates(
+    conn: &Connection,
+    mission_id: &str,
+) -> Result<Vec<MissionCleanupCandidateRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT DISTINCT
+                w.id,
+                w.worktree_path
+             FROM mission_issues mi
+             JOIN sessions s ON s.id = mi.session_id
+             JOIN worktrees w ON (
+                (s.worktree_id IS NOT NULL AND s.worktree_id != '' AND w.id = s.worktree_id)
+                OR
+                (COALESCE(s.worktree_id, '') = '' AND w.worktree_path = s.project_path)
+             )
+             WHERE mi.mission_id = ?1
+               AND mi.orchestration_state IN ('completed', 'failed', 'blocked')
+               AND w.status != 'removed'
+             ORDER BY mi.created_at ASC",
+        )
+        .context("prepare load_mission_cleanup_candidates")?;
+
+    let rows = stmt
+        .query_map(params![mission_id], |row| {
+            Ok(MissionCleanupCandidateRow {
+                worktree_id: row.get(0)?,
+                worktree_path: row.get(1)?,
+            })
+        })
+        .context("query load_mission_cleanup_candidates")?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -482,6 +526,50 @@ mod tests {
         .unwrap();
     }
 
+    fn insert_session(
+        conn: &Connection,
+        id: &str,
+        project_path: &str,
+        worktree_id: Option<&str>,
+        created_at: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO sessions (
+                id, project_path, project_name, status, work_status, provider,
+                approval_policy, sandbox_mode, permission_mode, collaboration_mode,
+                multi_agent, personality, service_tier, started_at, last_activity_at,
+                worktree_id, is_worktree
+             ) VALUES (
+                ?1, ?2, 'repo', 'ended', 'ended', 'codex',
+                'never', 'workspace-write', 'default', 'single',
+                0, 'balanced', 'default', ?3, ?3,
+                ?4, 1
+             )",
+            params![id, project_path, created_at, worktree_id],
+        )
+        .unwrap();
+    }
+
+    fn insert_worktree(
+        conn: &Connection,
+        id: &str,
+        worktree_path: &str,
+        status: &str,
+        created_at: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO worktrees (
+                id, repo_root, worktree_path, branch, base_branch, status,
+                created_by, created_at
+             ) VALUES (
+                ?1, '/tmp/repo', ?2, 'mission/issue-1', 'main', ?3,
+                'agent', ?4
+             )",
+            params![id, worktree_path, status, created_at],
+        )
+        .unwrap();
+    }
+
     // ── load_missions ─────────────────────────────────────────────────
 
     #[test]
@@ -667,6 +755,99 @@ mod tests {
         let issues = load_mission_issues(&conn, "m1").unwrap();
         let ids: Vec<&str> = issues.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, vec!["i-early", "i-late"]);
+    }
+
+    #[test]
+    fn load_mission_cleanup_candidates_returns_terminal_issue_worktrees() {
+        let conn = setup_test_db();
+        insert_mission(&conn, "m1", "One", "2026-03-01T00:00:00.000Z");
+
+        insert_worktree(
+            &conn,
+            "wt-completed",
+            "/tmp/repo/.orbitdock-worktrees/mission/issue-1",
+            "active",
+            "2026-03-01T00:00:00.000Z",
+        );
+        insert_session(
+            &conn,
+            "sess-completed",
+            "/tmp/repo/.orbitdock-worktrees/mission/issue-1",
+            Some("wt-completed"),
+            "2026-03-01T00:00:00.000Z",
+        );
+        conn.execute(
+            "INSERT INTO mission_issues (
+                id, mission_id, issue_id, issue_identifier, orchestration_state,
+                session_id, attempt, created_at, updated_at
+             ) VALUES (
+                'i-completed', 'm1', 'iss-1', 'ISSUE-1', 'completed',
+                'sess-completed', 0, '2026-03-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z'
+             )",
+            [],
+        )
+        .unwrap();
+
+        insert_worktree(
+            &conn,
+            "wt-running",
+            "/tmp/repo/.orbitdock-worktrees/mission/issue-2",
+            "active",
+            "2026-03-01T00:00:00.000Z",
+        );
+        insert_session(
+            &conn,
+            "sess-running",
+            "/tmp/repo/.orbitdock-worktrees/mission/issue-2",
+            Some("wt-running"),
+            "2026-03-01T00:00:00.000Z",
+        );
+        conn.execute(
+            "INSERT INTO mission_issues (
+                id, mission_id, issue_id, issue_identifier, orchestration_state,
+                session_id, attempt, created_at, updated_at
+             ) VALUES (
+                'i-running', 'm1', 'iss-2', 'ISSUE-2', 'running',
+                'sess-running', 0, '2026-03-01T00:01:00.000Z', '2026-03-01T00:01:00.000Z'
+             )",
+            [],
+        )
+        .unwrap();
+
+        insert_worktree(
+            &conn,
+            "wt-removed",
+            "/tmp/repo/.orbitdock-worktrees/mission/issue-3",
+            "removed",
+            "2026-03-01T00:00:00.000Z",
+        );
+        insert_session(
+            &conn,
+            "sess-removed",
+            "/tmp/repo/.orbitdock-worktrees/mission/issue-3",
+            Some("wt-removed"),
+            "2026-03-01T00:00:00.000Z",
+        );
+        conn.execute(
+            "INSERT INTO mission_issues (
+                id, mission_id, issue_id, issue_identifier, orchestration_state,
+                session_id, attempt, created_at, updated_at
+             ) VALUES (
+                'i-removed', 'm1', 'iss-3', 'ISSUE-3', 'completed',
+                'sess-removed', 0, '2026-03-01T00:02:00.000Z', '2026-03-01T00:02:00.000Z'
+             )",
+            [],
+        )
+        .unwrap();
+
+        let candidates = load_mission_cleanup_candidates(&conn, "m1").unwrap();
+        assert_eq!(
+            candidates,
+            vec![MissionCleanupCandidateRow {
+                worktree_id: "wt-completed".into(),
+                worktree_path: "/tmp/repo/.orbitdock-worktrees/mission/issue-1".into(),
+            }]
+        );
     }
 
     // ── load_retry_ready_issues ───────────────────────────────────────

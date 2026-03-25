@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
 
-use orbitdock_protocol::{Provider, ServerMessage, SessionListItem, SessionSummary};
+use orbitdock_protocol::{Provider, ServerMessage, SessionSummary};
 
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::PersistCommand;
@@ -105,10 +105,8 @@ pub(crate) async fn materialize_claude_session(
             .await;
     }
 
-    if let Ok(summary) = actor.summary().await {
-        state.broadcast_to_list(ServerMessage::SessionCreated {
-            session: SessionListItem::from_summary(&summary),
-        });
+    if actor.summary().await.is_ok() {
+        state.publish_dashboard_snapshot();
     }
 
     let _ = persist_tx
@@ -255,9 +253,7 @@ async fn run_stale_shell_pruning(
             })
             .await;
         if state.remove_session(&stale_id).is_some() {
-            state.broadcast_to_list(ServerMessage::SessionListItemRemoved {
-                session_id: stale_id,
-            });
+            state.publish_dashboard_snapshot();
         }
     }
 }

@@ -112,12 +112,4 @@ impl ConnectorRegistry {
             .find(|entry| entry.value() == session_id)
             .map(|entry| entry.key().clone())
     }
-
-    pub(crate) fn has_codex_connector(&self, session_id: &str) -> bool {
-        self.codex_actions.contains_key(session_id)
-    }
-
-    pub(crate) fn has_claude_connector(&self, session_id: &str) -> bool {
-        self.claude_actions.contains_key(session_id)
-    }
 }

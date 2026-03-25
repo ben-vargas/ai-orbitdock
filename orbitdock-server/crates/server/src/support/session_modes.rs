@@ -1,4 +1,4 @@
-use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionStatus};
+use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider};
 
 pub(crate) fn is_passive_rollout_session(
     provider: Provider,
@@ -26,55 +26,10 @@ pub(crate) fn is_takeover_eligible_passive_session(
     }
 }
 
-pub(crate) fn should_reactivate_passive_codex_session(
-    provider: Provider,
-    status: SessionStatus,
-    codex_integration_mode: Option<CodexIntegrationMode>,
-    transcript_path_present: bool,
-    transcript_modified_at_secs: Option<u64>,
-    last_activity_at_secs: Option<u64>,
-) -> bool {
-    if status != SessionStatus::Ended
-        || !is_passive_rollout_session(provider, codex_integration_mode, transcript_path_present)
-    {
-        return false;
-    }
-
-    transcript_modified_at_secs
-        .zip(last_activity_at_secs)
-        .map(|(modified_at, last_activity_at)| modified_at > last_activity_at)
-        .unwrap_or(false)
-}
-
-pub(crate) fn needs_lazy_connector(
-    provider: Provider,
-    status: SessionStatus,
-    codex_integration_mode: Option<CodexIntegrationMode>,
-    claude_integration_mode: Option<ClaudeIntegrationMode>,
-    has_codex_connector: bool,
-    has_claude_connector: bool,
-) -> bool {
-    let is_active_codex_direct = provider == Provider::Codex
-        && status == SessionStatus::Active
-        && codex_integration_mode == Some(CodexIntegrationMode::Direct)
-        && !has_codex_connector;
-    let is_claude_direct_needing_connector = provider == Provider::Claude
-        && claude_integration_mode == Some(ClaudeIntegrationMode::Direct)
-        && status == SessionStatus::Active
-        && !has_claude_connector;
-
-    is_active_codex_direct || is_claude_direct_needing_connector
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        is_passive_rollout_session, is_takeover_eligible_passive_session, needs_lazy_connector,
-        should_reactivate_passive_codex_session,
-    };
-    use orbitdock_protocol::{
-        ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionStatus,
-    };
+    use super::{is_passive_rollout_session, is_takeover_eligible_passive_session};
+    use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider};
 
     #[test]
     fn passive_rollout_detection_matches_codex_transcript_rules() {
@@ -127,70 +82,6 @@ mod tests {
             None,
             Some(ClaudeIntegrationMode::Direct),
             false,
-        ));
-    }
-
-    #[test]
-    fn passive_codex_reactivation_requires_newer_transcript_activity() {
-        assert!(should_reactivate_passive_codex_session(
-            Provider::Codex,
-            SessionStatus::Ended,
-            Some(CodexIntegrationMode::Passive),
-            true,
-            Some(200),
-            Some(100),
-        ));
-        assert!(!should_reactivate_passive_codex_session(
-            Provider::Codex,
-            SessionStatus::Ended,
-            Some(CodexIntegrationMode::Passive),
-            true,
-            Some(100),
-            Some(200),
-        ));
-        assert!(!should_reactivate_passive_codex_session(
-            Provider::Claude,
-            SessionStatus::Ended,
-            Some(CodexIntegrationMode::Passive),
-            true,
-            Some(200),
-            Some(100),
-        ));
-    }
-
-    #[test]
-    fn lazy_connector_detection_matches_direct_active_sessions_only() {
-        assert!(needs_lazy_connector(
-            Provider::Codex,
-            SessionStatus::Active,
-            Some(CodexIntegrationMode::Direct),
-            None,
-            false,
-            false,
-        ));
-        assert!(needs_lazy_connector(
-            Provider::Claude,
-            SessionStatus::Active,
-            None,
-            Some(ClaudeIntegrationMode::Direct),
-            false,
-            false,
-        ));
-        assert!(!needs_lazy_connector(
-            Provider::Codex,
-            SessionStatus::Ended,
-            Some(CodexIntegrationMode::Direct),
-            None,
-            false,
-            false,
-        ));
-        assert!(!needs_lazy_connector(
-            Provider::Claude,
-            SessionStatus::Active,
-            None,
-            Some(ClaudeIntegrationMode::Direct),
-            false,
-            true,
         ));
     }
 }

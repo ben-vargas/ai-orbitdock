@@ -18,6 +18,8 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
             id,
             status,
             work_status,
+            control_mode: None,
+            lifecycle_state: None,
             last_activity_at,
             last_progress_at,
         },

@@ -31,7 +31,8 @@ use orbitdock_connector_codex::rollout_parser::PersistedFileState;
 use orbitdock_protocol::conversation_contracts::{ConversationRow, TurnStatus};
 use orbitdock_protocol::{
     ApprovalHistoryItem, ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, Provider,
-    SessionStatus, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    SessionControlMode, SessionLifecycleState, SessionStatus, TokenUsage, TokenUsageSnapshotKind,
+    WorkStatus,
 };
 
 pub(crate) use approvals::{delete_approval, list_approvals};
@@ -42,9 +43,9 @@ pub(crate) use messages::{
 };
 #[allow(unused_imports)]
 pub(crate) use mission_control::{
-    load_all_active_mission_issues, load_mission_by_id, load_mission_issues,
-    load_mission_tracker_key, load_missions, load_missions_with_counts, MissionIssueRow,
-    MissionRow,
+    load_all_active_mission_issues, load_mission_by_id, load_mission_cleanup_candidates,
+    load_mission_issues, load_mission_tracker_key, load_missions, load_missions_with_counts,
+    MissionIssueRow, MissionRow,
 };
 pub(crate) use review_comments::{list_review_comments, load_review_comment_by_id};
 pub(crate) use session_reads::{
@@ -221,6 +222,7 @@ pub(super) fn execute_command(
                 issue_identifier,
                 allow_bypass_permissions,
                 worktree_id,
+                control_mode,
             } = *params;
             let provider_str = match provider {
                 Provider::Claude => "claude",
@@ -236,6 +238,10 @@ pub(super) fn execute_command(
                 Provider::Claude => Some("direct"),
                 Provider::Codex => None,
             };
+            let control_mode = match control_mode {
+                SessionControlMode::Direct => "direct",
+                SessionControlMode::Passive => "passive",
+            };
             let codex_config_source = codex_config_source.map(|source| match source {
                 orbitdock_protocol::CodexConfigSource::Orbitdock => "orbitdock",
                 orbitdock_protocol::CodexConfigSource::User => "user",
@@ -247,15 +253,17 @@ pub(super) fn execute_command(
             });
 
             conn.execute(
-                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, started_at, last_activity_at, last_progress_at, forked_from_session_id, mission_id, issue_identifier, allow_bypass_permissions, worktree_id, is_worktree)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?7, ?7, ?7, ?11, ?23, ?24, ?25, ?26, ?27, ?28)
+                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, lifecycle_state, control_mode, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, started_at, last_activity_at, last_progress_at, forked_from_session_id, mission_id, issue_identifier, allow_bypass_permissions, worktree_id, is_worktree)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', 'open', ?8, ?9, ?13, ?10, ?11, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?7, ?7, ?7, ?12, ?24, ?25, ?26, ?27, ?28, ?29)
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
                    branch = COALESCE(?4, branch),
                    model = COALESCE(?5, model),
-                    last_activity_at = ?7,
-                    last_progress_at = ?7",
-                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, mission_id, issue_identifier, allow_bypass_permissions, worktree_id, worktree_id.is_some()],
+                   control_mode = COALESCE(sessions.control_mode, excluded.control_mode),
+                   lifecycle_state = COALESCE(sessions.lifecycle_state, excluded.lifecycle_state),
+                   last_activity_at = ?7,
+                   last_progress_at = ?7",
+                params![id, project_path, project_name, branch, model, provider_str, now, control_mode, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, mission_id, issue_identifier, allow_bypass_permissions, worktree_id, worktree_id.is_some()],
             )?;
         }
 
@@ -263,6 +271,8 @@ pub(super) fn execute_command(
             id,
             status,
             work_status,
+            control_mode,
+            lifecycle_state,
             last_activity_at,
             last_progress_at,
         } => {
@@ -303,6 +313,26 @@ pub(super) fn execute_command(
             if let Some(ref ws) = work_status_str {
                 updates.push("work_status = ?");
                 params_vec.push(ws);
+            }
+            if let Some(mode) = control_mode {
+                updates.push("control_mode = ?");
+                params_vec.push(match mode {
+                    SessionControlMode::Direct => &"direct",
+                    SessionControlMode::Passive => &"passive",
+                });
+            }
+            if let Some(lifecycle_state) = lifecycle_state {
+                updates.push(match lifecycle_state {
+                    SessionLifecycleState::Open => "lifecycle_state = 'open'",
+                    SessionLifecycleState::Resumable => "lifecycle_state = 'resumable'",
+                    SessionLifecycleState::Ended => "lifecycle_state = 'ended'",
+                });
+            } else if matches!(status, Some(SessionStatus::Ended))
+                || matches!(work_status, Some(WorkStatus::Ended))
+            {
+                updates.push("lifecycle_state = 'ended'");
+            } else {
+                updates.push("lifecycle_state = COALESCE(lifecycle_state, 'open')");
             }
             if let Some(ref la) = last_activity_at {
                 updates.push("last_activity_at = ?");
@@ -351,7 +381,7 @@ pub(super) fn execute_command(
         PersistCommand::SessionEnd { id, reason } => {
             let now = chrono_now();
             conn.execute(
-                "UPDATE sessions SET status = 'ended', work_status = 'ended', ended_at = ?1, end_reason = ?2, last_activity_at = ?1 WHERE id = ?3",
+                "UPDATE sessions SET status = 'ended', work_status = 'ended', lifecycle_state = 'ended', ended_at = ?1, end_reason = ?2, last_activity_at = ?1 WHERE id = ?3",
                 params![now, reason, id],
             )?;
         }
@@ -649,6 +679,7 @@ pub(super) fn execute_command(
                 "UPDATE sessions
                  SET status = 'ended',
                      work_status = 'ended',
+                     lifecycle_state = 'ended',
                      ended_at = COALESCE(ended_at, ?1),
                      end_reason = COALESCE(end_reason, ?2),
                      attention_reason = 'none',
@@ -681,6 +712,7 @@ pub(super) fn execute_command(
                 "UPDATE sessions
                  SET status = 'ended',
                      work_status = 'ended',
+                     lifecycle_state = 'ended',
                      ended_at = COALESCE(ended_at, ?1),
                      end_reason = COALESCE(end_reason, ?2),
                      attention_reason = 'none',
@@ -832,10 +864,15 @@ pub(super) fn execute_command(
         }
 
         PersistCommand::ReactivateSession { id } => {
-            let now = chrono_now();
             conn.execute(
-                "UPDATE sessions SET status = 'active', work_status = 'waiting', ended_at = NULL, end_reason = NULL, last_activity_at = ?1, last_progress_at = ?1 WHERE id = ?2",
-                params![now, id],
+                "UPDATE sessions
+                 SET status = 'active',
+                     work_status = 'waiting',
+                     lifecycle_state = 'open',
+                     ended_at = NULL,
+                     end_reason = NULL
+                 WHERE id = ?1",
+                params![id],
             )?;
         }
 
@@ -862,10 +899,10 @@ pub(super) fn execute_command(
                 "INSERT INTO sessions (
                     id, project_path, project_name, branch, model, context_label, transcript_path,
                     provider, status, work_status, source, agent_type, permission_mode,
-                    claude_integration_mode, terminal_session_id, terminal_app,
+                    control_mode, claude_integration_mode, terminal_session_id, terminal_app,
                     started_at, last_activity_at, last_progress_at, forked_from_session_id,
                     repository_root, is_worktree, git_sha
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'claude', 'active', 'waiting', ?8, ?9, ?10, 'passive', ?11, ?12, ?13, ?13, ?13, ?14, ?15, ?16, ?17)
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'claude', 'active', 'waiting', ?8, ?9, ?10, 'passive', 'passive', ?11, ?12, ?13, ?13, ?13, ?14, ?15, ?16, ?17)
                  ON CONFLICT(id) DO UPDATE SET
                     project_path = excluded.project_path,
                     project_name = COALESCE(excluded.project_name, sessions.project_name),
@@ -876,6 +913,10 @@ pub(super) fn execute_command(
                     provider = 'claude',
                     codex_integration_mode = NULL,
                     claude_integration_mode = 'passive',
+                    control_mode = CASE
+                        WHEN sessions.control_mode = 'direct' THEN sessions.control_mode
+                        ELSE 'passive'
+                    END,
                     source = COALESCE(excluded.source, sessions.source),
                     agent_type = COALESCE(excluded.agent_type, sessions.agent_type),
                     permission_mode = COALESCE(excluded.permission_mode, sessions.permission_mode),
@@ -934,6 +975,7 @@ pub(super) fn execute_command(
                 work_status.as_deref(),
                 Some("working") | Some("waiting") | Some("reply") | Some("ended")
             );
+            let lifecycle_state_is_ended = matches!(work_status.as_deref(), Some("ended"));
 
             if let Some(ws) = work_status {
                 updates.push("work_status = ?".to_string());
@@ -1010,6 +1052,12 @@ pub(super) fn execute_command(
                 updates.push("last_activity_at = ?".to_string());
                 params_vec.push(Box::new(chrono_now()));
 
+                if lifecycle_state_is_ended {
+                    updates.push("lifecycle_state = 'ended'".to_string());
+                } else {
+                    updates.push("lifecycle_state = COALESCE(lifecycle_state, 'open')".to_string());
+                }
+
                 let sql = format!("UPDATE sessions SET {} WHERE id = ?", updates.join(", "));
                 params_vec.push(Box::new(id.clone()));
 
@@ -1037,6 +1085,7 @@ pub(super) fn execute_command(
                 "UPDATE sessions
                  SET status = 'ended',
                      work_status = 'ended',
+                     lifecycle_state = 'ended',
                      ended_at = ?1,
                      end_reason = COALESCE(?2, end_reason),
                      attention_reason = 'none',
@@ -1184,9 +1233,9 @@ pub(super) fn execute_command(
             conn.execute(
                 "INSERT INTO sessions (
                     id, project_path, project_name, branch, model, context_label, transcript_path,
-                    provider, status, work_status, codex_integration_mode, codex_thread_id,
+                    provider, status, work_status, control_mode, codex_integration_mode, codex_thread_id,
                     started_at, last_activity_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'codex', 'active', 'waiting', 'passive', ?8, ?9, ?10)
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'codex', 'active', 'waiting', 'passive', 'passive', ?8, ?9, ?10)
                  ON CONFLICT(id) DO UPDATE SET
                     project_path = excluded.project_path,
                     project_name = COALESCE(excluded.project_name, sessions.project_name),
@@ -1202,6 +1251,10 @@ pub(super) fn execute_command(
                     END,
                     ended_at = NULL,
                     end_reason = NULL,
+                    control_mode = CASE
+                        WHEN sessions.control_mode = 'direct' THEN sessions.control_mode
+                        ELSE 'passive'
+                    END,
                     codex_integration_mode = 'passive',
                     codex_thread_id = excluded.codex_thread_id,
                     last_activity_at = excluded.last_activity_at",
@@ -1239,6 +1292,8 @@ pub(super) fn execute_command(
                 return Ok(());
             }
 
+            let lifecycle_state_is_ended = matches!(status, Some(SessionStatus::Ended))
+                || matches!(work_status, Some(WorkStatus::Ended));
             let status_str = status.map(|s| match s {
                 SessionStatus::Active => "active",
                 SessionStatus::Ended => "ended",
@@ -1321,6 +1376,12 @@ pub(super) fn execute_command(
             if !updates.is_empty() {
                 updates.push("last_activity_at = ?".to_string());
                 params_vec.push(Box::new(chrono_now()));
+
+                if lifecycle_state_is_ended {
+                    updates.push("lifecycle_state = 'ended'".to_string());
+                } else {
+                    updates.push("lifecycle_state = COALESCE(lifecycle_state, 'open')".to_string());
+                }
 
                 let sql = format!("UPDATE sessions SET {} WHERE id = ?", updates.join(", "));
                 params_vec.push(Box::new(id));
@@ -1518,6 +1579,10 @@ pub(super) fn execute_command(
         } => {
             let mut updates = Vec::new();
             let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+            let control_mode = match (codex_mode.as_deref(), claude_mode.as_deref()) {
+                (Some("direct"), _) | (_, Some("direct")) => "direct",
+                _ => "passive",
+            };
 
             if let Some(m) = codex_mode {
                 updates.push("codex_integration_mode = ?");
@@ -1529,6 +1594,9 @@ pub(super) fn execute_command(
             }
 
             if !updates.is_empty() {
+                updates.push("control_mode = ?");
+                params_vec.push(Box::new(control_mode.to_string()));
+                updates.push("lifecycle_state = COALESCE(lifecycle_state, 'open')");
                 params_vec.push(Box::new(session_id));
                 let sql = format!("UPDATE sessions SET {} WHERE id = ?", updates.join(", "));
                 let params_refs: Vec<&dyn rusqlite::ToSql> =

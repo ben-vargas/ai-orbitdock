@@ -9,8 +9,11 @@ use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session;
+use crate::runtime::session_runtime_helpers::{
+    activate_direct_session_runtime, claim_codex_thread_for_direct_session,
+};
 use orbitdock_connector_codex::{CodexConfigOverrides, CodexControlPlane};
+use orbitdock_protocol::Provider;
 
 pub(crate) struct StartDirectCodexRequest<'a> {
     pub handle: SessionHandle,
@@ -123,6 +126,7 @@ pub(crate) async fn start_direct_codex_session(
     );
     state.add_session_actor(actor_handle);
     state.set_codex_action_tx(&session_id, action_tx);
+    activate_direct_session_runtime(state, &session_id, Provider::Codex).await;
 
     info!(
         component = "session",
@@ -192,6 +196,7 @@ pub(crate) async fn start_direct_claude_session(
 
     state.add_session_actor(actor_handle);
     state.set_claude_action_tx(&session_id, action_tx.clone());
+    activate_direct_session_runtime(state, &session_id, Provider::Claude).await;
 
     info!(
         component = "session",

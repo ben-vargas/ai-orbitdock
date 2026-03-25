@@ -226,18 +226,16 @@ mod tests {
         let (persist_tx, _persist_rx) = mpsc::channel(64);
         let actor_handle = SessionActorHandle::spawn(test_handle(), persist_tx);
 
-        actor_handle
-            .send(SessionCommand::SetCustomName {
-                name: Some("Test Session".to_string()),
-            })
-            .await;
-
         let (tx, rx) = tokio::sync::oneshot::channel();
         actor_handle
-            .send(SessionCommand::GetCustomName { reply: tx })
+            .send(SessionCommand::SetCustomNameAndNotify {
+                name: Some("Test Session".to_string()),
+                persist_op: None,
+                reply: tx,
+            })
             .await;
-        let name = rx.await.unwrap();
-        assert_eq!(name.as_deref(), Some("Test Session"));
+        let summary = rx.await.unwrap();
+        assert_eq!(summary.custom_name.as_deref(), Some("Test Session"));
     }
 
     #[tokio::test]
@@ -276,11 +274,31 @@ mod tests {
 
         let result = rx.await.unwrap();
         match result {
-            crate::runtime::session_commands::SubscribeResult::Snapshot { state, .. } => {
-                assert_eq!(state.as_ref().id, "test-session");
-            }
             crate::runtime::session_commands::SubscribeResult::Replay { .. } => {
-                panic!("expected snapshot, got replay")
+                panic!("expected resync-required, got replay")
+            }
+            crate::runtime::session_commands::SubscribeResult::ResyncRequired { .. } => {}
+        }
+    }
+
+    #[tokio::test]
+    async fn actor_subscribe_with_revision_returns_resync_required() {
+        let (persist_tx, _persist_rx) = mpsc::channel(64);
+        let actor_handle = SessionActorHandle::spawn(test_handle(), persist_tx);
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        actor_handle
+            .send(SessionCommand::Subscribe {
+                since_revision: Some(0),
+                reply: tx,
+            })
+            .await;
+
+        let result = rx.await.unwrap();
+        match result {
+            crate::runtime::session_commands::SubscribeResult::ResyncRequired { .. } => {}
+            crate::runtime::session_commands::SubscribeResult::Replay { .. } => {
+                panic!("expected resync-required, got replay")
             }
         }
     }
@@ -475,45 +493,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upsert_preserves_original_sequence() {
-        let (persist_tx, writer_handle) = spawn_mock_writer();
-        let actor = SessionActorHandle::spawn(test_handle(), persist_tx);
-
-        // Add two rows
-        actor
-            .send(SessionCommand::AddRowAndBroadcast {
-                entry: user_row("row-0"),
-            })
-            .await;
-        actor
-            .send(SessionCommand::AddRowAndBroadcast {
-                entry: assistant_row("asst-1"),
-            })
-            .await;
-
-        // Upsert asst-1 with sequence=0 (simulating transcript sync — caller doesn't know seq)
-        let mut updated = assistant_row("asst-1");
-        updated.sequence = 0;
-        actor
-            .send(SessionCommand::UpsertRowAndBroadcast { entry: updated })
-            .await;
-
-        // Check in-memory: asst-1 should still be at sequence=1
-        let page = actor.conversation_page(None, 100).await.unwrap();
-        let asst_row = page.rows.iter().find(|r| r.id() == "asst-1").unwrap();
-        assert_eq!(
-            asst_row.sequence, 1,
-            "upserted row should keep its original DB-assigned sequence"
-        );
-
-        drop(actor);
-        let persisted = writer_handle.await.unwrap();
-        // The upsert should have preserved sequence=1 (from the mock DB's perspective)
-        let upsert_entry = persisted.iter().find(|(id, _)| id == "asst-1").unwrap();
-        assert_eq!(upsert_entry.1, 1);
-    }
-
-    #[tokio::test]
     async fn in_memory_sequences_match_db_assigned_sequences() {
         let (persist_tx, writer_handle) = spawn_mock_writer();
         let actor = SessionActorHandle::spawn(test_handle(), persist_tx);
@@ -554,10 +533,8 @@ mod tests {
             .await;
 
         let mut rx = match reply_rx.await.unwrap() {
-            crate::runtime::session_commands::SubscribeResult::Snapshot { rx, .. } => rx,
-            crate::runtime::session_commands::SubscribeResult::Replay { .. } => {
-                panic!("expected snapshot, got replay")
-            }
+            crate::runtime::session_commands::SubscribeResult::Replay { rx, .. } => rx,
+            crate::runtime::session_commands::SubscribeResult::ResyncRequired { rx } => rx,
         };
 
         actor_handle

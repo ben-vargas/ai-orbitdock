@@ -92,6 +92,7 @@ fn sample_syncable_persist_commands() -> Vec<PersistCommand> {
         PersistCommand::SessionCreate(Box::new(SessionCreateParams {
             id: "session-1".into(),
             provider: Provider::Codex,
+            control_mode: orbitdock_protocol::SessionControlMode::Direct,
             project_path: "/repo".into(),
             project_name: Some("OrbitDock".into()),
             branch: Some("feat/phase-two".into()),
@@ -119,6 +120,8 @@ fn sample_syncable_persist_commands() -> Vec<PersistCommand> {
             id: "session-1".into(),
             status: Some(SessionStatus::Active),
             work_status: Some(WorkStatus::Working),
+            control_mode: None,
+            lifecycle_state: None,
             last_activity_at: Some("2026-03-24T12:01:00Z".into()),
             last_progress_at: Some("2026-03-24T12:02:00Z".into()),
         },

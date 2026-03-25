@@ -5,7 +5,9 @@ use futures::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-use orbitdock_protocol::{ClientMessage, ServerMessage, SessionState};
+use orbitdock_protocol::{
+    ClientMessage, ServerHello, ServerMessage, SessionSurface, PROTOCOL_MAJOR, PROTOCOL_MINOR,
+};
 
 use crate::client::config::ClientConfig;
 
@@ -38,6 +40,26 @@ impl WsClient {
                     .context("Invalid auth token")?,
             );
         }
+        request.headers_mut().insert(
+            orbitdock_protocol::HTTP_HEADER_CLIENT_VERSION,
+            "orbitdock-cli"
+                .parse()
+                .context("Invalid client version header")?,
+        );
+        request.headers_mut().insert(
+            orbitdock_protocol::HTTP_HEADER_CLIENT_PROTOCOL_MAJOR,
+            PROTOCOL_MAJOR
+                .to_string()
+                .parse()
+                .context("Invalid protocol major header")?,
+        );
+        request.headers_mut().insert(
+            orbitdock_protocol::HTTP_HEADER_CLIENT_PROTOCOL_MINOR,
+            PROTOCOL_MINOR
+                .to_string()
+                .parse()
+                .context("Invalid protocol minor header")?,
+        );
 
         let (ws_stream, _) = tokio_tungstenite::connect_async(request)
             .await
@@ -46,7 +68,15 @@ impl WsClient {
         let (write, read) = ws_stream.split();
         let mut client = Self { write, read };
 
-        // Server sends server_info immediately after connect — consume it
+        let hello = client
+            .recv()
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("WebSocket closed before hello"))?;
+        match hello {
+            ServerMessage::Hello { hello } => validate_hello(&hello)?,
+            other => bail!("Expected hello from server, received {other:?}"),
+        }
+
         let _ = client.recv().await?;
 
         Ok(client)
@@ -86,26 +116,38 @@ impl WsClient {
         }
     }
 
-    /// Subscribe to a session and return its snapshot.
-    /// Times out after 15 seconds to prevent indefinite hangs.
-    pub async fn subscribe_session(&mut self, session_id: &str) -> Result<SessionState> {
-        self.send(&ClientMessage::SubscribeSession {
+    /// Subscribe to a session surface. WS now only carries realtime updates;
+    /// bootstrap state should come from HTTP.
+    pub async fn subscribe_session_surface(
+        &mut self,
+        session_id: &str,
+        surface: SessionSurface,
+        since_revision: Option<u64>,
+    ) -> Result<()> {
+        self.send(&ClientMessage::SubscribeSessionSurface {
             session_id: session_id.to_string(),
-            since_revision: None,
-            include_snapshot: true,
+            surface,
+            since_revision,
         })
-        .await?;
-
-        let deadline = Duration::from_secs(15);
-        loop {
-            match self.recv_timeout(deadline).await? {
-                Some(ServerMessage::ConversationBootstrap { session, .. }) => return Ok(*session),
-                Some(ServerMessage::Error { code, message, .. }) => {
-                    bail!("[{code}] {message}");
-                }
-                Some(_) => continue,
-                None => bail!("Timed out waiting for session snapshot"),
-            }
-        }
+        .await
     }
+
+    /// Subscribe to the default detail surface.
+    pub async fn subscribe_session(&mut self, session_id: &str) -> Result<()> {
+        self.subscribe_session_surface(session_id, SessionSurface::Detail, None)
+            .await
+    }
+}
+
+fn validate_hello(hello: &ServerHello) -> Result<()> {
+    if hello.protocol_major != PROTOCOL_MAJOR {
+        bail!(
+            "Incompatible server protocol: server speaks {}.{}, client expects {}.{}",
+            hello.protocol_major,
+            hello.protocol_minor,
+            PROTOCOL_MAJOR,
+            PROTOCOL_MINOR
+        );
+    }
+    Ok(())
 }

@@ -6,7 +6,6 @@ use super::rest_only_policy::rest_only_route;
 pub(crate) enum MessageGroup {
     Subscribe,
     SessionCrud,
-    SessionLifecycle,
     Messaging,
     Approvals,
     Config,
@@ -21,21 +20,14 @@ pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
     }
 
     match message {
-        ClientMessage::SubscribeList
-        | ClientMessage::SubscribeSession { .. }
-        | ClientMessage::UnsubscribeSession { .. } => MessageGroup::Subscribe,
+        ClientMessage::SubscribeDashboard { .. }
+        | ClientMessage::SubscribeMissions { .. }
+        | ClientMessage::SubscribeSessionSurface { .. }
+        | ClientMessage::UnsubscribeSessionSurface { .. } => MessageGroup::Subscribe,
 
-        ClientMessage::CreateSession { .. }
-        | ClientMessage::EndSession { .. }
+        ClientMessage::EndSession { .. }
         | ClientMessage::RenameSession { .. }
-        | ClientMessage::UpdateSessionConfig { .. }
-        | ClientMessage::ForkSession { .. }
-        | ClientMessage::ForkSessionToWorktree { .. }
-        | ClientMessage::ForkSessionToExistingWorktree { .. } => MessageGroup::SessionCrud,
-
-        ClientMessage::ResumeSession { .. } | ClientMessage::TakeoverSession { .. } => {
-            MessageGroup::SessionLifecycle
-        }
+        | ClientMessage::UpdateSessionConfig { .. } => MessageGroup::SessionCrud,
 
         ClientMessage::SendMessage { .. }
         | ClientMessage::SteerTurn { .. }

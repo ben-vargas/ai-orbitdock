@@ -6,7 +6,7 @@ mod codex_auth;
 mod connector_actions;
 mod errors;
 mod files;
-mod mission_control;
+pub(crate) mod mission_control;
 mod permissions;
 mod review_comments;
 mod router;
@@ -28,7 +28,7 @@ use axum::{
     Json,
 };
 use orbitdock_protocol::{
-    ApprovalHistoryItem, ImageInput, MentionInput, SessionState, SessionSummary, SkillInput,
+    ApprovalHistoryItem, ImageInput, MentionInput, SessionSummary, SkillInput,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
@@ -74,7 +74,7 @@ pub use review_comments::{
 };
 pub use router::build_router;
 pub use server_info::{
-    check_open_ai_key, set_client_primary_claim, set_open_ai_key, set_server_role,
+    check_open_ai_key, get_server_meta, set_client_primary_claim, set_open_ai_key, set_server_role,
 };
 pub use server_meta::{
     fetch_claude_usage, fetch_codex_usage, list_claude_models, list_codex_models,
@@ -92,8 +92,8 @@ pub use session_lifecycle::{
     write_codex_config_value,
 };
 pub use sessions::{
-    get_conversation_bootstrap, get_conversation_history, get_row_content, get_session,
-    get_session_stats, list_dashboard_conversations, list_sessions, mark_session_read,
+    get_conversation_history, get_conversation_snapshot, get_dashboard_snapshot, get_row_content,
+    get_session_composer, get_session_detail, get_session_stats, mark_session_read,
     search_conversation_rows,
 };
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};

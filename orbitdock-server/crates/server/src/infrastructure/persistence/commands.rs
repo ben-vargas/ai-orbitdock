@@ -4,7 +4,8 @@ use tokio::sync::oneshot;
 use orbitdock_protocol::conversation_contracts::{ConversationRowEntry, TurnStatus};
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, CodexConfigMode, CodexConfigSource,
-    Provider, SessionStatus, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    Provider, SessionControlMode, SessionLifecycleState, SessionStatus, SubagentInfo, TokenUsage,
+    TokenUsageSnapshotKind, WorkStatus,
 };
 
 /// Commands that can be persisted.
@@ -18,6 +19,8 @@ pub enum PersistCommand {
         id: String,
         status: Option<SessionStatus>,
         work_status: Option<WorkStatus>,
+        control_mode: Option<SessionControlMode>,
+        lifecycle_state: Option<SessionLifecycleState>,
         last_activity_at: Option<String>,
         last_progress_at: Option<String>,
     },
@@ -130,7 +133,7 @@ pub enum PersistCommand {
         up_to_sequence: i64,
     },
 
-    /// Reactivate an ended session (for resume)
+    /// Reactivate an ended session (for resume) while preserving activity timestamps
     ReactivateSession { id: String },
 
     /// Upsert a Claude hook-backed session
@@ -446,6 +449,7 @@ impl PersistCommand {
 pub struct SessionCreateParams {
     pub id: String,
     pub provider: Provider,
+    pub control_mode: SessionControlMode,
     pub project_path: String,
     pub project_name: Option<String>,
     pub branch: Option<String>,

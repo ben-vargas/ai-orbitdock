@@ -14,6 +14,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
+use orbitdock_protocol::SessionSurface;
 use orbitdock_protocol::{ClientMessage, ServerMessage};
 
 use crate::runtime::session_registry::SessionRegistry;
@@ -21,31 +22,55 @@ use crate::support::snapshot_compaction::{
     sanitize_server_message_for_transport, WS_MAX_TEXT_MESSAGE_BYTES,
 };
 
-use super::{handle_client_message, send_json, server_info_message, OutboundMessage};
+use super::{
+    handle_client_message, send_json, server_hello_message, server_info_message, OutboundMessage,
+};
 
 static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Default)]
 pub(crate) struct ConnectionSubscriptions {
-    list_forwarder: Option<JoinHandle<()>>,
-    session_forwarders: HashMap<String, JoinHandle<()>>,
+    dashboard_forwarder: Option<JoinHandle<()>>,
+    missions_forwarder: Option<JoinHandle<()>>,
+    session_surface_forwarders: HashMap<String, JoinHandle<()>>,
 }
 
 impl ConnectionSubscriptions {
-    pub(crate) fn replace_list_forwarder(&mut self, handle: JoinHandle<()>) {
-        if let Some(existing) = self.list_forwarder.replace(handle) {
+    pub(crate) fn replace_dashboard_forwarder(&mut self, handle: JoinHandle<()>) {
+        if let Some(existing) = self.dashboard_forwarder.replace(handle) {
             existing.abort();
         }
     }
 
-    pub(crate) fn replace_session_forwarder(&mut self, session_id: String, handle: JoinHandle<()>) {
-        if let Some(existing) = self.session_forwarders.insert(session_id, handle) {
+    pub(crate) fn replace_missions_forwarder(&mut self, handle: JoinHandle<()>) {
+        if let Some(existing) = self.missions_forwarder.replace(handle) {
             existing.abort();
         }
     }
 
-    pub(crate) fn remove_session_forwarder(&mut self, session_id: &str) -> bool {
-        if let Some(existing) = self.session_forwarders.remove(session_id) {
+    fn surface_key(session_id: &str, surface: SessionSurface) -> String {
+        format!("{session_id}:{surface:?}")
+    }
+
+    pub(crate) fn replace_session_surface_forwarder(
+        &mut self,
+        session_id: String,
+        surface: SessionSurface,
+        handle: JoinHandle<()>,
+    ) {
+        let key = Self::surface_key(&session_id, surface);
+        if let Some(existing) = self.session_surface_forwarders.insert(key, handle) {
+            existing.abort();
+        }
+    }
+
+    pub(crate) fn remove_session_surface_forwarder(
+        &mut self,
+        session_id: &str,
+        surface: SessionSurface,
+    ) -> bool {
+        let key = Self::surface_key(session_id, surface);
+        if let Some(existing) = self.session_surface_forwarders.remove(&key) {
             existing.abort();
             return true;
         }
@@ -53,10 +78,13 @@ impl ConnectionSubscriptions {
     }
 
     pub(crate) fn abort_all(&mut self) {
-        if let Some(existing) = self.list_forwarder.take() {
+        if let Some(existing) = self.dashboard_forwarder.take() {
             existing.abort();
         }
-        for (_, handle) in self.session_forwarders.drain() {
+        if let Some(existing) = self.missions_forwarder.take() {
+            existing.abort();
+        }
+        for (_, handle) in self.session_surface_forwarders.drain() {
             handle.abort();
         }
     }
@@ -150,6 +178,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
     let client_tx = outbound_tx.clone();
     let mut subscriptions = ConnectionSubscriptions::default();
 
+    send_json(&outbound_tx, server_hello_message()).await;
     // Announce server role immediately so clients can derive control-plane routing.
     send_json(&outbound_tx, server_info_message(&state)).await;
 

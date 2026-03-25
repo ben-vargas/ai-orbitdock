@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 
 use orbitdock_protocol::{
     ClaudeIntegrationMode, CodexConfigMode, CodexConfigSource, CodexIntegrationMode,
-    CodexSessionOverrides, Provider, SessionState, SessionSummary,
+    CodexSessionOverrides, Provider, SessionSummary,
 };
 
 use crate::domain::sessions::session::{SessionConfig, SessionHandle};
@@ -30,7 +30,6 @@ pub(crate) struct PreparedDirectSession {
     pub project_name: Option<String>,
     pub handle: SessionHandle,
     pub summary: SessionSummary,
-    pub snapshot: SessionState,
 }
 
 #[derive(Clone)]
@@ -70,7 +69,6 @@ pub(crate) struct PreparedPersistedDirectSession {
     pub request: DirectSessionRequest,
     pub handle: SessionHandle,
     pub summary: SessionSummary,
-    pub snapshot: SessionState,
 }
 
 struct PersistDirectSessionCreate {
@@ -127,13 +125,11 @@ pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> Prep
     }
 
     let summary = handle.summary();
-    let snapshot = handle.retained_state();
 
     PreparedDirectSession {
         project_name,
         handle,
         summary,
-        snapshot,
     }
 }
 
@@ -172,6 +168,7 @@ async fn persist_direct_session_create(
             SessionCreateParams {
                 id: id.clone(),
                 provider,
+                control_mode: orbitdock_protocol::SessionControlMode::Direct,
                 project_path,
                 project_name,
                 branch,
@@ -281,7 +278,6 @@ pub(crate) async fn prepare_persist_direct_session(
         request,
         handle: prepared.handle,
         summary: prepared.summary,
-        snapshot: prepared.snapshot,
     }
 }
 
@@ -380,21 +376,16 @@ mod tests {
             prepared.summary.codex_integration_mode,
             Some(CodexIntegrationMode::Direct)
         );
-        assert_eq!(prepared.snapshot.model.as_deref(), Some("gpt-5"));
-        assert_eq!(prepared.snapshot.effort.as_deref(), Some("high"));
+        let snapshot = prepared.handle.retained_state();
+        assert_eq!(snapshot.model.as_deref(), Some("gpt-5"));
+        assert_eq!(snapshot.effort.as_deref(), Some("high"));
+        assert_eq!(snapshot.approval_policy.as_deref(), Some("on-request"));
+        assert_eq!(snapshot.collaboration_mode.as_deref(), Some("workers"));
+        assert_eq!(snapshot.multi_agent, Some(true));
+        assert_eq!(snapshot.personality.as_deref(), Some("mentor"));
+        assert_eq!(snapshot.service_tier.as_deref(), Some("priority"));
         assert_eq!(
-            prepared.snapshot.approval_policy.as_deref(),
-            Some("on-request")
-        );
-        assert_eq!(
-            prepared.snapshot.collaboration_mode.as_deref(),
-            Some("workers")
-        );
-        assert_eq!(prepared.snapshot.multi_agent, Some(true));
-        assert_eq!(prepared.snapshot.personality.as_deref(), Some("mentor"));
-        assert_eq!(prepared.snapshot.service_tier.as_deref(), Some("priority"));
-        assert_eq!(
-            prepared.snapshot.developer_instructions.as_deref(),
+            snapshot.developer_instructions.as_deref(),
             Some("Stay focused")
         );
     }
@@ -427,8 +418,9 @@ mod tests {
             prepared.summary.claude_integration_mode,
             Some(ClaudeIntegrationMode::Direct)
         );
-        assert_eq!(prepared.snapshot.model.as_deref(), Some("claude-opus"));
-        assert_eq!(prepared.snapshot.approval_policy, None);
+        let snapshot = prepared.handle.retained_state();
+        assert_eq!(snapshot.model.as_deref(), Some("claude-opus"));
+        assert_eq!(snapshot.approval_policy, None);
     }
 
     #[test]
@@ -487,11 +479,10 @@ mod tests {
             request,
             handle: prepared.handle,
             summary: prepared.summary,
-            snapshot: prepared.snapshot,
         };
 
         assert_eq!(persisted.summary.id, "session-3");
-        assert_eq!(persisted.snapshot.id, "session-3");
+        assert_eq!(persisted.handle.retained_state().id, "session-3");
         assert_eq!(persisted.request.permission_mode.as_deref(), Some("plan"));
         assert_eq!(persisted.request.allowed_tools, vec!["Read"]);
         assert_eq!(

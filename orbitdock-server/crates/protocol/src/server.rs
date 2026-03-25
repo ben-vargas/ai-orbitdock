@@ -4,23 +4,21 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::conversation_contracts::{RowEntrySummary, RowPageSummary};
+use crate::conversation_contracts::RowEntrySummary;
 use crate::types::*;
 
 /// Messages sent from server to client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
-    // Full state sync
-    SessionsList {
-        sessions: Vec<SessionListItem>,
+    Hello {
+        hello: ServerHello,
     },
-    DashboardConversationsUpdated {
-        conversations: Vec<DashboardConversationItem>,
+    DashboardInvalidated {
+        revision: u64,
     },
-    ConversationBootstrap {
-        session: Box<SessionState>,
-        conversation: RowPageSummary,
+    MissionsInvalidated {
+        revision: u64,
     },
 
     // Incremental updates
@@ -49,15 +47,6 @@ pub enum ServerMessage {
     },
 
     // Lifecycle
-    SessionCreated {
-        session: SessionListItem,
-    },
-    SessionListItemUpdated {
-        session: SessionListItem,
-    },
-    SessionListItemRemoved {
-        session_id: String,
-    },
     SessionEnded {
         session_id: String,
         reason: String,
@@ -891,6 +880,34 @@ mod tests {
         for payload in missing_request_id_payloads {
             let result = serde_json::from_str::<ServerMessage>(payload);
             assert!(result.is_err(), "payload should fail: {payload}");
+        }
+    }
+
+    #[test]
+    fn roundtrip_dashboard_invalidated() {
+        let msg = ServerMessage::DashboardInvalidated { revision: 42 };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
+        match reparsed {
+            ServerMessage::DashboardInvalidated { revision } => {
+                assert_eq!(revision, 42);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_missions_invalidated() {
+        let msg = ServerMessage::MissionsInvalidated { revision: 7 };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
+        match reparsed {
+            ServerMessage::MissionsInvalidated { revision } => {
+                assert_eq!(revision, 7);
+            }
+            other => panic!("unexpected variant: {:?}", other),
         }
     }
 }
