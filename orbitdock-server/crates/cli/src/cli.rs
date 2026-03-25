@@ -76,6 +76,22 @@ pub enum BinaryCommand {
         /// Disable serving the embedded web UI
         #[arg(long, env = "ORBITDOCK_NO_WEB", default_value_t = false)]
         no_web: bool,
+
+        /// Run as a managed workspace that syncs local persistence to an upstream control plane.
+        #[arg(long, default_value_t = false)]
+        managed: bool,
+
+        /// Managed workspace id used for upstream sync replication.
+        #[arg(long, env = "ORBITDOCK_WORKSPACE_ID")]
+        workspace_id: Option<String>,
+
+        /// Upstream control-plane URL for sync replication.
+        #[arg(long, env = "ORBITDOCK_SYNC_URL")]
+        sync_url: Option<String>,
+
+        /// Upstream bearer token for sync replication.
+        #[arg(long, env = "ORBITDOCK_SYNC_TOKEN")]
+        sync_token: Option<String>,
     },
 
     /// Bootstrap a fresh machine (create dirs and run migrations)
@@ -1214,5 +1230,51 @@ mod tests {
             }
             other => panic!("expected start command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn binary_cli_parses_managed_start_flags() {
+        let cli = BinaryCli::try_parse_from([
+            "orbitdock",
+            "start",
+            "--managed",
+            "--workspace-id",
+            "workspace-1",
+            "--sync-url",
+            "https://control-plane.example",
+            "--sync-token",
+            "sync-token-1",
+        ])
+        .expect("binary cli should parse managed start flags");
+
+        match cli.command {
+            Some(BinaryCommand::Start {
+                managed,
+                workspace_id,
+                sync_url,
+                sync_token,
+                ..
+            }) => {
+                assert!(managed);
+                assert_eq!(workspace_id.as_deref(), Some("workspace-1"));
+                assert_eq!(sync_url.as_deref(), Some("https://control-plane.example"));
+                assert_eq!(sync_token.as_deref(), Some("sync-token-1"));
+            }
+            other => panic!("expected start command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn binary_cli_help_lists_managed_start_flags() {
+        let mut command = BinaryCli::command();
+        let start = command
+            .find_subcommand_mut("start")
+            .expect("start subcommand should exist");
+        let help = start.render_long_help().to_string();
+
+        assert!(help.contains("--managed"));
+        assert!(help.contains("--workspace-id"));
+        assert!(help.contains("--sync-url"));
+        assert!(help.contains("--sync-token"));
     }
 }
