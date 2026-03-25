@@ -17,7 +17,7 @@ use orbitdock_protocol::{
     ClaudeIntegrationMode, CodexApprovalPolicy, CodexIntegrationMode, Provider, SessionControlMode,
     SessionLifecycleState, SessionStatus, TokenUsage, TurnDiff, WorkStatus,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
@@ -28,12 +28,15 @@ use crate::domain::sessions::session::{
 use crate::infrastructure::logging::{init_logging, ServerLoggingOptions};
 use crate::infrastructure::persistence::{
     cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
-    create_persistence_channel, create_sync_channel, load_sessions_for_startup, PersistCommand,
-    PersistenceWriter, SyncWriter, SyncWriterConfig,
+    create_persistence_channel, create_sync_channel, create_sync_shutdown_channel,
+    load_sessions_for_startup, PersistCommand, PersistenceWriter, SyncWriter, SyncWriterConfig,
 };
-use crate::runtime::restored_sessions::prepare_restored_session_for_direct_resume;
+use crate::runtime::restored_sessions::{
+    load_prepared_resume_session, prepare_restored_session_for_direct_resume,
+};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_resume::launch_resumed_session;
+use crate::runtime::session_runtime_helpers::direct_resume_failure_changes;
 use crate::transport::websocket::ws_handler;
 use crate::VERSION;
 
@@ -186,21 +189,24 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         }
     }
 
-    let sync_tx = if let Some(sync_options) = options.managed_sync.clone() {
-        let (sync_tx, sync_rx) = create_sync_channel();
-        let sync_writer = SyncWriter::new(
-            sync_rx,
-            SyncWriterConfig::new(
-                sync_options.workspace_id,
-                sync_options.server_url,
-                sync_options.auth_token,
-            ),
-        )?;
-        tokio::spawn(sync_writer.run());
-        Some(sync_tx)
-    } else {
-        None
-    };
+    let (sync_tx, sync_shutdown_tx, sync_writer_handle) =
+        if let Some(sync_options) = options.managed_sync.clone() {
+            let (sync_tx, sync_rx) = create_sync_channel();
+            let (shutdown_tx, shutdown_rx) = create_sync_shutdown_channel();
+            let sync_writer = SyncWriter::new(
+                sync_rx,
+                shutdown_rx,
+                SyncWriterConfig::new(
+                    sync_options.workspace_id,
+                    sync_options.server_url,
+                    sync_options.auth_token,
+                ),
+            )?;
+            let writer_handle = tokio::spawn(sync_writer.run());
+            (Some(sync_tx), Some(shutdown_tx), Some(writer_handle))
+        } else {
+            (None, None, None)
+        };
 
     let (persist_tx, persist_rx) = create_persistence_channel();
     let persistence_writer = PersistenceWriter::new(persist_rx, sync_tx);
@@ -273,6 +279,44 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                                 error = %error.message(),
                                 "Failed to restore direct open session connector"
                             );
+
+                            if state.get_session(&session_id).is_none() {
+                                match load_prepared_resume_session(&session_id).await {
+                                    Ok(Some(mut prepared)) => {
+                                        prepared.handle.apply_changes(
+                                            &direct_resume_failure_changes(prepared.provider),
+                                        );
+                                        state.add_session(prepared.handle);
+                                        state.publish_dashboard_snapshot();
+                                        warn!(
+                                            component = "restore",
+                                            event = "restore.session.downgraded_to_resumable",
+                                            session_id = %session_id,
+                                            provider = %provider,
+                                            "Registered direct session as resumable after restore failure"
+                                        );
+                                    }
+                                    Ok(None) => {
+                                        warn!(
+                                            component = "restore",
+                                            event = "restore.session.missing_after_resume_failure",
+                                            session_id = %session_id,
+                                            provider = %provider,
+                                            "Session disappeared while applying resumable restore fallback"
+                                        );
+                                    }
+                                    Err(load_error) => {
+                                        warn!(
+                                            component = "restore",
+                                            event = "restore.session.fallback_load_failed",
+                                            session_id = %session_id,
+                                            provider = %provider,
+                                            error = %load_error,
+                                            "Failed to reload session for resumable restore fallback"
+                                        );
+                                    }
+                                }
+                            }
                         }
                     }
                     continue;
@@ -748,8 +792,16 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
 
         let handle = axum_server::Handle::new();
         let shutdown_handle = handle.clone();
+        let shutdown_sync = sync_shutdown_tx.clone();
+        let shutdown_sync_handle = sync_writer_handle;
         tokio::spawn(async move {
-            shutdown_signal(shutdown_state, shutdown_persist).await;
+            shutdown_signal(
+                shutdown_state,
+                shutdown_persist,
+                shutdown_sync,
+                shutdown_sync_handle,
+            )
+            .await;
             shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(5)));
         });
 
@@ -772,7 +824,12 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         let _pid_guard = PidFileGuard;
 
         axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal(shutdown_state, shutdown_persist))
+            .with_graceful_shutdown(shutdown_signal(
+                shutdown_state,
+                shutdown_persist,
+                sync_shutdown_tx,
+                sync_writer_handle,
+            ))
             .await?;
     }
 
@@ -890,13 +947,51 @@ fn process_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
-async fn shutdown_signal(_state: Arc<SessionRegistry>, _persist_tx: mpsc::Sender<PersistCommand>) {
+async fn shutdown_signal(
+    _state: Arc<SessionRegistry>,
+    _persist_tx: mpsc::Sender<PersistCommand>,
+    sync_shutdown_tx: Option<watch::Sender<bool>>,
+    sync_writer_handle: Option<tokio::task::JoinHandle<()>>,
+) {
     let _ = tokio::signal::ctrl_c().await;
     info!(
         component = "server",
         event = "server.shutdown",
         "Shutdown signal received — active direct sessions preserved for lazy resume"
     );
+
+    if let Some(shutdown_tx) = sync_shutdown_tx {
+        let _ = shutdown_tx.send(true);
+    }
+
+    if let Some(handle) = sync_writer_handle {
+        match tokio::time::timeout(std::time::Duration::from_secs(35), handle).await {
+            Ok(Ok(())) => {
+                info!(
+                    component = "sync",
+                    event = "sync.writer.shutdown_joined",
+                    "Sync writer finished draining before shutdown"
+                );
+            }
+            Ok(Err(join_error)) => {
+                warn!(
+                    component = "sync",
+                    event = "sync.writer.shutdown_join_failed",
+                    error = %join_error,
+                    "Sync writer task failed while shutting down"
+                );
+            }
+            Err(_) => {
+                warn!(
+                    component = "sync",
+                    event = "sync.writer.shutdown_join_timeout",
+                    timeout_secs = 35_u64,
+                    "Timed out waiting for sync writer to finish draining"
+                );
+            }
+        }
+    }
+
     remove_pid_file();
 }
 

@@ -56,6 +56,11 @@ struct SyncSequenceState {
     next_sequence: u64,
 }
 
+#[derive(Debug, Deserialize)]
+struct SyncBatchAckResponse {
+    acked_through: Option<u64>,
+}
+
 pub struct SyncWriter {
     rx: mpsc::Receiver<SyncCommand>,
     shutdown_rx: watch::Receiver<bool>,
@@ -66,12 +71,7 @@ pub struct SyncWriter {
 }
 
 impl SyncWriter {
-    pub fn new(rx: mpsc::Receiver<SyncCommand>, config: SyncWriterConfig) -> anyhow::Result<Self> {
-        let (_shutdown_tx, shutdown_rx) = create_sync_shutdown_channel();
-        Self::new_with_shutdown(rx, shutdown_rx, config)
-    }
-
-    pub fn new_with_shutdown(
+    pub fn new(
         rx: mpsc::Receiver<SyncCommand>,
         shutdown_rx: watch::Receiver<bool>,
         config: SyncWriterConfig,
@@ -299,13 +299,28 @@ impl SyncWriter {
             .make_contiguous()
             .sort_by_key(|(sequence, _, _)| *sequence);
 
-        while let Some((_, path, envelope)) = queued.pop_front() {
+        while !queued.is_empty() {
+            let mut drained_paths = Vec::with_capacity(self.config.batch_size);
+            let mut drained_envelopes = Vec::with_capacity(self.config.batch_size);
+
+            while drained_envelopes.len() < self.config.batch_size {
+                let Some((_, path, envelope)) = queued.pop_front() else {
+                    break;
+                };
+                drained_paths.push(path);
+                drained_envelopes.push(envelope);
+            }
+
             self.post_batch(SyncBatchRequest {
-                commands: vec![envelope],
+                commands: drained_envelopes,
             })
             .await?;
-            std::fs::remove_file(&path)
-                .with_context(|| format!("remove drained sync spool file {}", path.display()))?;
+
+            for path in drained_paths {
+                std::fs::remove_file(&path).with_context(|| {
+                    format!("remove drained sync spool file {}", path.display())
+                })?;
+            }
         }
 
         Ok(())
@@ -469,11 +484,44 @@ async fn post_batch(
     let response = response
         .error_for_status()
         .context("sync batch returned error status")?;
+    let status = response.status().as_u16();
+
+    if request.commands.is_empty() {
+        return Ok(());
+    }
+
+    let body = response.bytes().await.context("read sync batch ack body")?;
+    if body.is_empty() {
+        return Ok(());
+    }
+
+    let ack: SyncBatchAckResponse =
+        serde_json::from_slice(&body).context("decode sync batch ack response")?;
+    let Some(last_sequence) = request.commands.last().map(|envelope| envelope.sequence) else {
+        return Ok(());
+    };
+
+    match ack.acked_through {
+        Some(acked_through) if acked_through >= last_sequence => {}
+        Some(acked_through) => {
+            anyhow::bail!(
+                "sync acked through {acked_through}, but batch required at least {last_sequence}"
+            );
+        }
+        None => {
+            warn!(
+                component = "sync",
+                event = "sync.post.missing_ack",
+                last_sequence = last_sequence,
+                "Sync batch succeeded without an acked_through value"
+            );
+        }
+    }
 
     debug!(
         component = "sync",
         event = "sync.post.completed",
-        status = response.status().as_u16(),
+        status = status,
         "Sync POST completed"
     );
 
