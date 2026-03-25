@@ -11,14 +11,39 @@ extension SessionStore {
     images: [ServerImageInput] = [],
     mentions: [ServerMentionInput] = []
   ) async throws {
-    netLog(.info, cat: .store, "Send message", sid: sessionId)
+    netLog(
+      .info,
+      cat: .store,
+      "Send message",
+      sid: sessionId,
+      data: [
+        "contentLength": content.count,
+        "model": model ?? "-",
+        "effort": effort ?? "-",
+        "images": images.count,
+        "mentions": mentions.count,
+        "skills": skills.count,
+      ]
+    )
     var request = ConversationClient.SendMessageRequest(content: content)
     request.model = model
     request.effort = effort
     request.skills = skills
     request.images = images
     request.mentions = mentions
-    _ = try await clients.conversation.sendMessage(sessionId, request: request)
+    do {
+      let response = try await clients.conversation.sendMessage(sessionId, request: request)
+      session(sessionId).applyRowsChanged(upserted: [response.row], removedIds: [])
+    } catch {
+      netLog(
+        .error,
+        cat: .store,
+        "Send message failed",
+        sid: sessionId,
+        data: ["error": String(describing: error)]
+      )
+      throw error
+    }
 
     triggerLocalNamingIfNeeded(sessionId: sessionId, prompt: content)
   }
@@ -472,7 +497,7 @@ extension SessionStore {
   }
 
   func refreshSessionsList() {
-    connection.subscribeList()
+    // Global dashboard state is owned by ServerRuntimeRegistry.
   }
 
   func clearServerError() {

@@ -16,11 +16,8 @@ protocol SessionStoreConnection: AnyObject {
 
   func addListener(_ listener: @escaping (ServerEvent) -> Void) -> ServerConnectionListenerToken
   func removeListener(_ token: ServerConnectionListenerToken)
-  func subscribeList()
-  func subscribeSession(_ sessionId: String, sinceRevision: UInt64?, includeSnapshot: Bool)
-  func unsubscribeSession(_ sessionId: String)
-  func applySessionsList(_ sessions: [ServerSessionListItem])
-  func applyDashboardConversations(_ conversations: [ServerDashboardConversationItem])
+  func subscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface, sinceRevision: UInt64?)
+  func unsubscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface)
 }
 
 extension ServerConnection: SessionStoreConnection {}
@@ -33,6 +30,16 @@ struct SessionGenerationKey: Hashable {
 struct GenerationTask<Value> {
   let generation: UInt64
   let task: Task<Value, Never>
+}
+
+struct SessionHTTPBootstrap {
+  let detail: ServerSessionDetailSnapshotPayload
+  let composer: ServerSessionComposerSnapshotPayload
+  let conversation: ServerConversationBootstrap
+
+  var latestRevision: UInt64? {
+    [detail.revision, composer.revision, conversation.session.revision].compactMap { $0 }.max()
+  }
 }
 
 // MARK: - SessionStore
@@ -77,11 +84,12 @@ final class SessionStore {
   // MARK: - Private tracking
 
   @ObservationIgnored var lastRevision: [String: UInt64] = [:]
+  @ObservationIgnored var lastSurfaceRevision: [String: [ServerSessionSurface: UInt64]] = [:]
   @ObservationIgnored var controlStates: [String: SessionControlState] = [:]
   @ObservationIgnored var subscribedSessions: Set<String> = []
   @ObservationIgnored var inFlightApprovalDispatches: Set<String> = []
   @ObservationIgnored var connectionGeneration: UInt64 = 0
-  @ObservationIgnored var inFlightBootstraps: [SessionGenerationKey: GenerationTask<ServerConversationBootstrap?>] = [:]
+  @ObservationIgnored var inFlightBootstraps: [SessionGenerationKey: GenerationTask<SessionHTTPBootstrap?>] = [:]
   @ObservationIgnored var inFlightSessionRecoveries: [SessionGenerationKey: GenerationTask<Void>] = [:]
   @ObservationIgnored var recoveredSessionGenerations: [String: UInt64] = [:]
   @ObservationIgnored var lastOlderMessagesRequestBeforeSequence: [String: UInt64] = [:]
@@ -211,7 +219,7 @@ final class SessionStore {
   func hydrateSessionFromHTTPBootstrap(
     sessionId: String,
     generation: UInt64? = nil
-  ) async -> ServerConversationBootstrap? {
+  ) async -> SessionHTTPBootstrap? {
     let targetGeneration = generation ?? connectionGeneration
     let key = SessionGenerationKey(sessionId: sessionId, generation: targetGeneration)
 
@@ -219,7 +227,7 @@ final class SessionStore {
       return await existing.task.value
     }
 
-    let task = Task<ServerConversationBootstrap?, Never> { [weak self] in
+    let task = Task<SessionHTTPBootstrap?, Never> { [weak self] in
       guard let self else { return nil }
       return await self.loadSessionBootstrap(sessionId: sessionId, generation: targetGeneration)
     }
@@ -236,7 +244,9 @@ final class SessionStore {
     recoveredSessionGenerations.removeValue(forKey: sessionId)
     lastOlderMessagesRequestBeforeSequence.removeValue(forKey: sessionId)
     cancelInFlightSessionTasks(sessionId)
-    connection.unsubscribeSession(sessionId)
+    connection.unsubscribeSessionSurface(sessionId, surface: .detail)
+    connection.unsubscribeSessionSurface(sessionId, surface: .composer)
+    connection.unsubscribeSessionSurface(sessionId, surface: .conversation)
     trimInactiveSessionPayload(sessionId)
   }
 
@@ -322,40 +332,58 @@ final class SessionStore {
     inFlightSessionRecoveries.removeValue(forKey: key)
   }
 
-  private func loadSessionBootstrap(sessionId: String, generation: UInt64) async -> ServerConversationBootstrap? {
-    netLog(.info, cat: .conv, "Fetching bootstrap", sid: sessionId, data: [
+  private func loadSessionBootstrap(sessionId: String, generation: UInt64) async -> SessionHTTPBootstrap? {
+    netLog(.info, cat: .conv, "Fetching HTTP session bootstrap", sid: sessionId, data: [
       "generation": generation,
     ])
     do {
-      let bootstrap = try await clients.conversation.fetchConversationBootstrap(sessionId, limit: 50)
+      let detailSnapshot = try await clients.sessions.fetchSessionDetail(sessionId)
+      let composerSnapshot = try await clients.sessions.fetchSessionComposer(sessionId)
+      let conversationBootstrap = try await clients.conversation.fetchConversationBootstrap(sessionId, limit: 50)
+      let bootstrap = SessionHTTPBootstrap(
+        detail: detailSnapshot,
+        composer: composerSnapshot,
+        conversation: conversationBootstrap
+      )
       guard subscribedSessions.contains(sessionId), connectionGeneration == generation else {
-        netLog(.debug, cat: .conv, "Bootstrap became stale before apply", sid: sessionId, data: [
+        netLog(.debug, cat: .conv, "HTTP bootstrap became stale before apply", sid: sessionId, data: [
           "generation": generation,
           "currentGeneration": connectionGeneration,
           "subscribed": subscribedSessions.contains(sessionId),
-          "rows": bootstrap.rows.count,
+          "rows": bootstrap.conversation.rows.count,
         ])
         return nil
       }
 
-      netLog(.info, cat: .conv, "Bootstrap fetched", sid: sessionId, data: [
-        "rows": bootstrap.rows.count,
+      netLog(.info, cat: .conv, "HTTP bootstrap fetched", sid: sessionId, data: [
+        "detailRevision": bootstrap.detail.revision,
+        "composerRevision": bootstrap.composer.revision,
+        "conversationRevision": bootstrap.conversation.session.revision as Any,
+        "rows": bootstrap.conversation.rows.count,
         "generation": generation,
       ])
 
+      handleSessionDetailSnapshot(bootstrap.detail)
+      handleSessionComposerSnapshot(bootstrap.composer)
       handleConversationBootstrap(
-        bootstrap.session,
+        bootstrap.conversation.session,
         ServerConversationHistoryPage(
-          rows: bootstrap.rows,
-          totalRowCount: bootstrap.totalRowCount,
-          hasMoreBefore: bootstrap.hasMoreBefore,
-          oldestSequence: bootstrap.oldestSequence,
-          newestSequence: bootstrap.newestSequence
+          rows: bootstrap.conversation.rows,
+          totalRowCount: bootstrap.conversation.totalRowCount,
+          hasMoreBefore: bootstrap.conversation.hasMoreBefore,
+          oldestSequence: bootstrap.conversation.oldestSequence,
+          newestSequence: bootstrap.conversation.newestSequence
         )
       )
       return bootstrap
     } catch {
-      netLog(.error, cat: .conv, "Bootstrap fetch failed", sid: sessionId, data: ["error": error.localizedDescription])
+      netLog(
+        .error,
+        cat: .conv,
+        "HTTP bootstrap fetch failed",
+        sid: sessionId,
+        data: ["error": error.localizedDescription]
+      )
       return nil
     }
   }
@@ -381,18 +409,20 @@ final class SessionStore {
       return
     }
 
-    let sinceRevision = bootstrap?.session.revision
-    netLog(.info, cat: .store, "WS subscribeSession", sid: sessionId, data: [
-      "sinceRevision": sinceRevision as Any,
-      "bootstrapRowCount": bootstrap?.rows.count as Any,
+    let detailRevision = bootstrap?.detail.revision
+    let composerRevision = bootstrap?.composer.revision
+    let conversationRevision = bootstrap?.conversation.session.revision
+    netLog(.info, cat: .store, "WS subscribeSessionSurface", sid: sessionId, data: [
+      "detailRevision": detailRevision as Any,
+      "composerRevision": composerRevision as Any,
+      "conversationRevision": conversationRevision as Any,
+      "bootstrapRowCount": bootstrap?.conversation.rows.count as Any,
       "generation": generation,
       "connectionStatus": String(describing: connection.connectionStatus),
     ])
-    connection.subscribeSession(
-      sessionId,
-      sinceRevision: sinceRevision,
-      includeSnapshot: false
-    )
+    connection.subscribeSessionSurface(sessionId, surface: .detail, sinceRevision: detailRevision)
+    connection.subscribeSessionSurface(sessionId, surface: .composer, sinceRevision: composerRevision)
+    connection.subscribeSessionSurface(sessionId, surface: .conversation, sinceRevision: conversationRevision)
     recoveredSessionGenerations[sessionId] = generation
   }
 

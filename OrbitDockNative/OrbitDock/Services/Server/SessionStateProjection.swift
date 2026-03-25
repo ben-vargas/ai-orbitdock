@@ -13,9 +13,10 @@ struct SessionPendingApprovalProjection {
     id = request.id
     toolName = request.toolNameForDisplay
     toolInput = request.toolInputForDisplay
-    permissionDetail = request.preview?.compact
-      ?? String.shellCommandDisplay(from: request.command)
-      ?? request.command
+    permissionDetail =
+      request.preview?.compact
+        ?? String.shellCommandDisplay(from: request.command)
+        ?? request.command
     question = request.questionPrompts.first?.question ?? request.question
     attentionReason = request.type == .question ? .awaitingQuestion : .awaitingPermission
     workStatus = .permission
@@ -84,6 +85,9 @@ extension SessionObservable {
     transcriptPath = state.transcriptPath
     status = state.status == .active ? .active : .ended
     workStatus = state.workStatus.toSessionWorkStatus()
+    controlMode = state.controlMode
+    lifecycleState = state.lifecycleState
+    acceptsUserInput = state.acceptsUserInput
     steerable = state.steerable
     attentionReason = state.workStatus.toAttentionReason()
     lastActivityAt = parseServerTimestamp(state.lastActivityAt)
@@ -93,8 +97,12 @@ extension SessionObservable {
     contextWindow = Int(state.tokenUsage.contextWindow)
     totalTokens = Int(state.tokenUsage.inputTokens + state.tokenUsage.outputTokens)
     provider = resolvedProvider
-    codexIntegrationMode = serverCodexMode(provider: state.provider, mode: state.codexIntegrationMode)
-    claudeIntegrationMode = serverClaudeMode(provider: state.provider, mode: state.claudeIntegrationMode)
+    codexIntegrationMode = serverCodexMode(
+      provider: state.provider, mode: state.codexIntegrationMode
+    )
+    claudeIntegrationMode = serverClaudeMode(
+      provider: state.provider, mode: state.claudeIntegrationMode
+    )
     pendingApprovalId = state.pendingApprovalId
     pendingToolName = state.pendingToolName
     pendingToolInput = state.pendingToolInput
@@ -126,6 +134,9 @@ extension SessionObservable {
   func applyResumeSummary(_ summary: ServerSessionSummary) {
     status = summary.status == .active ? .active : .ended
     workStatus = summary.workStatus.toSessionWorkStatus()
+    controlMode = summary.controlMode
+    lifecycleState = summary.lifecycleState
+    acceptsUserInput = summary.acceptsUserInput
     steerable = summary.steerable
     attentionReason = summary.workStatus.toAttentionReason()
     endedAt = nil
@@ -148,6 +159,18 @@ extension SessionObservable {
         promptSuggestions.removeAll()
         rateLimitInfo = nil
       }
+    }
+
+    if let controlMode = changes.controlMode {
+      self.controlMode = controlMode
+    }
+
+    if let lifecycleState = changes.lifecycleState {
+      self.lifecycleState = lifecycleState
+    }
+
+    if let acceptsUserInput = changes.acceptsUserInput {
+      self.acceptsUserInput = acceptsUserInput
     }
 
     if let steerable = changes.steerable {
@@ -326,6 +349,9 @@ extension SessionObservable {
     totalTokens = session.totalTokens
     totalCostUSD = session.totalCostUSD
     provider = session.provider
+    controlMode = session.controlMode
+    lifecycleState = session.lifecycleState
+    acceptsUserInput = session.acceptsUserInput
     codexIntegrationMode = session.codexIntegrationMode
     claudeIntegrationMode = session.claudeIntegrationMode
     codexThreadId = session.codexThreadId
@@ -374,4 +400,3 @@ private func serverClaudeMode(
   guard provider == .claude else { return nil }
   return mode?.toSessionMode()
 }
-

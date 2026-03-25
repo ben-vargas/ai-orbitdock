@@ -11,6 +11,10 @@ struct MissionsClient: Sendable {
 
   // MARK: - Mission CRUD
 
+  func fetchMissionSnapshot() async throws -> ServerMissionSnapshotPayload {
+    try await http.get("/api/missions")
+  }
+
   func listMissions() async throws -> MissionsListResponse {
     try await http.get("/api/missions")
   }

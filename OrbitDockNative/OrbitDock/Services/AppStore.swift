@@ -7,12 +7,14 @@ import Foundation
 @MainActor
 final class AppStore {
   let runtimeRegistry: ServerRuntimeRegistry
+  let dashboardProjectionStore: DashboardProjectionStore
 
   @ObservationIgnored private var previewSessionsByID: [String: RootSessionNode]?
   @ObservationIgnored private var previewDashboardConversationsByID: [String: DashboardConversationRecord]?
 
   init(runtimeRegistry: ServerRuntimeRegistry) {
     self.runtimeRegistry = runtimeRegistry
+    dashboardProjectionStore = runtimeRegistry.dashboardProjectionStore
   }
 
   // MARK: - Per-window context
@@ -68,7 +70,7 @@ final class AppStore {
         return lhsDate > rhsDate
       }
     }
-    return runtimeRegistry.aggregatedSessions
+    return dashboardProjectionStore.rootSessions
   }
 
   var connectionStatus: ConnectionStatus {
@@ -113,7 +115,7 @@ final class AppStore {
         return lhsDate > rhsDate
       }
     }
-    return runtimeRegistry.aggregatedDashboardConversations
+    return dashboardProjectionStore.dashboardConversations
   }
 
   func recentRecords(limit: Int? = nil) -> [RootSessionNode] {

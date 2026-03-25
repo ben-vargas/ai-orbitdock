@@ -28,6 +28,21 @@ struct ServerHTTPClient: Sendable {
     print("[OrbitDock][HTTP] Body preview: \(debugPreview(body))")
   }
 
+  private func logHTTPFailure(
+    method: String,
+    path: String,
+    statusCode: Int,
+    code: String?,
+    message: String?,
+    body: Data
+  ) {
+    print("[OrbitDock][HTTP] Request failed \(method) \(path)")
+    print("[OrbitDock][HTTP] Status: \(statusCode)")
+    print("[OrbitDock][HTTP] Code: \(code ?? "-")")
+    print("[OrbitDock][HTTP] Message: \(message ?? "-")")
+    print("[OrbitDock][HTTP] Body preview: \(debugPreview(body))")
+  }
+
   private func describeDecodingError(_ error: Error) -> String {
     func pathString(_ path: [CodingKey]) -> String {
       guard !path.isEmpty else { return "<root>" }
@@ -235,6 +250,14 @@ struct ServerHTTPClient: Sendable {
         cat: .api,
         "HTTP \(response.statusCode) \(method) \(path)",
         data: ["code": apiError?.code ?? "-", "error": apiError?.error ?? "-"]
+      )
+      logHTTPFailure(
+        method: method,
+        path: path,
+        statusCode: response.statusCode,
+        code: apiError?.code,
+        message: apiError?.error,
+        body: response.body
       )
       throw ServerRequestError.httpStatus(
         response.statusCode,

@@ -23,6 +23,17 @@ enum ServerWorkStatus: String, Codable {
   case ended
 }
 
+enum ServerSessionControlMode: String, Codable {
+  case direct
+  case passive
+}
+
+enum ServerSessionLifecycleState: String, Codable {
+  case open
+  case resumable
+  case ended
+}
+
 enum ServerCodexConfigSource: String, Codable, CaseIterable, Hashable, Sendable {
   case orbitdock
   case user
@@ -195,6 +206,8 @@ struct ServerSessionListItem: Codable, Identifiable {
   let model: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
+  let controlMode: ServerSessionControlMode
+  let lifecycleState: ServerSessionLifecycleState
   let steerable: Bool
   let codexIntegrationMode: ServerCodexIntegrationMode?
   let claudeIntegrationMode: ServerClaudeIntegrationMode?
@@ -233,6 +246,8 @@ struct ServerSessionListItem: Codable, Identifiable {
     model: String?,
     status: ServerSessionStatus,
     workStatus: ServerWorkStatus,
+    controlMode: ServerSessionControlMode = .passive,
+    lifecycleState: ServerSessionLifecycleState = .ended,
     steerable: Bool = false,
     codexIntegrationMode: ServerCodexIntegrationMode?,
     claudeIntegrationMode: ServerClaudeIntegrationMode?,
@@ -270,6 +285,8 @@ struct ServerSessionListItem: Codable, Identifiable {
     self.model = model
     self.status = status
     self.workStatus = workStatus
+    self.controlMode = controlMode
+    self.lifecycleState = lifecycleState
     self.steerable = steerable
     self.codexIntegrationMode = codexIntegrationMode
     self.claudeIntegrationMode = claudeIntegrationMode
@@ -310,9 +327,14 @@ struct ServerSessionListItem: Codable, Identifiable {
     model = try container.decodeIfPresent(String.self, forKey: .model)
     status = try container.decode(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
+    controlMode = try container.decodeIfPresent(ServerSessionControlMode.self, forKey: .controlMode) ?? .passive
+    lifecycleState = try container.decodeIfPresent(ServerSessionLifecycleState.self, forKey: .lifecycleState) ?? .ended
     steerable = try container.decodeIfPresent(Bool.self, forKey: .steerable) ?? false
     codexIntegrationMode = try container.decodeIfPresent(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
-    claudeIntegrationMode = try container.decodeIfPresent(ServerClaudeIntegrationMode.self, forKey: .claudeIntegrationMode)
+    claudeIntegrationMode = try container.decodeIfPresent(
+      ServerClaudeIntegrationMode.self,
+      forKey: .claudeIntegrationMode
+    )
     startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
     lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
     unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount)
@@ -349,6 +371,8 @@ struct ServerSessionListItem: Codable, Identifiable {
     case model
     case status
     case workStatus = "work_status"
+    case controlMode = "control_mode"
+    case lifecycleState = "lifecycle_state"
     case steerable
     case codexIntegrationMode = "codex_integration_mode"
     case claudeIntegrationMode = "claude_integration_mode"
@@ -416,6 +440,8 @@ struct ServerDashboardConversationItem: Codable, Identifiable, Equatable {
   let claudeIntegrationMode: ServerClaudeIntegrationMode?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
+  let controlMode: ServerSessionControlMode
+  let lifecycleState: ServerSessionLifecycleState
   let listStatus: ServerSessionListStatus
   let displayTitle: String
   let contextLine: String?
@@ -454,6 +480,8 @@ struct ServerDashboardConversationItem: Codable, Identifiable, Equatable {
     case claudeIntegrationMode = "claude_integration_mode"
     case status
     case workStatus = "work_status"
+    case controlMode = "control_mode"
+    case lifecycleState = "lifecycle_state"
     case listStatus = "list_status"
     case displayTitle = "display_title"
     case contextLine = "context_line"
@@ -493,6 +521,8 @@ struct ServerDashboardConversationItem: Codable, Identifiable, Equatable {
     )
     status = try container.decode(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
+    controlMode = try container.decodeIfPresent(ServerSessionControlMode.self, forKey: .controlMode) ?? .passive
+    lifecycleState = try container.decodeIfPresent(ServerSessionLifecycleState.self, forKey: .lifecycleState) ?? .ended
     listStatus = try container.decode(ServerSessionListStatus.self, forKey: .listStatus)
     displayTitle = try container.decode(String.self, forKey: .displayTitle)
     contextLine = try container.decodeIfPresent(String.self, forKey: .contextLine)
@@ -528,6 +558,9 @@ struct ServerSessionSummary: Codable, Identifiable {
   let summary: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
+  let controlMode: ServerSessionControlMode
+  let lifecycleState: ServerSessionLifecycleState
+  let acceptsUserInput: Bool
   let steerable: Bool
   let tokenUsage: ServerTokenUsage?
   let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind?
@@ -584,6 +617,9 @@ struct ServerSessionSummary: Codable, Identifiable {
     case summary
     case status
     case workStatus = "work_status"
+    case controlMode = "control_mode"
+    case lifecycleState = "lifecycle_state"
+    case acceptsUserInput = "accepts_user_input"
     case steerable
     case tokenUsage = "token_usage"
     case tokenUsageSnapshotKind = "token_usage_snapshot_kind"
@@ -642,14 +678,26 @@ struct ServerSessionSummary: Codable, Identifiable {
     summary = try container.decodeIfPresent(String.self, forKey: .summary)
     status = try container.decode(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
+    controlMode = try container.decodeIfPresent(ServerSessionControlMode.self, forKey: .controlMode) ?? .passive
+    lifecycleState = try container.decodeIfPresent(ServerSessionLifecycleState.self, forKey: .lifecycleState) ?? .ended
+    acceptsUserInput = try container.decodeIfPresent(Bool.self, forKey: .acceptsUserInput) ?? false
     steerable = try container.decodeIfPresent(Bool.self, forKey: .steerable) ?? false
     tokenUsage = try container.decodeIfPresent(ServerTokenUsage.self, forKey: .tokenUsage)
-    tokenUsageSnapshotKind = try container.decodeIfPresent(ServerTokenUsageSnapshotKind.self, forKey: .tokenUsageSnapshotKind)
+    tokenUsageSnapshotKind = try container.decodeIfPresent(
+      ServerTokenUsageSnapshotKind.self,
+      forKey: .tokenUsageSnapshotKind
+    )
     hasPendingApproval = try container.decodeIfPresent(Bool.self, forKey: .hasPendingApproval) ?? false
     codexIntegrationMode = try container.decodeIfPresent(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
-    claudeIntegrationMode = try container.decodeIfPresent(ServerClaudeIntegrationMode.self, forKey: .claudeIntegrationMode)
+    claudeIntegrationMode = try container.decodeIfPresent(
+      ServerClaudeIntegrationMode.self,
+      forKey: .claudeIntegrationMode
+    )
     approvalPolicy = try container.decodeIfPresent(String.self, forKey: .approvalPolicy)
-    approvalPolicyDetails = try container.decodeIfPresent(ServerCodexApprovalPolicy.self, forKey: .approvalPolicyDetails)
+    approvalPolicyDetails = try container.decodeIfPresent(
+      ServerCodexApprovalPolicy.self,
+      forKey: .approvalPolicyDetails
+    )
     sandboxMode = try container.decodeIfPresent(String.self, forKey: .sandboxMode)
     permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
     allowBypassPermissions = try container.decodeIfPresent(Bool.self, forKey: .allowBypassPermissions)
@@ -662,7 +710,10 @@ struct ServerSessionSummary: Codable, Identifiable {
     codexConfigMode = try container.decodeIfPresent(ServerCodexConfigMode.self, forKey: .codexConfigMode)
     codexConfigProfile = try container.decodeIfPresent(String.self, forKey: .codexConfigProfile)
     codexModelProvider = try container.decodeIfPresent(String.self, forKey: .codexModelProvider)
-    codexConfigOverrides = try container.decodeIfPresent(ServerCodexSessionOverrides.self, forKey: .codexConfigOverrides)
+    codexConfigOverrides = try container.decodeIfPresent(
+      ServerCodexSessionOverrides.self,
+      forKey: .codexConfigOverrides
+    )
     pendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
     pendingToolInput = try container.decodeIfPresent(String.self, forKey: .pendingToolInput)
     pendingQuestion = try container.decodeIfPresent(String.self, forKey: .pendingQuestion)
@@ -857,6 +908,9 @@ struct ServerSessionState: Codable, Identifiable {
   let summary: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
+  let controlMode: ServerSessionControlMode
+  let lifecycleState: ServerSessionLifecycleState
+  let acceptsUserInput: Bool
   let steerable: Bool
   let rows: [ServerConversationRowEntry]
   let totalRowCount: UInt64?
@@ -925,6 +979,9 @@ struct ServerSessionState: Codable, Identifiable {
     case summary
     case status
     case workStatus = "work_status"
+    case controlMode = "control_mode"
+    case lifecycleState = "lifecycle_state"
+    case acceptsUserInput = "accepts_user_input"
     case steerable
     case messages
     case rows
@@ -998,6 +1055,9 @@ struct ServerSessionState: Codable, Identifiable {
     summary = try container.decodeIfPresent(String.self, forKey: .summary)
     status = try container.decode(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
+    controlMode = try container.decodeIfPresent(ServerSessionControlMode.self, forKey: .controlMode) ?? .passive
+    lifecycleState = try container.decodeIfPresent(ServerSessionLifecycleState.self, forKey: .lifecycleState) ?? .ended
+    acceptsUserInput = try container.decodeIfPresent(Bool.self, forKey: .acceptsUserInput) ?? false
     steerable = try container.decodeIfPresent(Bool.self, forKey: .steerable) ?? false
     rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? []
     let directTotalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
@@ -1080,6 +1140,9 @@ struct ServerSessionState: Codable, Identifiable {
     try container.encodeIfPresent(summary, forKey: .summary)
     try container.encode(status, forKey: .status)
     try container.encode(workStatus, forKey: .workStatus)
+    try container.encode(controlMode, forKey: .controlMode)
+    try container.encode(lifecycleState, forKey: .lifecycleState)
+    try container.encode(acceptsUserInput, forKey: .acceptsUserInput)
     try container.encode(steerable, forKey: .steerable)
     try container.encode(rows, forKey: .rows)
     try container.encodeIfPresent(totalRowCount, forKey: .totalRowCount)
@@ -1214,6 +1277,9 @@ struct ServerSessionInstructions: Decodable, Sendable {
 struct ServerStateChanges: Codable {
   let status: ServerSessionStatus?
   let workStatus: ServerWorkStatus?
+  let controlMode: ServerSessionControlMode?
+  let lifecycleState: ServerSessionLifecycleState?
+  let acceptsUserInput: Bool?
   let steerable: Bool?
   let pendingApproval: ServerApprovalRequest??
   let tokenUsage: ServerTokenUsage?
@@ -1258,6 +1324,9 @@ struct ServerStateChanges: Codable {
   init(
     status: ServerSessionStatus? = nil,
     workStatus: ServerWorkStatus? = nil,
+    controlMode: ServerSessionControlMode? = nil,
+    lifecycleState: ServerSessionLifecycleState? = nil,
+    acceptsUserInput: Bool? = nil,
     steerable: Bool? = nil,
     pendingApproval: ServerApprovalRequest?? = nil,
     tokenUsage: ServerTokenUsage? = nil,
@@ -1301,6 +1370,9 @@ struct ServerStateChanges: Codable {
   ) {
     self.status = status
     self.workStatus = workStatus
+    self.controlMode = controlMode
+    self.lifecycleState = lifecycleState
+    self.acceptsUserInput = acceptsUserInput
     self.steerable = steerable
     self.pendingApproval = pendingApproval
     self.tokenUsage = tokenUsage
@@ -1346,6 +1418,9 @@ struct ServerStateChanges: Codable {
   enum CodingKeys: String, CodingKey {
     case status
     case workStatus = "work_status"
+    case controlMode = "control_mode"
+    case lifecycleState = "lifecycle_state"
+    case acceptsUserInput = "accepts_user_input"
     case steerable
     case pendingApproval = "pending_approval"
     case tokenUsage = "token_usage"
@@ -1392,6 +1467,9 @@ struct ServerStateChanges: Codable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     status = try container.decodeIfPresent(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decodeIfPresent(ServerWorkStatus.self, forKey: .workStatus)
+    controlMode = try container.decodeIfPresent(ServerSessionControlMode.self, forKey: .controlMode)
+    lifecycleState = try container.decodeIfPresent(ServerSessionLifecycleState.self, forKey: .lifecycleState)
+    acceptsUserInput = try container.decodeIfPresent(Bool.self, forKey: .acceptsUserInput)
     steerable = try container.decodeIfPresent(Bool.self, forKey: .steerable)
     pendingApproval = try container.decodePatchValue(ServerApprovalRequest.self, forKey: .pendingApproval)
     tokenUsage = try container.decodeIfPresent(ServerTokenUsage.self, forKey: .tokenUsage)

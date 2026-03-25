@@ -11,18 +11,13 @@ struct ServerConnectionListenerToken: Hashable, Sendable {
 /// Decoded server push event, typed and ready for consumption.
 /// Reuses the existing ServerToClientMessage decode pipeline.
 enum ServerEvent: Sendable {
-  // Session list
-  case sessionsList([ServerSessionListItem])
-  case dashboardConversationsUpdated([ServerDashboardConversationItem])
-  case sessionCreated(ServerSessionListItem)
-  case sessionListItemUpdated(ServerSessionListItem)
-  case sessionListItemRemoved(sessionId: String)
-  case sessionEnded(sessionId: String, reason: String)
-
-  // Session state
-  case conversationBootstrap(session: ServerSessionState, conversation: ServerConversationHistoryPage)
-  case sessionSnapshot(ServerSessionState)
+  case hello(ServerHelloMetadata)
+  case dashboardSnapshot(ServerDashboardSnapshotPayload)
+  case missionsSnapshot(ServerMissionSnapshotPayload)
+  case dashboardInvalidated(revision: UInt64)
+  case missionsInvalidated(revision: UInt64)
   case sessionDelta(sessionId: String, changes: ServerStateChanges)
+  case sessionEnded(sessionId: String, reason: String)
 
   /// Messages
   case conversationRowsChanged(
@@ -151,7 +146,8 @@ final class ServerConnection {
   private(set) var connectionStatus: ConnectionStatus = .disconnected
   private(set) var latestSessionListItems: [ServerSessionListItem] = []
   private(set) var latestDashboardConversationItems: [ServerDashboardConversationItem] = []
-  private(set) var hasReceivedInitialSessionsList = false
+  private(set) var hasReceivedInitialDashboardSnapshot = false
+  private(set) var hasSubscribedDashboardStream = false
 
   /// Event listeners. Multiple consumers can register.
   var onEvent: ((ServerEvent) -> Void)?
@@ -294,44 +290,54 @@ final class ServerConnection {
     lastConnectedAt = nil
     latestSessionListItems = []
     latestDashboardConversationItems = []
-    hasReceivedInitialSessionsList = false
+    hasReceivedInitialDashboardSnapshot = false
+    hasSubscribedDashboardStream = false
     setStatus(.disconnected)
     netLog(.info, cat: .circuit, "Circuit breaker reset (explicit disconnect)")
   }
 
   // MARK: - Outbound WS messages
 
-  func subscribeList() {
-    send(.subscribeList)
+  func subscribeDashboard(sinceRevision: UInt64? = nil) {
+    guard !hasSubscribedDashboardStream else { return }
+    hasSubscribedDashboardStream = true
+    send(.subscribeDashboard(sinceRevision: sinceRevision))
   }
 
-  func subscribeSession(_ sessionId: String, sinceRevision: UInt64? = nil, includeSnapshot: Bool = true) {
-    send(.subscribeSession(sessionId: sessionId, sinceRevision: sinceRevision, includeSnapshot: includeSnapshot))
+  func subscribeMissions(sinceRevision: UInt64? = nil) {
+    send(.subscribeMissions(sinceRevision: sinceRevision))
   }
 
-  func unsubscribeSession(_ sessionId: String) {
-    send(.unsubscribeSession(sessionId: sessionId))
+  func subscribeSessionSurface(
+    _ sessionId: String,
+    surface: ServerSessionSurface,
+    sinceRevision: UInt64? = nil
+  ) {
+    send(.subscribeSessionSurface(sessionId: sessionId, surface: surface, sinceRevision: sinceRevision))
   }
 
-  // MARK: - Sessions list (REST-driven)
-
-  func applySessionsList(_ sessions: [ServerSessionListItem]) {
-    latestSessionListItems = sessions
-    hasReceivedInitialSessionsList = true
-    emit(.sessionsList(sessions))
+  func unsubscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface) {
+    send(.unsubscribeSessionSurface(sessionId: sessionId, surface: surface))
   }
 
-  func applyDashboardConversations(_ conversations: [ServerDashboardConversationItem]) {
-    latestDashboardConversationItems = conversations
-    emit(.dashboardConversationsUpdated(conversations))
+  func applyDashboardSnapshot(_ snapshot: ServerDashboardSnapshotPayload) {
+    latestSessionListItems = snapshot.sessions
+    latestDashboardConversationItems = snapshot.conversations
+    hasReceivedInitialDashboardSnapshot = true
+    emit(.dashboardSnapshot(snapshot))
+  }
+
+  func applyMissionsSnapshot(_ snapshot: ServerMissionSnapshotPayload) {
+    emit(.missionsSnapshot(snapshot))
   }
 
   // MARK: - Testing
 
-  func seedSessionsListForTesting(_ sessions: [ServerSessionListItem]) {
-    latestSessionListItems = sessions
-    hasReceivedInitialSessionsList = true
-    emit(.sessionsList(sessions))
+  func seedDashboardSnapshotForTesting(_ snapshot: ServerDashboardSnapshotPayload) {
+    latestSessionListItems = snapshot.sessions
+    latestDashboardConversationItems = snapshot.conversations
+    hasReceivedInitialDashboardSnapshot = true
+    emit(.dashboardSnapshot(snapshot))
   }
 
   func emitForTesting(_ event: ServerEvent) {
@@ -365,6 +371,9 @@ final class ServerConnection {
     if let authToken, !authToken.isEmpty {
       request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
     }
+    request.setValue(OrbitDockProtocol.clientVersion, forHTTPHeaderField: "X-OrbitDock-Client-Version")
+    request.setValue(String(OrbitDockProtocol.major), forHTTPHeaderField: "X-OrbitDock-Client-Protocol-Major")
+    request.setValue(String(OrbitDockProtocol.minor), forHTTPHeaderField: "X-OrbitDock-Client-Protocol-Minor")
 
     let socket = wsSession.webSocketTask(with: request)
     socket.maximumMessageSize = Self.maxInboundBytes
@@ -395,7 +404,6 @@ final class ServerConnection {
     guard let socket = webSocket else { return }
     startKeepAlive(on: socket, generation: generation)
     startStableConnectionTimer(generation: generation)
-    subscribeList()
   }
 
   private func startStableConnectionTimer(generation: UInt64) {
@@ -604,13 +612,11 @@ final class ServerConnection {
 
   private func routeMessage(_ message: ServerToClientMessage) {
     switch message {
-      case let .sessionsList(sessions): emit(.sessionsList(sessions))
-      case let .dashboardConversationsUpdated(conversations):
-        emit(.dashboardConversationsUpdated(conversations))
-      case let .conversationBootstrap(session, conversation):
-        emit(.conversationBootstrap(session: session, conversation: conversation))
-      case let .sessionSnapshot(session): emit(.sessionSnapshot(session))
-      case let .sessionDelta(sessionId, changes): emit(.sessionDelta(sessionId: sessionId, changes: changes))
+      case let .hello(hello): emit(.hello(hello))
+      case let .dashboardInvalidated(revision): emit(.dashboardInvalidated(revision: revision))
+      case let .missionsInvalidated(revision): emit(.missionsInvalidated(revision: revision))
+      case let .sessionDelta(sessionId, changes):
+        emit(.sessionDelta(sessionId: sessionId, changes: changes))
       case let .conversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount):
         emit(.conversationRowsChanged(
           sessionId: sessionId,
@@ -630,9 +636,6 @@ final class ServerConnection {
         ))
       case let .tokensUpdated(sessionId, usage, snapshotKind):
         emit(.tokensUpdated(sessionId: sessionId, usage: usage, snapshotKind: snapshotKind))
-      case let .sessionCreated(session): emit(.sessionCreated(session))
-      case let .sessionListItemUpdated(session): emit(.sessionListItemUpdated(session))
-      case let .sessionListItemRemoved(sessionId): emit(.sessionListItemRemoved(sessionId: sessionId))
       case let .sessionEnded(sessionId, reason): emit(.sessionEnded(sessionId: sessionId, reason: reason))
       case let .approvalsList(sessionId, approvals): emit(.approvalsList(sessionId: sessionId, approvals: approvals))
       case let .approvalDeleted(approvalId): emit(.approvalDeleted(approvalId: approvalId))
@@ -812,26 +815,22 @@ final class ServerConnection {
     if status != .connected {
       latestSessionListItems = []
       latestDashboardConversationItems = []
-      hasReceivedInitialSessionsList = false
+      hasReceivedInitialDashboardSnapshot = false
+      hasSubscribedDashboardStream = false
     }
     emit(.connectionStatusChanged(status))
   }
 
   private func updateRootState(for event: ServerEvent) {
     switch event {
-      case let .sessionsList(sessions):
-        latestSessionListItems = sessions
-        hasReceivedInitialSessionsList = true
-      case let .dashboardConversationsUpdated(conversations):
-        latestDashboardConversationItems = conversations
-      case let .sessionCreated(session), let .sessionListItemUpdated(session):
-        if let idx = latestSessionListItems.firstIndex(where: { $0.id == session.id }) {
-          latestSessionListItems[idx] = session
-        } else {
-          latestSessionListItems.append(session)
-        }
-      case let .sessionListItemRemoved(sessionId):
-        latestSessionListItems.removeAll { $0.id == sessionId }
+      case let .dashboardSnapshot(snapshot):
+        latestSessionListItems = snapshot.sessions
+        latestDashboardConversationItems = snapshot.conversations
+        hasReceivedInitialDashboardSnapshot = true
+      case let .missionsSnapshot(snapshot):
+        _ = snapshot
+      case .dashboardInvalidated:
+        break
       default: break
     }
   }

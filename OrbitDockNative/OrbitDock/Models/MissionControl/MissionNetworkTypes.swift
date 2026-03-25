@@ -1,5 +1,13 @@
 import Foundation
 
+struct MissionCleanupPrompt: Codable, Equatable {
+  let lingeringWorktreeCount: UInt32
+
+  enum CodingKeys: String, CodingKey {
+    case lingeringWorktreeCount = "lingering_worktree_count"
+  }
+}
+
 struct MissionOkResponse: Decodable {
   let ok: Bool?
 }
@@ -15,6 +23,7 @@ struct EmptyBody: Encodable {}
 struct MissionDetailResponse: Codable {
   let summary: MissionSummary
   let issues: [MissionIssueItem]
+  let cleanupPrompt: MissionCleanupPrompt?
   let settings: MissionSettings?
   let missionFileExists: Bool
   let missionFilePath: String?
@@ -22,6 +31,7 @@ struct MissionDetailResponse: Codable {
 
   enum CodingKeys: String, CodingKey {
     case summary, issues, settings
+    case cleanupPrompt = "cleanup_prompt"
     case missionFileExists = "mission_file_exists"
     case missionFilePath = "mission_file_path"
     case workflowMigrationAvailable = "workflow_migration_available"

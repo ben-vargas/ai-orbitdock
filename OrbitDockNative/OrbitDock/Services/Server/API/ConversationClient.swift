@@ -102,10 +102,35 @@ struct ConversationClient: Sendable {
   }
 
   func sendMessage(_ sessionId: String, request: SendMessageRequest) async throws -> SendMessageResponse {
-    try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/messages",
-      body: request
+    let path = "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/messages"
+    NSLog(
+      "[OrbitDock][ConversationClient] POST %@ session=%@ contentLength=%ld images=%ld mentions=%ld skills=%ld",
+      path,
+      sessionId,
+      request.content.count,
+      request.images.count,
+      request.mentions.count,
+      request.skills.count
     )
+    do {
+      let response: SendMessageResponse = try await http.post(path, body: request)
+      NSLog(
+        "[OrbitDock][ConversationClient] POST %@ accepted=%@ row=%@ session=%@",
+        path,
+        response.accepted ? "true" : "false",
+        response.row.id,
+        sessionId
+      )
+      return response
+    } catch {
+      NSLog(
+        "[OrbitDock][ConversationClient] POST %@ failed session=%@ error=%@",
+        path,
+        sessionId,
+        String(describing: error)
+      )
+      throw error
+    }
   }
 
   func steerTurn(_ sessionId: String, request: SteerTurnRequest) async throws -> SteerTurnResponse {

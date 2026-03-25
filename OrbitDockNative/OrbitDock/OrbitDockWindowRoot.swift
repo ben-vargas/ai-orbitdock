@@ -97,8 +97,8 @@ struct OrbitDockWindowRoot: View {
     .onChange(of: environmentAppRuntime.isDemoModeEnabled) { _, _ in
       syncDemoSeed()
     }
-    .onChange(of: appRuntime.runtimeRegistry.aggregatedSessions) { oldSessions, newSessions in
-      if oldSessions.isEmpty && !newSessions.isEmpty {
+    .onChange(of: appStore.dashboardProjectionStore.rootSessions) { oldSessions, newSessions in
+      if oldSessions.isEmpty, !newSessions.isEmpty {
         // First load — seed baseline to avoid a burst of toasts
         appRuntime.notificationCoordinator.seedBaseline(newSessions)
       } else {

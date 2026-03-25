@@ -10,6 +10,8 @@ import Foundation
 extension ServerToClientMessage {
   enum CodingKeys: String, CodingKey {
     case type
+    case hello
+    case revision
     case sessions
     case conversations
     case session

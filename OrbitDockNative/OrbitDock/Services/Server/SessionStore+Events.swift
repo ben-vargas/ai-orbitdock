@@ -3,29 +3,13 @@ import Foundation
 @MainActor
 extension SessionStore {
   func routeEvent(_ event: ServerEvent) {
-    let summary = eventSummary(event)
-    netLog(.info, cat: .store, "Event: \(summary)")
     switch event {
-      case .sessionsList, .dashboardConversationsUpdated, .sessionCreated, .sessionListItemUpdated,
-           .sessionListItemRemoved:
+      case .hello, .dashboardInvalidated, .missionsInvalidated:
         break
-      case let .sessionEnded(sessionId, reason):
-        handleSessionEnded(sessionId, reason)
-      case let .conversationBootstrap(state, conversation):
-        handleConversationBootstrap(state, conversation)
-      case let .sessionSnapshot(state):
-        handleConversationBootstrap(
-          state,
-          ServerConversationHistoryPage(
-            rows: state.rows,
-            totalRowCount: state.totalRowCount ?? UInt64(state.rows.count),
-            hasMoreBefore: state.hasMoreBefore ?? false,
-            oldestSequence: state.oldestSequence,
-            newestSequence: state.newestSequence
-          )
-        )
       case let .sessionDelta(sessionId, changes):
         handleSessionDelta(sessionId, changes)
+      case let .sessionEnded(sessionId, reason):
+        handleSessionEnded(sessionId, reason)
       case let .conversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount):
         handleConversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount)
       case let .approvalRequested(sessionId, request, version):
@@ -192,19 +176,17 @@ extension SessionStore {
         obs.heartbeatRevision &+= 1
       case let .revision(sessionId, revision):
         lastRevision[sessionId] = revision
+      default:
+        break
     }
   }
 
   func eventSummary(_ event: ServerEvent) -> String {
     switch event {
-      case let .sessionsList(sessions): "sessionsList(\(sessions.count))"
-      case let .sessionCreated(s): "sessionCreated(\(s.id))"
-      case let .sessionListItemUpdated(s): "sessionListItemUpdated(\(s.id))"
-      case let .sessionListItemRemoved(sid): "sessionListItemRemoved(\(sid))"
+      case .hello: "hello"
+      case .dashboardInvalidated: "dashboardInvalidated"
+      case .missionsInvalidated: "missionsInvalidated"
       case let .sessionEnded(sid, _): "sessionEnded(\(sid))"
-      case let .conversationBootstrap(s, conversation): "conversationBootstrap(\(s.id), \(conversation.rows.count))"
-      case let .sessionSnapshot(s): "sessionSnapshot(\(s.id))"
-      case let .sessionDelta(sid, _): "sessionDelta(\(sid))"
       case let .conversationRowsChanged(sid, upserted, removed, _):
         "conversationRowsChanged(\(sid), +\(upserted.count), -\(removed.count))"
       case let .approvalRequested(sid, _, _): "approvalRequested(\(sid))"
@@ -235,6 +217,9 @@ extension SessionStore {
     if let rev = state.revision {
       lastRevision[state.id] = rev
     }
+    if let revision = state.revision {
+      lastSurfaceRevision[state.id, default: [:]][.conversation] = revision
+    }
 
     subscribedSessions.insert(state.id)
     lastOlderMessagesRequestBeforeSequence.removeValue(forKey: state.id)
@@ -255,14 +240,37 @@ extension SessionStore {
     applyControlTransition(transition, sessionId: state.id, observable: obs)
   }
 
-  func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
-    let obs = self.session(sessionId)
+  func handleSessionDetailSnapshot(_ snapshot: ServerSessionDetailSnapshotPayload) {
+    lastSurfaceRevision[snapshot.session.id, default: [:]][.detail] = snapshot.revision
+    handleSessionSnapshot(snapshot.session)
+  }
 
+  func handleSessionComposerSnapshot(_ snapshot: ServerSessionComposerSnapshotPayload) {
+    lastSurfaceRevision[snapshot.session.id, default: [:]][.composer] = snapshot.revision
+    handleSessionSnapshot(snapshot.session)
+  }
+
+  func handleSessionSnapshot(_ state: ServerSessionState) {
+    if let rev = state.revision {
+      lastRevision[state.id] = rev
+    }
+
+    subscribedSessions.insert(state.id)
+    let obs = self.session(state.id)
+    obs.applyServerSnapshot(state)
+    let transition = SessionControlStateReducer.snapshotTransition(
+      current: controlState(sessionId: state.id, observable: obs),
+      snapshot: state,
+      supportsServerControlConfiguration: state.provider == .codex || state.claudeIntegrationMode == .direct
+    )
+    applyControlTransition(transition, sessionId: state.id, observable: obs)
+  }
+
+  func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
+    let obs = session(sessionId)
     obs.applyServerDelta(changes)
-    let summaryStillBlocked = obs.attentionReason == .awaitingPermission
-      || obs.attentionReason == .awaitingQuestion
-      || obs.workStatus == .permission
-      || obs.workStatus == .question
+
+    let summaryStillBlocked = obs.attentionReason == .awaitingPermission || obs.attentionReason == .awaitingQuestion
     let transition = SessionControlStateReducer.deltaTransition(
       current: controlState(sessionId: sessionId, observable: obs),
       changes: changes,
@@ -327,14 +335,16 @@ extension SessionStore {
   func handleError(_ code: String, _ message: String, _ sessionId: String?) {
     netLog(.error, cat: .store, "Server error", sid: sessionId, data: ["code": code, "message": message])
 
-    if code == "lagged" || code == "replay_oversized" {
+    if code == "lagged"
+      || code == "replay_oversized"
+      || code == "session_detail_resync_required"
+      || code == "session_composer_resync_required"
+      || code == "conversation_resync_required"
+    {
       if let sessionId {
         // Session-level lag: re-bootstrap that session
         Task { await self.hydrateSessionFromHTTPBootstrap(sessionId: sessionId) }
       }
-      // List-level lag (sessionId == nil): re-fetch sessions list via REST.
-      // The initial REST fetch on connect already covers this, and incremental
-      // WS updates will catch up. No additional action needed.
       return
     }
 
@@ -351,7 +361,7 @@ extension SessionStore {
     connectionGeneration &+= 1
     let generation = connectionGeneration
 
-    netLog(.info, cat: .store, "Connected — fetching sessions + re-subscribing", data: [
+    netLog(.info, cat: .store, "Connected — re-subscribing session surfaces", data: [
       "generation": generation,
       "subscribedSessionCount": subscribedSessions.count,
     ])
@@ -360,6 +370,7 @@ extension SessionStore {
     // will set fresh revisions. Without this, sinceRevision from a dead
     // connection can cause replay_oversized or missed events.
     lastRevision.removeAll()
+    lastSurfaceRevision.removeAll()
 
     // Cancel any in-flight reconnect work from a previous connection cycle.
     // Without this, a flapping connection spawns parallel reconnect Tasks.
@@ -368,18 +379,6 @@ extension SessionStore {
 
     let sessionsToResubscribe = subscribedSessions
     let task = Task<Void, Never> {
-      // Fetch sessions list via REST (WS subscribeList is called in completeConnection)
-      do {
-        let items = try await clients.sessions.fetchSessionsList()
-        guard !Task.isCancelled else { return }
-        netLog(.info, cat: .store, "REST sessions fetched", data: ["count": items.count])
-        connection.applySessionsList(items)
-      } catch {
-        guard !Task.isCancelled else { return }
-        netLog(.error, cat: .store, "REST sessions fetch failed", data: ["error": error.localizedDescription])
-      }
-
-      // Re-subscribe all active sessions sequentially.
       for sessionId in sessionsToResubscribe {
         guard !Task.isCancelled else { return }
         await ensureSessionRecovery(sessionId, generation: generation)

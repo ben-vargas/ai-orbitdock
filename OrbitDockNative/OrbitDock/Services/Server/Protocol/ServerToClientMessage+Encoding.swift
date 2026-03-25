@@ -5,22 +5,17 @@ extension ServerToClientMessage {
     var container = encoder.container(keyedBy: CodingKeys.self)
 
     switch self {
-      case let .sessionsList(sessions):
-        try container.encode("sessions_list", forKey: .type)
-        try container.encode(sessions, forKey: .sessions)
+      case let .hello(hello):
+        try container.encode("hello", forKey: .type)
+        try container.encode(hello, forKey: .hello)
 
-      case let .dashboardConversationsUpdated(conversations):
-        try container.encode("dashboard_conversations_updated", forKey: .type)
-        try container.encode(conversations, forKey: .conversations)
+      case let .dashboardInvalidated(revision):
+        try container.encode("dashboard_invalidated", forKey: .type)
+        try container.encode(revision, forKey: .revision)
 
-      case let .conversationBootstrap(session, conversation):
-        try container.encode("conversation_bootstrap", forKey: .type)
-        try container.encode(session, forKey: .session)
-        try container.encode(conversation, forKey: .conversation)
-
-      case let .sessionSnapshot(session):
-        try container.encode("session_snapshot", forKey: .type)
-        try container.encode(session, forKey: .session)
+      case let .missionsInvalidated(revision):
+        try container.encode("missions_invalidated", forKey: .type)
+        try container.encode(revision, forKey: .revision)
 
       case let .sessionDelta(sessionId, changes):
         try container.encode("session_delta", forKey: .type)
@@ -45,18 +40,6 @@ extension ServerToClientMessage {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(usage, forKey: .usage)
         try container.encode(snapshotKind, forKey: .snapshotKind)
-
-      case let .sessionCreated(session):
-        try container.encode("session_created", forKey: .type)
-        try container.encode(session, forKey: .session)
-
-      case let .sessionListItemUpdated(session):
-        try container.encode("session_list_item_updated", forKey: .type)
-        try container.encode(session, forKey: .session)
-
-      case let .sessionListItemRemoved(sessionId):
-        try container.encode("session_list_item_removed", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
 
       case let .sessionEnded(sessionId, reason):
         try container.encode("session_ended", forKey: .type)

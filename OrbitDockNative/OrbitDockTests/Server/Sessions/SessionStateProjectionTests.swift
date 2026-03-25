@@ -58,6 +58,7 @@ struct SessionStateProjectionTests {
       pendingPermissionDetail: "pwd",
       pendingQuestion: "Continue?",
       provider: .claude,
+      codexIntegrationMode: nil,
       claudeIntegrationMode: .direct,
       pendingApprovalId: "req-42",
       inputTokens: 120,
@@ -65,8 +66,12 @@ struct SessionStateProjectionTests {
       cachedTokens: 12,
       contextWindow: 200_000
     )
+    var previewSession = session
+    previewSession.controlMode = .direct
+    previewSession.lifecycleState = .open
+    previewSession.acceptsUserInput = true
 
-    observable.populateFromPreviewSession(session)
+    observable.populateFromPreviewSession(previewSession)
 
     #expect(observable.endpointName == "Primary")
     #expect(observable.projectPath == "/tmp/project")
@@ -80,8 +85,40 @@ struct SessionStateProjectionTests {
     #expect(observable.pendingPermissionDetail == "pwd")
     #expect(observable.provider == .claude)
     #expect(observable.claudeIntegrationMode == .direct)
+    #expect(observable.controlMode == .direct)
+    #expect(observable.lifecycleState == .open)
+    #expect(observable.acceptsUserInput)
     #expect(observable.totalTokens == 321)
     #expect(observable.contextWindow == 200_000)
+  }
+
+  @Test func sessionObservableUsesExplicitLifecycleForSendTakeoverAndResumeState() {
+    let directOpen = SessionObservable(id: "session-direct-open")
+    directOpen.controlMode = .direct
+    directOpen.lifecycleState = .open
+    directOpen.acceptsUserInput = true
+
+    #expect(directOpen.canSendInput)
+    #expect(!directOpen.canResume)
+    #expect(!directOpen.canTakeOver)
+
+    let directResumable = SessionObservable(id: "session-direct-resumable")
+    directResumable.controlMode = .direct
+    directResumable.lifecycleState = .resumable
+    directResumable.acceptsUserInput = false
+
+    #expect(!directResumable.canSendInput)
+    #expect(directResumable.canResume)
+    #expect(!directResumable.canTakeOver)
+
+    let passiveOpen = SessionObservable(id: "session-passive-open")
+    passiveOpen.controlMode = .passive
+    passiveOpen.lifecycleState = .open
+    passiveOpen.acceptsUserInput = false
+
+    #expect(!passiveOpen.canSendInput)
+    #expect(!passiveOpen.canResume)
+    #expect(passiveOpen.canTakeOver)
   }
 
   @Test func sessionObservableApplyServerDeltaUpdatesSubagents() {
@@ -196,7 +233,10 @@ struct SessionStateProjectionTests {
     #expect(observable.subagents.first?.id == "worker-1")
   }
 
-  @Test func sessionObservableApprovalProjectionUsesQuestionTextAndClearsWithoutResettingAttentionByDefault() {
+  @Test
+  func
+    sessionObservableApprovalProjectionUsesQuestionTextAndClearsWithoutResettingAttentionByDefault()
+  {
     let observable = SessionObservable(id: "session-1")
     let request = questionApprovalRequest()
 
@@ -408,16 +448,20 @@ struct SessionStateProjectionTests {
     #expect(observable.contextFillPercent == session.contextFillPercent)
     #expect(observable.effectiveCacheHitPercent == session.effectiveCacheHitPercent)
     #expect(observable.hasTokenUsage)
-    #expect(SessionTokenUsageSemantics.hasTokenUsage(
-      inputTokens: session.inputTokens,
-      outputTokens: session.outputTokens,
-      cachedTokens: session.cachedTokens
-    ))
+    #expect(
+      SessionTokenUsageSemantics.hasTokenUsage(
+        inputTokens: session.inputTokens,
+        outputTokens: session.outputTokens,
+        cachedTokens: session.cachedTokens
+      )
+    )
   }
 
   @Test func sessionObservableStreamingRowUpdateOnlyBumpsContentRevision() {
     let observable = SessionObservable(id: "session-1")
-    let initialRow = assistantRow(id: "assistant-1", sequence: 1, content: "hello", isStreaming: true)
+    let initialRow = assistantRow(
+      id: "assistant-1", sequence: 1, content: "hello", isStreaming: true
+    )
 
     observable.applyConversationPage(
       rows: [initialRow],
@@ -429,7 +473,9 @@ struct SessionStateProjectionTests {
     let initialStructureRevision = observable.rowEntriesStructureRevision
     let initialContentRevision = observable.rowEntriesContentRevision
 
-    let updatedRow = assistantRow(id: "assistant-1", sequence: 1, content: "hello world", isStreaming: true)
+    let updatedRow = assistantRow(
+      id: "assistant-1", sequence: 1, content: "hello world", isStreaming: true
+    )
     observable.applyRowsChanged(upserted: [updatedRow], removedIds: [])
 
     #expect(observable.rowEntries.count == 1)
@@ -514,15 +560,17 @@ struct SessionStateProjectionTests {
       sequence: sequence,
       turnId: nil,
       turnStatus: .active,
-      row: .assistant(ServerConversationMessageRow(
-        id: id,
-        content: content,
-        turnId: nil,
-        timestamp: nil,
-        isStreaming: isStreaming,
-        images: nil,
-        memoryCitation: nil
-      ))
+      row: .assistant(
+        ServerConversationMessageRow(
+          id: id,
+          content: content,
+          turnId: nil,
+          timestamp: nil,
+          isStreaming: isStreaming,
+          images: nil,
+          memoryCitation: nil
+        )
+      )
     )
   }
 }

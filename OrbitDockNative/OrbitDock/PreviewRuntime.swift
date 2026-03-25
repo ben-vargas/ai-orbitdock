@@ -53,7 +53,14 @@ struct PreviewRuntime {
       loginInProgress: false,
       activeLoginId: nil
     )
-    connection.seedSessionsListForTesting(Self.previewSessionListItems())
+    connection.seedDashboardSnapshotForTesting(
+      ServerDashboardSnapshotPayload(
+        revision: 1,
+        sessions: Self.previewSessionListItems(),
+        conversations: [],
+        counts: ServerDashboardCounts(attention: 0, running: 0, ready: 0, direct: 0)
+      )
+    )
     self.sessionStore = sessionStore
 
     let runtime = ServerRuntime(
@@ -210,6 +217,8 @@ struct PreviewRuntime {
         model: $0.model,
         status: $0.status == .active ? .active : .ended,
         workStatus: serverWorkStatus(for: $0.workStatus, attentionReason: $0.attentionReason),
+        controlMode: previewControlMode(for: $0),
+        lifecycleState: previewLifecycleState(for: $0),
         codexIntegrationMode: $0.codexIntegrationMode.map(serverCodexMode),
         claudeIntegrationMode: $0.claudeIntegrationMode.map(serverClaudeMode),
         startedAt: $0.startedAt.map(iso8601Timestamp),
@@ -267,4 +276,17 @@ struct PreviewRuntime {
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter.string(from: date)
   }
+}
+
+private func previewControlMode(for session: Session) -> ServerSessionControlMode {
+  switch session.provider {
+    case .codex:
+      session.codexIntegrationMode == .passive ? .passive : .direct
+    case .claude:
+      session.claudeIntegrationMode == .passive ? .passive : .direct
+  }
+}
+
+private func previewLifecycleState(for session: Session) -> ServerSessionLifecycleState {
+  session.status == .active ? .open : .ended
 }

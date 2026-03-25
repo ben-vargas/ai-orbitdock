@@ -119,6 +119,9 @@ struct Session: Identifiable, Hashable, Sendable {
   var customName: String? // User-defined custom name (overrides summary)
   var firstPrompt: String? // First user message (conversation-specific fallback)
   var lastMessage: String? // Most recent user or assistant message (for dashboard context)
+  var controlMode: ServerSessionControlMode = .passive
+  var lifecycleState: ServerSessionLifecycleState = .ended
+  var acceptsUserInput: Bool = false
   let transcriptPath: String?
   var status: SessionStatus
   var workStatus: WorkStatus
@@ -476,24 +479,23 @@ struct Session: Identifiable, Hashable, Sendable {
 
   /// Returns true if this is any direct (server-controlled) session
   var isDirect: Bool {
-    isDirectCodex || isDirectClaude
+    controlMode == .direct
   }
 
   /// Returns true if user can send input to this session (any direct session)
   var canSendInput: Bool {
-    guard isActive else { return false }
-    return isDirect
+    controlMode == .direct && lifecycleState == .open && acceptsUserInput
   }
 
   /// Returns true if this passive session can be taken over (flipped to direct)
   /// Hook-created Claude sessions have nil integration mode (not explicitly "passive"),
   /// so we treat nil as passive for Claude. Codex passive sessions are always explicitly set.
   var canTakeOver: Bool {
-    guard !isDirect else { return false }
-    switch provider {
-      case .codex: return codexIntegrationMode == .passive
-      case .claude: return claudeIntegrationMode != .direct
-    }
+    controlMode == .passive && lifecycleState == .open
+  }
+
+  var canResume: Bool {
+    controlMode == .direct && lifecycleState == .resumable
   }
 
   /// Returns true if user can approve/reject a pending tool (direct Codex only)

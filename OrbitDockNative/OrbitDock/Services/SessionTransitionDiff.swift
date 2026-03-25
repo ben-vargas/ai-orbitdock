@@ -31,18 +31,18 @@ enum SessionTransitionDiff {
       let needsAttentionNow = curStatus == .permission || curStatus == .question
       let neededAttentionBefore = prevStatus == .permission || prevStatus == .question
 
-      if needsAttentionNow && !neededAttentionBefore {
+      if needsAttentionNow, !neededAttentionBefore {
         result.append(.needsAttention(
           scopedID: scopedID,
           status: curStatus,
           title: node.title,
           detail: node.pendingToolName
         ))
-      } else if neededAttentionBefore && !needsAttentionNow {
+      } else if neededAttentionBefore, !needsAttentionNow {
         result.append(.attentionCleared(scopedID: scopedID))
       }
 
-      if prevStatus == .working && (curStatus == .reply || curStatus == .ended) {
+      if prevStatus == .working, curStatus == .reply || curStatus == .ended {
         result.append(.workComplete(
           scopedID: scopedID,
           title: node.title,
@@ -60,7 +60,7 @@ enum SessionTransitionDiff {
         result.append(.attentionCleared(scopedID: scopedID))
       }
 
-      if prev.displayStatus == .working && prev.showsInMissionControl {
+      if prev.displayStatus == .working, prev.showsInMissionControl {
         result.append(.workComplete(
           scopedID: scopedID,
           title: prev.title,

@@ -68,7 +68,7 @@ final class ServerRuntime: Identifiable {
   var readiness: ServerRuntimeReadiness {
     ServerRuntimeReadiness.derive(
       connectionStatus: connection.connectionStatus,
-      hasReceivedInitialRootList: connection.hasReceivedInitialSessionsList
+      hasReceivedInitialRootList: connection.hasReceivedInitialDashboardSnapshot
     )
   }
 

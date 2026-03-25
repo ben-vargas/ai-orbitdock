@@ -117,6 +117,9 @@ final class SessionObservable {
   var transcriptPath: String?
   var status: Session.SessionStatus = .active
   var workStatus: Session.WorkStatus = .unknown
+  var controlMode: ServerSessionControlMode = .passive
+  var lifecycleState: ServerSessionLifecycleState = .ended
+  var acceptsUserInput = false
   var steerable: Bool = false
   var attentionReason: Session.AttentionReason = .none
   var lastActivityAt: Date?
@@ -159,7 +162,7 @@ final class SessionObservable {
   // MARK: - Computed properties (mirror Session computed logic)
 
   var isActive: Bool {
-    status == .active
+    lifecycleState != .ended
   }
 
   var displayStatus: SessionDisplayStatus {
@@ -185,28 +188,27 @@ final class SessionObservable {
   }
 
   var isDirect: Bool {
-    isDirectCodex || isDirectClaude
+    controlMode == .direct
   }
 
   var isDirectCodex: Bool {
-    provider == .codex && codexIntegrationMode == .direct
+    provider == .codex && controlMode == .direct
   }
 
   var isDirectClaude: Bool {
-    provider == .claude && claudeIntegrationMode == .direct
+    provider == .claude && controlMode == .direct
   }
 
   var canSendInput: Bool {
-    guard isActive else { return false }
-    return isDirect
+    controlMode == .direct && lifecycleState == .open && acceptsUserInput
   }
 
   var canTakeOver: Bool {
-    guard !isDirect else { return false }
-    switch provider {
-      case .codex: return codexIntegrationMode == .passive
-      case .claude: return claudeIntegrationMode != .direct
-    }
+    controlMode == .passive && lifecycleState == .open
+  }
+
+  var canResume: Bool {
+    controlMode == .direct && lifecycleState == .resumable
   }
 
   var canApprove: Bool {
@@ -398,18 +400,22 @@ final class SessionObservable {
     oldestSequence: UInt64?,
     isBootstrap: Bool = false
   ) {
+    let normalizedRows = normalizedRowBatch(
+      rows,
+      context: isBootstrap ? "conversation-page-bootstrap" : "conversation-page"
+    )
     var structureChanged = false
 
     if isBootstrap {
-      rowEntries = rows
+      rowEntries = normalizedRows
       structureChanged = true
     } else {
-      for entry in rows {
+      for entry in normalizedRows {
         structureChanged = upsertRow(entry).structureChanged || structureChanged
       }
     }
 
-    lastChangedRowEntries = rows
+    lastChangedRowEntries = normalizedRows
     lastRemovedRowIds = []
     hasMoreHistoryBefore = hasMoreBefore
     oldestLoadedSequence = rowEntries.first.map(\.sequence)
@@ -425,6 +431,7 @@ final class SessionObservable {
     upserted: [ServerConversationRowEntry],
     removedIds: [String]
   ) {
+    let normalizedUpserted = normalizedRowBatch(upserted, context: "rows-changed")
     var structureChanged = false
 
     if !removedIds.isEmpty {
@@ -432,11 +439,11 @@ final class SessionObservable {
       rowEntries.removeAll { removed.contains($0.id) }
       structureChanged = true
     }
-    for entry in upserted {
+    for entry in normalizedUpserted {
       structureChanged = upsertRow(entry).structureChanged || structureChanged
     }
 
-    lastChangedRowEntries = upserted
+    lastChangedRowEntries = normalizedUpserted
     lastRemovedRowIds = removedIds
     rowEntriesRevision += 1
     rowEntriesContentRevision += 1
@@ -560,6 +567,34 @@ final class SessionObservable {
       case .handoff: "handoff"
       case .system: "system"
     }
+  }
+
+  private func normalizedRowBatch(
+    _ rows: [ServerConversationRowEntry],
+    context: String
+  ) -> [ServerConversationRowEntry] {
+    guard rows.count > 1 else { return rows }
+
+    var dedupedByID: [String: ServerConversationRowEntry] = [:]
+    var order: [String] = []
+    var duplicateIDs: Set<String> = []
+
+    for row in rows {
+      if dedupedByID.updateValue(row, forKey: row.id) == nil {
+        order.append(row.id)
+      } else {
+        duplicateIDs.insert(row.id)
+      }
+    }
+
+    guard !duplicateIDs.isEmpty else { return rows }
+
+    let normalized = order.compactMap { dedupedByID[$0] }
+    let duplicateSummary = duplicateIDs.sorted().joined(separator: ", ")
+    ConversationFollowDebug.log(
+      "SessionObservable.normalizedRowBatch context=\(context) sessionId=\(id) droppedDuplicates=\(rows.count - normalized.count) duplicateIDs=[\(duplicateSummary)]"
+    )
+    return normalized
   }
 }
 

@@ -25,6 +25,9 @@ struct HTTPRequestBuilder: Sendable {
     if let authToken, !authToken.isEmpty {
       request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
     }
+    request.setValue(OrbitDockProtocol.clientVersion, forHTTPHeaderField: "X-OrbitDock-Client-Version")
+    request.setValue(String(OrbitDockProtocol.major), forHTTPHeaderField: "X-OrbitDock-Client-Protocol-Major")
+    request.setValue(String(OrbitDockProtocol.minor), forHTTPHeaderField: "X-OrbitDock-Client-Protocol-Minor")
     request.httpBody = body
     return request
   }

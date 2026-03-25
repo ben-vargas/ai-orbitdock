@@ -131,7 +131,7 @@ struct ContentView: View {
     DashboardView(
       isInitialLoading: runtimeRegistry.runtimes
         .filter(\.endpoint.isEnabled)
-        .contains { !$0.connection.hasReceivedInitialSessionsList },
+        .contains { !$0.connection.hasReceivedInitialDashboardSnapshot },
       isRefreshingCachedSessions: isAnyRefreshingCachedSessions
     )
   }

@@ -6,18 +6,17 @@ extension ServerToClientMessage {
     let type = try container.decode(String.self, forKey: .type)
 
     switch type {
-      case "sessions_list":
-        let sessions = try container.decode([ServerSessionListItem].self, forKey: .sessions)
-        self = .sessionsList(sessions: sessions)
+      case "hello":
+        let hello = try container.decode(ServerHelloMetadata.self, forKey: .hello)
+        self = .hello(hello: hello)
 
-      case "dashboard_conversations_updated":
-        let conversations = try container.decode([ServerDashboardConversationItem].self, forKey: .conversations)
-        self = .dashboardConversationsUpdated(conversations: conversations)
+      case "dashboard_invalidated":
+        let revision = try container.decode(UInt64.self, forKey: .revision)
+        self = .dashboardInvalidated(revision: revision)
 
-      case "conversation_bootstrap":
-        let session = try container.decode(ServerSessionState.self, forKey: .session)
-        let conversation = try container.decode(ServerConversationHistoryPage.self, forKey: .conversation)
-        self = .conversationBootstrap(session: session, conversation: conversation)
+      case "missions_invalidated":
+        let revision = try container.decode(UInt64.self, forKey: .revision)
+        self = .missionsInvalidated(revision: revision)
 
       case "session_delta":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -48,18 +47,6 @@ extension ServerToClientMessage {
         let snapshotKind =
           try container.decodeIfPresent(ServerTokenUsageSnapshotKind.self, forKey: .snapshotKind) ?? .unknown
         self = .tokensUpdated(sessionId: sessionId, usage: usage, snapshotKind: snapshotKind)
-
-      case "session_created":
-        let session = try container.decode(ServerSessionListItem.self, forKey: .session)
-        self = .sessionCreated(session: session)
-
-      case "session_list_item_updated":
-        let session = try container.decode(ServerSessionListItem.self, forKey: .session)
-        self = .sessionListItemUpdated(session: session)
-
-      case "session_list_item_removed":
-        let sessionId = try container.decode(String.self, forKey: .sessionId)
-        self = .sessionListItemRemoved(sessionId: sessionId)
 
       case "session_ended":
         let sessionId = try container.decode(String.self, forKey: .sessionId)

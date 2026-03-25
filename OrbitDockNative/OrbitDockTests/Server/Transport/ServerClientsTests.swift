@@ -151,8 +151,8 @@ struct ServerClientsTests {
     )
 
     do {
-      _ = try await clients.sessions.fetchSessionSnapshot("missing-session")
-      Issue.record("Expected fetchSessionSnapshot to surface the server error.")
+      _ = try await clients.sessions.resumeSession("missing-session")
+      Issue.record("Expected resumeSession to surface the server error.")
     } catch let error as ServerRequestError {
       guard case let .httpStatus(status, code, message) = error else {
         Issue.record("Expected an HTTP status error.")

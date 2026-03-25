@@ -8,12 +8,12 @@
 import Foundation
 
 enum ServerToClientMessage: Codable {
+  case hello(hello: ServerHelloMetadata)
+
   // MARK: Session lifecycle and conversation
 
-  case sessionsList(sessions: [ServerSessionListItem])
-  case dashboardConversationsUpdated(conversations: [ServerDashboardConversationItem])
-  case conversationBootstrap(session: ServerSessionState, conversation: ServerConversationHistoryPage)
-  case sessionSnapshot(session: ServerSessionState)
+  case dashboardInvalidated(revision: UInt64)
+  case missionsInvalidated(revision: UInt64)
   case sessionDelta(sessionId: String, changes: ServerStateChanges)
   case conversationRowsChanged(
     sessionId: String,
@@ -22,9 +22,6 @@ enum ServerToClientMessage: Codable {
     totalRowCount: UInt64?
   )
   case tokensUpdated(sessionId: String, usage: ServerTokenUsage, snapshotKind: ServerTokenUsageSnapshotKind)
-  case sessionCreated(session: ServerSessionListItem)
-  case sessionListItemUpdated(session: ServerSessionListItem)
-  case sessionListItemRemoved(sessionId: String)
   case sessionEnded(sessionId: String, reason: String)
   case contextCompacted(sessionId: String)
   case undoStarted(sessionId: String, message: String?)

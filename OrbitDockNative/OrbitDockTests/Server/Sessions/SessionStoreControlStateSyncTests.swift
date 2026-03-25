@@ -6,7 +6,12 @@ import Testing
 struct SessionStoreControlStateSyncTests {
   @Test func approvalEventsKeepSummaryAndDetailStateAligned() throws {
     let store = SessionStore.preview()
-    try store.routeEvent(.sessionSnapshot(decodeSnapshot(detailSnapshotJSON)))
+    try store.handleSessionDetailSnapshot(
+      ServerSessionDetailSnapshotPayload(
+        revision: 1,
+        session: decodeSessionState(detailSnapshotJSON)
+      )
+    )
 
     let request = ServerApprovalRequest(
       id: "req-1",
@@ -15,7 +20,9 @@ struct SessionStoreControlStateSyncTests {
       command: "git status"
     )
 
-    store.routeEvent(.approvalRequested(sessionId: "session-1", request: request, approvalVersion: 2))
+    store.routeEvent(
+      .approvalRequested(sessionId: "session-1", request: request, approvalVersion: 2)
+    )
 
     let detailAfterRequest = store.session("session-1")
     #expect(detailAfterRequest.pendingApprovalId == "req-1")
@@ -42,24 +49,47 @@ struct SessionStoreControlStateSyncTests {
 
   @Test func sessionDeltaKeepsConfigAndPendingApprovalStateInSync() throws {
     let store = SessionStore.preview()
-    try store.routeEvent(.sessionSnapshot(decodeSnapshot(detailSnapshotJSON)))
+    try store.handleSessionDetailSnapshot(
+      ServerSessionDetailSnapshotPayload(
+        revision: 1,
+        session: decodeSessionState(detailSnapshotJSON)
+      )
+    )
 
-    try store.routeEvent(
-      .sessionDelta(
-        sessionId: "session-1",
-        changes: decodeChanges(
+    try store.handleSessionComposerSnapshot(
+      ServerSessionComposerSnapshotPayload(
+        revision: 2,
+        session: decodeSessionState(
           """
           {
-            "approval_policy": "never",
-            "sandbox_mode": "danger-full-access",
-            "permission_mode": "plan",
+            "id": "session-1",
+            "provider": "claude",
+            "project_path": "/tmp/project",
+            "status": "active",
+            "work_status": "question",
+            "messages": [],
+            "token_usage": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "cached_tokens": 0,
+              "context_window": 0
+            },
+            "token_usage_snapshot_kind": "unknown",
+            "turn_count": 0,
+            "has_pending_approval": true,
             "pending_approval": {
               "id": "req-2",
               "session_id": "session-1",
               "type": "question",
               "question": "Ship it?"
             },
-            "approval_version": 5
+            "approval_version": 5,
+            "permission_mode": "plan",
+            "autonomy": "unrestricted",
+            "autonomy_configured_on_server": true,
+            "sandbox_mode": "danger-full-access",
+            "approval_policy": "never",
+            "claude_integration_mode": "direct"
           }
           """
         )
@@ -76,42 +106,95 @@ struct SessionStoreControlStateSyncTests {
     #expect(detail.autonomyConfiguredOnServer == true)
   }
 
+  @Test func sessionDeltaUpdatesWorkingStateWithoutRefetch() throws {
+    let store = SessionStore.preview()
+    try store.handleSessionComposerSnapshot(
+      ServerSessionComposerSnapshotPayload(
+        revision: 1,
+        session: decodeSessionState(
+          """
+          {
+            "id": "session-1",
+            "provider": "codex",
+            "project_path": "/tmp/project",
+            "status": "active",
+            "work_status": "waiting",
+            "lifecycle_state": "open",
+            "steerable": false,
+            "accepts_user_input": true,
+            "messages": [],
+            "token_usage": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "cached_tokens": 0,
+              "context_window": 0
+            },
+            "token_usage_snapshot_kind": "unknown",
+            "turn_count": 0
+          }
+          """
+        )
+      )
+    )
+
+    store.routeEvent(
+      .sessionDelta(
+        sessionId: "session-1",
+        changes: ServerStateChanges(
+          workStatus: .working,
+          acceptsUserInput: true,
+          steerable: true
+        )
+      )
+    )
+
+    let session = store.session("session-1")
+    #expect(session.workStatus == .working)
+    #expect(session.steerable == true)
+    #expect(session.displayStatus == .working)
+  }
+
   @Test func sessionSnapshotHydratesSubagentMetadataIntoDetailState() throws {
     let store = SessionStore.preview()
 
-    try store.routeEvent(.sessionSnapshot(decodeSnapshot(
-      """
-      {
-        "id": "session-1",
-        "provider": "codex",
-        "project_path": "/tmp/project",
-        "status": "active",
-        "work_status": "working",
-        "messages": [],
-        "token_usage": {
-          "input_tokens": 0,
-          "output_tokens": 0,
-          "cached_tokens": 0,
-          "context_window": 0
-        },
-        "token_usage_snapshot_kind": "unknown",
-        "turn_count": 0,
-        "subagents": [
+    try store.handleSessionDetailSnapshot(
+      ServerSessionDetailSnapshotPayload(
+        revision: 1,
+        session: decodeSessionState(
+          """
           {
-            "id": "worker-1",
-            "agent_type": "explorer",
-            "started_at": "2026-03-10T10:00:00Z",
+            "id": "session-1",
             "provider": "codex",
-            "label": "Repo Scout",
-            "status": "running",
-            "task_summary": "Map the repository structure",
-            "parent_subagent_id": "root-worker",
-            "model": "gpt-5"
+            "project_path": "/tmp/project",
+            "status": "active",
+            "work_status": "working",
+            "messages": [],
+            "token_usage": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "cached_tokens": 0,
+              "context_window": 0
+            },
+            "token_usage_snapshot_kind": "unknown",
+            "turn_count": 0,
+            "subagents": [
+              {
+                "id": "worker-1",
+                "agent_type": "explorer",
+                "started_at": "2026-03-10T10:00:00Z",
+                "provider": "codex",
+                "label": "Repo Scout",
+                "status": "running",
+                "task_summary": "Map the repository structure",
+                "parent_subagent_id": "root-worker",
+                "model": "gpt-5"
+              }
+            ]
           }
-        ]
-      }
-      """
-    )))
+          """
+        )
+      )
+    )
 
     let detail = store.session("session-1")
     let worker = try #require(detail.subagents.first)
@@ -147,11 +230,7 @@ struct SessionStoreControlStateSyncTests {
     """
   }
 
-  private func decodeChanges(_ json: String) throws -> ServerStateChanges {
-    try JSONDecoder().decode(ServerStateChanges.self, from: Data(json.utf8))
-  }
-
-  private func decodeSnapshot(_ json: String) throws -> ServerSessionState {
+  private func decodeSessionState(_ json: String) throws -> ServerSessionState {
     try JSONDecoder().decode(ServerSessionState.self, from: Data(json.utf8))
   }
 }

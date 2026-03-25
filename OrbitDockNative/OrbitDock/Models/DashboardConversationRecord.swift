@@ -41,15 +41,15 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
   let expandedBranchLabel: String?
   let modelDisplayLabel: String?
 
-  var id: String {
+  nonisolated var id: String {
     sessionRef.scopedID
   }
 
-  var sessionId: String {
+  nonisolated var sessionId: String {
     sessionRef.sessionId
   }
 
-  var displayStatus: SessionDisplayStatus {
+  nonisolated var displayStatus: SessionDisplayStatus {
     switch listStatus {
       case .working: .working
       case .permission: .permission
@@ -59,19 +59,19 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
     }
   }
 
-  var groupingPath: String {
+  nonisolated var groupingPath: String {
     repositoryRoot ?? projectPath
   }
 
-  var displayProjectName: String {
+  nonisolated var displayProjectName: String {
     projectName ?? URL(fileURLWithPath: projectPath).lastPathComponent
   }
 
-  var isDirect: Bool {
+  nonisolated var isDirect: Bool {
     (provider == .codex && codexIntegrationMode == .direct) || (provider == .claude && claudeIntegrationMode == .direct)
   }
 
-  var integrationMode: DashboardConversationIntegrationMode? {
+  nonisolated var integrationMode: DashboardConversationIntegrationMode? {
     switch provider {
       case .codex:
         switch codexIntegrationMode {
@@ -87,11 +87,11 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
     }
   }
 
-  var isPassive: Bool {
+  nonisolated var isPassive: Bool {
     integrationMode == .passive
   }
 
-  var canEnd: Bool {
+  nonisolated var canEnd: Bool {
     listStatus != .ended
   }
 
@@ -337,7 +337,7 @@ private extension DashboardConversationRecord {
   }
 
   static func cleanMarkdown(_ text: String) -> String {
-    return text
+    text
       .replacingOccurrences(of: "**", with: "")
       .replacingOccurrences(of: "__", with: "")
       .replacingOccurrences(of: "`", with: "")

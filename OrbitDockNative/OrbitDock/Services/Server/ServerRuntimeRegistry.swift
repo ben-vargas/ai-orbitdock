@@ -4,6 +4,59 @@ import Foundation
   import UIKit
 #endif
 
+private actor RegistryAggregationWorker {
+  func sortedSessions(
+    from sessionsByEndpoint: [UUID: [String: RootSessionNode]]
+  ) -> [RootSessionNode] {
+    let all = sessionsByEndpoint.values.flatMap(\.values)
+    return all.sorted { lhs, rhs in
+      if lhs.isActive != rhs.isActive { return lhs.isActive }
+      let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
+      let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
+      return lhsDate > rhsDate
+    }
+  }
+
+  func sortedDashboardConversations(
+    from dashboardConversationsByEndpoint: [UUID: [String: DashboardConversationRecord]]
+  ) -> [DashboardConversationRecord] {
+    let all = dashboardConversationsByEndpoint.values.flatMap(\.values)
+    return all.sorted { lhs, rhs in
+      let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
+      let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
+      if lhs.displayStatus != rhs.displayStatus {
+        return ServerRuntimeRegistry.dashboardConversationPriority(lhs.displayStatus)
+          < ServerRuntimeRegistry.dashboardConversationPriority(rhs.displayStatus)
+      }
+      return lhsDate > rhsDate
+    }
+  }
+
+  func sortedMissions(
+    from missionsByEndpoint: [UUID: [String: AggregatedMissionSummary]]
+  ) -> [AggregatedMissionSummary] {
+    let all = missionsByEndpoint.values.flatMap(\.values)
+    return all.sorted { lhs, rhs in
+      let lhsActive = lhs.mission.enabled && !lhs.mission.paused
+      let rhsActive = rhs.mission.enabled && !rhs.mission.paused
+      if lhsActive != rhsActive { return lhsActive }
+      return lhs.mission.name.localizedCaseInsensitiveCompare(rhs.mission.name) == .orderedAscending
+    }
+  }
+
+  func dashboardProjection(
+    rootSessions: [RootSessionNode],
+    dashboardConversations: [DashboardConversationRecord],
+    refreshIdentity: String
+  ) -> DashboardProjectionSnapshot {
+    DashboardProjectionBuilder.build(
+      rootSessions: rootSessions,
+      dashboardConversations: dashboardConversations,
+      refreshIdentity: refreshIdentity
+    )
+  }
+}
+
 @Observable
 @MainActor
 final class ServerRuntimeRegistry {
@@ -20,6 +73,8 @@ final class ServerRuntimeRegistry {
   private(set) var primaryEndpointId: UUID?
   private(set) var hasPrimaryEndpointConflict = false
   private(set) var hasConfiguredEndpoints = false
+  let dashboardProjectionStore = DashboardProjectionStore()
+  let missionProjectionStore = MissionProjectionStore()
   let readinessUpdates: AsyncStream<Void>
   @ObservationIgnored private let readinessContinuation: AsyncStream<Void>.Continuation
 
@@ -52,6 +107,15 @@ final class ServerRuntimeRegistry {
   @ObservationIgnored private var readinessObserverTasks: [UUID: Task<Void, Never>] = [:]
   @ObservationIgnored private var connectionListenerTokensByEndpointId: [UUID: ServerConnectionListenerToken] = [:]
   @ObservationIgnored private var suspendedForBackground = false
+  @ObservationIgnored private let aggregationWorker = RegistryAggregationWorker()
+  @ObservationIgnored private var aggregationRefreshTask: Task<Void, Never>?
+  @ObservationIgnored private var sessionsAggregationDirty = false
+  @ObservationIgnored private var dashboardAggregationDirty = false
+  @ObservationIgnored private var missionsAggregationDirty = false
+  @ObservationIgnored private var dashboardProjectionRefreshTask: Task<Void, Never>?
+  @ObservationIgnored private var sessionsAggregationGeneration: UInt64 = 0
+  @ObservationIgnored private var dashboardAggregationGeneration: UInt64 = 0
+  @ObservationIgnored private var missionsAggregationGeneration: UInt64 = 0
 
   private static func resolvedDeviceName() -> String {
     #if canImport(UIKit)
@@ -97,6 +161,7 @@ final class ServerRuntimeRegistry {
     runtimeFactory = { ServerRuntime(endpoint: $0) }
     clientIdentityProvider = { Self.currentIdentity() }
     shouldBootstrapFromSettings = !AppRuntimeMode.isRunningTestsProcess
+    dashboardProjectionStore.runtimeRegistry = self
   }
 
   init(
@@ -113,6 +178,7 @@ final class ServerRuntimeRegistry {
     self.runtimeFactory = runtimeFactory
     self.clientIdentityProvider = { Self.currentIdentity() }
     self.shouldBootstrapFromSettings = shouldBootstrapFromSettings
+    dashboardProjectionStore.runtimeRegistry = self
   }
 
   init(
@@ -130,6 +196,7 @@ final class ServerRuntimeRegistry {
     self.runtimeFactory = runtimeFactory
     self.clientIdentityProvider = clientIdentityProvider
     self.shouldBootstrapFromSettings = shouldBootstrapFromSettings
+    dashboardProjectionStore.runtimeRegistry = self
   }
 
   deinit {
@@ -270,9 +337,9 @@ final class ServerRuntimeRegistry {
       missionsByEndpoint[id] = nil
       readinessContinuation.yield(())
     }
-    recomputeAggregatedSessions()
-    recomputeAggregatedDashboardConversations()
-    recomputeAggregatedMissions()
+    setSessionsAggregationDirty()
+    setDashboardAggregationDirty()
+    setMissionsAggregationDirty()
 
     for endpoint in configuredEndpoints {
       if let existing = runtimesByEndpointId[endpoint.id] {
@@ -304,7 +371,7 @@ final class ServerRuntimeRegistry {
       configuredEndpoints: configuredEndpoints
     )
     recomputePrimaryEndpoint(from: configuredEndpoints)
-    recomputeAggregatedSessions()
+    setSessionsAggregationDirty()
     readinessContinuation.yield(())
 
     guard startEnabled else { return }
@@ -451,13 +518,9 @@ final class ServerRuntimeRegistry {
 
   var dashboardRefreshIdentity: String {
     ensureInitialized()
-
-    return runtimes
-      .filter(\.endpoint.isEnabled)
-      .map { runtime in
-        "\(runtime.endpoint.id.uuidString):\(dashboardConnectionToken(for: runtime.connection.connectionStatus))"
-      }
-      .joined(separator: "|")
+    return Self.makeDashboardRefreshIdentity(
+      runtimes: runtimes.filter(\.endpoint.isEnabled).map { ($0.endpoint.id, $0.connection.connectionStatus) }
+    )
   }
 
   static func preferredActiveEndpointID(from endpoints: [ServerEndpoint]) -> UUID? {
@@ -553,26 +616,32 @@ final class ServerRuntimeRegistry {
     ] event in
       guard let self, let runtime else { return }
       switch event {
+        case .hello:
+          break
+
         case let .connectionStatusChanged(status):
           self.connectionStatusByEndpointId[endpointId] = status
           self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
             connectionStatus: status,
-            hasReceivedInitialRootList: runtime.connection.hasReceivedInitialSessionsList
+            hasReceivedInitialRootList: runtime.connection.hasReceivedInitialDashboardSnapshot
           )
-          if status == .connected {
+          if status == .connected, !runtime.connection.hasReceivedInitialDashboardSnapshot {
             Task { [weak self, weak runtime] in
               guard let self, let runtime else { return }
               await self.refreshDashboardConversations(for: runtime)
+              await self.refreshMissions(for: runtime)
             }
+          } else if runtime.connection.hasReceivedInitialDashboardSnapshot {
+            self.scheduleDashboardProjectionRefresh()
           }
 
-        case let .sessionsList(items):
+        case let .dashboardSnapshot(snapshot):
           self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
             connectionStatus: runtime.connection.connectionStatus,
             hasReceivedInitialRootList: true
           )
           var index: [String: RootSessionNode] = [:]
-          for item in items {
+          for item in snapshot.sessions {
             let node = RootSessionNode(
               session: item, endpointId: endpointId, endpointName: endpointName,
               connectionStatus: .connected
@@ -580,50 +649,62 @@ final class ServerRuntimeRegistry {
             index[node.scopedID] = node
           }
           self.sessionsByEndpoint[endpointId] = index
-          self.recomputeAggregatedSessions()
-
-        case let .dashboardConversationsUpdated(items):
-          var index: [String: DashboardConversationRecord] = [:]
-          for item in items {
+          self.setSessionsAggregationDirty()
+          var conversationsIndex: [String: DashboardConversationRecord] = [:]
+          for item in snapshot.conversations {
             let record = DashboardConversationRecord(item: item, endpointId: endpointId, endpointName: endpointName)
-            index[record.id] = record
+            conversationsIndex[record.id] = record
           }
-          self.dashboardConversationsByEndpoint[endpointId] = index
-          self.recomputeAggregatedDashboardConversations()
+          self.dashboardConversationsByEndpoint[endpointId] = conversationsIndex
+          self.setDashboardAggregationDirty()
 
-        case let .sessionCreated(item), let .sessionListItemUpdated(item):
-          let node = RootSessionNode(
-            session: item, endpointId: endpointId, endpointName: endpointName,
-            connectionStatus: .connected
-          )
-          self.sessionsByEndpoint[endpointId, default: [:]][node.scopedID] = node
-          self.recomputeAggregatedSessions()
-
-          // SessionHandle.broadcast() bypasses SessionRegistry.broadcast_to_list(),
-          // so DashboardConversationsUpdated is NOT sent for in-session status
-          // transitions (e.g. working → reply). Patch the dashboard record inline.
-          let scopedID = node.scopedID
-          if let existing = self.dashboardConversationsByEndpoint[endpointId]?[scopedID] {
-            self.dashboardConversationsByEndpoint[endpointId]?[scopedID] =
-              existing.applyingListItemUpdate(item, endpointName: endpointName)
-            self.recomputeAggregatedDashboardConversations()
+        case .dashboardInvalidated:
+          Task { [weak self, weak runtime] in
+            guard let self, let runtime else { return }
+            await self.refreshDashboardConversations(for: runtime)
           }
 
-        case let .sessionListItemRemoved(sessionId):
-          let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
-          self.sessionsByEndpoint[endpointId]?[scopedID] = nil
-          self.dashboardConversationsByEndpoint[endpointId]?[scopedID] = nil
-          self.recomputeAggregatedSessions()
-          self.recomputeAggregatedDashboardConversations()
+        case let .missionsSnapshot(snapshot):
+          let endpointName = runtime.endpoint.name
+          var index: [String: AggregatedMissionSummary] = [:]
+          for mission in snapshot.missions {
+            let agg = AggregatedMissionSummary(mission: mission, endpointId: endpointId, endpointName: endpointName)
+            index[agg.id] = agg
+          }
+          self.missionsByEndpoint[endpointId] = index
+          self.setMissionsAggregationDirty()
+
+        case .missionsInvalidated:
+          Task { [weak self, weak runtime] in
+            guard let self, let runtime else { return }
+            await self.refreshMissions(for: runtime)
+          }
+
+        case let .error(code, _, sessionId):
+          guard sessionId == nil else { break }
+          switch code {
+            case "dashboard_resync_required", "lagged", "replay_oversized":
+              Task { [weak self, weak runtime] in
+                guard let self, let runtime else { return }
+                await self.refreshDashboardConversations(for: runtime)
+              }
+            case "missions_resync_required":
+              Task { [weak self, weak runtime] in
+                guard let self, let runtime else { return }
+                await self.refreshMissions(for: runtime)
+              }
+            default:
+              break
+          }
 
         case let .sessionEnded(sessionId, reason):
           let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
           if let existing = self.sessionsByEndpoint[endpointId]?[scopedID] {
             self.sessionsByEndpoint[endpointId]?[scopedID] = existing.ended(reason: reason)
-            self.recomputeAggregatedSessions()
+            self.setSessionsAggregationDirty()
           }
           self.dashboardConversationsByEndpoint[endpointId]?[scopedID] = nil
-          self.recomputeAggregatedDashboardConversations()
+          self.setDashboardAggregationDirty()
 
         case let .missionsList(missions):
           let endpointName = runtime.endpoint.name
@@ -633,13 +714,13 @@ final class ServerRuntimeRegistry {
             index[agg.id] = agg
           }
           self.missionsByEndpoint[endpointId] = index
-          self.recomputeAggregatedMissions()
+          self.setMissionsAggregationDirty()
 
         case let .missionDelta(_, _, summary):
           let endpointName = runtime.endpoint.name
           let agg = AggregatedMissionSummary(mission: summary, endpointId: endpointId, endpointName: endpointName)
           self.missionsByEndpoint[endpointId, default: [:]][agg.id] = agg
-          self.recomputeAggregatedMissions()
+          self.setMissionsAggregationDirty()
 
         default:
           break
@@ -656,40 +737,105 @@ final class ServerRuntimeRegistry {
     runtimeObservationTasks[endpointId] = nil
   }
 
-  private func recomputeAggregatedSessions() {
-    let all = sessionsByEndpoint.values.flatMap(\.values)
-    aggregatedSessions = all.sorted { lhs, rhs in
-      if lhs.isActive != rhs.isActive { return lhs.isActive }
-      let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
-      let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
-      return lhsDate > rhsDate
-    }
+  private func setSessionsAggregationDirty() {
+    sessionsAggregationDirty = true
+    scheduleAggregationRefresh()
   }
 
-  private func recomputeAggregatedDashboardConversations() {
-    let all = dashboardConversationsByEndpoint.values.flatMap(\.values)
-    aggregatedDashboardConversations = all.sorted { lhs, rhs in
-      let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
-      let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
-      if lhs.displayStatus != rhs.displayStatus {
-        return dashboardConversationPriority(lhs.displayStatus) < dashboardConversationPriority(rhs.displayStatus)
+  private func setDashboardAggregationDirty() {
+    dashboardAggregationDirty = true
+    scheduleAggregationRefresh()
+  }
+
+  private func setMissionsAggregationDirty() {
+    missionsAggregationDirty = true
+    scheduleAggregationRefresh()
+  }
+
+  private func scheduleAggregationRefresh() {
+    guard aggregationRefreshTask == nil else { return }
+    aggregationRefreshTask = Task { @MainActor [weak self] in
+      await Task.yield()
+      guard let self else { return }
+      self.aggregationRefreshTask = nil
+
+      if self.sessionsAggregationDirty {
+        self.sessionsAggregationDirty = false
+        self.sessionsAggregationGeneration &+= 1
+        let generation = self.sessionsAggregationGeneration
+        let sessionsByEndpoint = self.sessionsByEndpoint
+        Task { [weak self] in
+          guard let self else { return }
+          let aggregated = await self.aggregationWorker.sortedSessions(from: sessionsByEndpoint)
+          guard generation == self.sessionsAggregationGeneration else { return }
+          self.aggregatedSessions = aggregated
+          self.scheduleDashboardProjectionRefresh()
+        }
       }
-      return lhsDate > rhsDate
+      if self.dashboardAggregationDirty {
+        self.dashboardAggregationDirty = false
+        self.dashboardAggregationGeneration &+= 1
+        let generation = self.dashboardAggregationGeneration
+        let dashboardConversationsByEndpoint = self.dashboardConversationsByEndpoint
+        Task { [weak self] in
+          guard let self else { return }
+          let aggregated = await self.aggregationWorker
+            .sortedDashboardConversations(from: dashboardConversationsByEndpoint)
+          guard generation == self.dashboardAggregationGeneration else { return }
+          self.aggregatedDashboardConversations = aggregated
+          self.scheduleDashboardProjectionRefresh()
+        }
+      }
+      if self.missionsAggregationDirty {
+        self.missionsAggregationDirty = false
+        self.missionsAggregationGeneration &+= 1
+        let generation = self.missionsAggregationGeneration
+        let missionsByEndpoint = self.missionsByEndpoint
+        Task { [weak self] in
+          guard let self else { return }
+          let aggregated = await self.aggregationWorker.sortedMissions(from: missionsByEndpoint)
+          guard generation == self.missionsAggregationGeneration else { return }
+          self.aggregatedMissions = aggregated
+          self.missionProjectionStore.apply(MissionProjectionSnapshot(missions: aggregated))
+        }
+      }
     }
   }
 
-  private func recomputeAggregatedMissions() {
-    let all = missionsByEndpoint.values.flatMap(\.values)
-    aggregatedMissions = all.sorted { lhs, rhs in
-      // Active missions first, then by name
-      let lhsActive = lhs.mission.enabled && !lhs.mission.paused
-      let rhsActive = rhs.mission.enabled && !rhs.mission.paused
-      if lhsActive != rhsActive { return lhsActive }
-      return lhs.mission.name.localizedCaseInsensitiveCompare(rhs.mission.name) == .orderedAscending
+  private func scheduleDashboardProjectionRefresh() {
+    guard dashboardProjectionRefreshTask == nil else { return }
+    dashboardProjectionRefreshTask = Task { @MainActor [weak self] in
+      await Task.yield()
+      guard let self else { return }
+      self.dashboardProjectionRefreshTask = nil
+
+      let rootSessions = self.aggregatedSessions
+      let dashboardConversations = self.aggregatedDashboardConversations
+      let refreshIdentity = Self.makeDashboardRefreshIdentity(
+        runtimes: self.runtimes.filter(\.endpoint.isEnabled).map { runtime in
+          (runtime.endpoint.id, self.connectionStatusByEndpointId[runtime.endpoint.id] ?? .disconnected)
+        }
+      )
+
+      let snapshot = await self.aggregationWorker.dashboardProjection(
+        rootSessions: rootSessions,
+        dashboardConversations: dashboardConversations,
+        refreshIdentity: refreshIdentity
+      )
+
+      self.dashboardProjectionStore.apply(snapshot)
     }
   }
 
-  private func dashboardConversationPriority(_ status: SessionDisplayStatus) -> Int {
+  private static func makeDashboardRefreshIdentity(
+    runtimes: [(endpointId: UUID, status: ConnectionStatus)]
+  ) -> String {
+    runtimes
+      .map { "\($0.endpointId.uuidString):\(dashboardConnectionToken(for: $0.status))" }
+      .joined(separator: "|")
+  }
+
+  fileprivate nonisolated static func dashboardConversationPriority(_ status: SessionDisplayStatus) -> Int {
     switch status {
       case .permission: 0
       case .question: 1
@@ -699,7 +845,7 @@ final class ServerRuntimeRegistry {
     }
   }
 
-  private func dashboardConnectionToken(for status: ConnectionStatus) -> String {
+  fileprivate nonisolated static func dashboardConnectionToken(for status: ConnectionStatus) -> String {
     switch status {
       case .disconnected:
         "disconnected"
@@ -717,10 +863,43 @@ final class ServerRuntimeRegistry {
     guard runtime.connection.connectionStatus == .connected else { return }
 
     do {
-      let conversations = try await runtime.clients.dashboard.fetchConversations()
-      runtime.connection.applyDashboardConversations(conversations)
+      let snapshot = try await runtime.clients.dashboard.fetchDashboardSnapshot()
+      runtime.connection.applyDashboardSnapshot(snapshot)
+      runtime.connection.subscribeDashboard(sinceRevision: snapshot.revision)
     } catch {
+      netLog(
+        .error,
+        cat: .api,
+        "Dashboard snapshot bootstrap failed",
+        data: [
+          "endpointId": runtime.endpoint.id.uuidString,
+          "endpointName": runtime.endpoint.name,
+          "error": String(describing: error),
+        ]
+      )
       return
+    }
+  }
+
+  private func refreshMissions(for runtime: ServerRuntime) async {
+    guard runtime.endpoint.isEnabled else { return }
+    guard runtime.connection.connectionStatus == .connected else { return }
+
+    do {
+      let snapshot = try await runtime.clients.missions.fetchMissionSnapshot()
+      runtime.connection.applyMissionsSnapshot(snapshot)
+      runtime.connection.subscribeMissions(sinceRevision: snapshot.revision)
+    } catch {
+      netLog(
+        .error,
+        cat: .api,
+        "Missions snapshot bootstrap failed",
+        data: [
+          "endpointId": runtime.endpoint.id.uuidString,
+          "endpointName": runtime.endpoint.name,
+          "error": String(describing: error),
+        ]
+      )
     }
   }
 

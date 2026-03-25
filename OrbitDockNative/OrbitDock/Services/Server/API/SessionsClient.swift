@@ -31,14 +31,6 @@ struct SessionsClient: Sendable {
     }
   }
 
-  struct SessionsListResponse: Decodable {
-    let sessions: [ServerSessionListItem]
-  }
-
-  struct SessionSnapshotResponse: Decodable {
-    let session: ServerSessionState
-  }
-
   struct CreateSessionRequest: Encodable, Sendable {
     let provider: String
     let cwd: String
@@ -538,16 +530,16 @@ struct SessionsClient: Sendable {
     self.requestBuilder = requestBuilder
   }
 
-  func fetchSessionsList() async throws -> [ServerSessionListItem] {
-    let response: SessionsListResponse = try await http.get("/api/sessions")
-    return response.sessions
+  func fetchSessionDetail(_ sessionId: String) async throws -> ServerSessionDetailSnapshotPayload {
+    try await http.get(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/detail"
+    )
   }
 
-  func fetchSessionSnapshot(_ sessionId: String) async throws -> ServerSessionState {
-    let response: SessionSnapshotResponse = try await http.get(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))"
+  func fetchSessionComposer(_ sessionId: String) async throws -> ServerSessionComposerSnapshotPayload {
+    try await http.get(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/composer"
     )
-    return response.session
   }
 
   func createSession(_ request: CreateSessionRequest) async throws -> CreateSessionResponse {

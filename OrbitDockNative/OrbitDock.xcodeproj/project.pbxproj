@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		800E82332F492F37007CADF5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 800E82322F492F37007CADF5 /* Markdown */; };
 		800E84212F492FC4007CADF5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 800E82342F492F38007CADF5 /* Markdown */; };
-
 		8F4F5A9C2FE7A3A100A1B2C3 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 8F4F5A9B2FE7A3A100A1B2C3 /* Sparkle */; };
 /* End PBXBuildFile section */
 
@@ -297,13 +296,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		800E7CCA2F46B778007CADF5 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		80BCD0BE2F2C834F00D91F91 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -312,13 +304,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		80BCD0CB2F2C834F00D91F91 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		80BCD0D52F2C834F00D91F91 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -364,13 +349,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		800E7CC82F46B778007CADF5 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		80BCD0BC2F2C834F00D91F91 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -379,13 +357,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		80BCD0C92F2C834F00D91F91 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		80BCD0D32F2C834F00D91F91 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (

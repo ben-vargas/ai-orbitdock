@@ -20,7 +20,9 @@ struct SessionStoreReconnectRecoveryTests {
 
     #expect(firstBootstrap != nil)
     #expect(secondBootstrap != nil)
-    #expect(await counter.bootstrapRequestCount == 1)
+    #expect(await counter.detailRequestCount == 1)
+    #expect(await counter.composerRequestCount == 1)
+    #expect(await counter.conversationRequestCount == 1)
     #expect(store.session("session-1").conversationLoaded == true)
     #expect(store.session("session-1").rowEntries.isEmpty)
   }
@@ -28,7 +30,9 @@ struct SessionStoreReconnectRecoveryTests {
   @Test func recoveryHelperSendsSubscribeOnceForTheSameGeneration() async throws {
     let counter = RequestCounter()
     let connection = SessionStoreConnectionSpy()
-    let store = try makeStore(loader: { request in try await counter.loader(request) }, connection: connection)
+    let store = try makeStore(
+      loader: { request in try await counter.loader(request) }, connection: connection
+    )
     store.subscribedSessions.insert("session-1")
     store.connectionGeneration = 4
 
@@ -36,9 +40,18 @@ struct SessionStoreReconnectRecoveryTests {
     async let second: Void = store.ensureSessionRecovery("session-1", generation: 4)
     _ = await (first, second)
 
-    #expect(await counter.bootstrapRequestCount == 1)
-    #expect(connection.subscribeCalls.count == 1)
-    #expect(connection.subscribeCalls.first?.sessionId == "session-1")
+    #expect(await counter.detailRequestCount == 1)
+    #expect(await counter.composerRequestCount == 1)
+    #expect(await counter.conversationRequestCount == 1)
+    #expect(connection.subscribeCalls.count == 3)
+    #expect(connection.subscribeCalls.allSatisfy { $0.sessionId == "session-1" })
+    #expect(
+      Set(connection.subscribeCalls.map(\.surface))
+        == Set([.detail, .composer, .conversation])
+    )
+    #expect(connection.subscribeCalls.first(where: { $0.surface == .detail })?.sinceRevision == 11)
+    #expect(connection.subscribeCalls.first(where: { $0.surface == .composer })?.sinceRevision == 12)
+    #expect(connection.subscribeCalls.first(where: { $0.surface == .conversation })?.sinceRevision == 13)
     #expect(store.recoveredSessionGenerations["session-1"] == 4)
   }
 
@@ -51,7 +64,9 @@ struct SessionStoreReconnectRecoveryTests {
     store.subscribedSessions.insert("session-1")
     store.connectionGeneration = 8
 
-    async let bootstrap = store.hydrateSessionFromHTTPBootstrap(sessionId: "session-1", generation: 8)
+    async let bootstrap = store.hydrateSessionFromHTTPBootstrap(
+      sessionId: "session-1", generation: 8
+    )
     await fixture.waitForBootstrapStart()
     store.unsubscribeFromSession("session-1")
     await fixture.releaseBootstrap()
@@ -71,7 +86,9 @@ struct SessionStoreReconnectRecoveryTests {
     store.subscribedSessions.insert("session-1")
     store.connectionGeneration = 11
 
-    async let bootstrap = store.hydrateSessionFromHTTPBootstrap(sessionId: "session-1", generation: 11)
+    async let bootstrap = store.hydrateSessionFromHTTPBootstrap(
+      sessionId: "session-1", generation: 11
+    )
     await fixture.waitForBootstrapStart()
     store.connectionGeneration = 12
     await fixture.releaseBootstrap()
@@ -95,7 +112,9 @@ struct SessionStoreReconnectRecoveryTests {
     )
   }
 
-  fileprivate nonisolated static func makeHTTPResponse(for url: URL, json: String) -> (Data, URLResponse) {
+  fileprivate nonisolated static func makeHTTPResponse(for url: URL, json: String) -> (
+    Data, URLResponse
+  ) {
     let response = HTTPURLResponse(
       url: url,
       statusCode: 200,
@@ -105,30 +124,59 @@ struct SessionStoreReconnectRecoveryTests {
     return (Data(json.utf8), response)
   }
 
-  fileprivate nonisolated static var bootstrapResponseJSON: String {
+  fileprivate nonisolated static func sessionJSON(revision: UInt64) -> String {
     """
     {
-      "session": {
-        "id": "session-1",
-        "provider": "claude",
-        "project_path": "/tmp/project",
-        "status": "active",
-        "work_status": "waiting",
-        "messages": [],
-        "token_usage": {
-          "input_tokens": 0,
-          "output_tokens": 0,
-          "cached_tokens": 0,
-          "context_window": 0
-        },
-        "token_usage_snapshot_kind": "unknown",
-        "turn_count": 0,
-        "has_pending_approval": false,
-        "claude_integration_mode": "direct"
+      "id": "session-1",
+      "provider": "claude",
+      "project_path": "/tmp/project",
+      "status": "active",
+      "work_status": "waiting",
+      "messages": [],
+      "token_usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_tokens": 0,
+        "context_window": 0
       },
+      "token_usage_snapshot_kind": "unknown",
+      "turn_count": 0,
+      "has_pending_approval": false,
+      "claude_integration_mode": "direct",
+      "revision": \(revision)
+    }
+    """
+  }
+
+  fileprivate nonisolated static var detailResponseJSON: String {
+    """
+    {
+      "revision": 11,
+      "session": \(sessionJSON(revision: 11))
+    }
+    """
+  }
+
+  fileprivate nonisolated static var composerResponseJSON: String {
+    """
+    {
+      "revision": 12,
+      "session": \(sessionJSON(revision: 12))
+    }
+    """
+  }
+
+  fileprivate nonisolated static var conversationResponseJSON: String {
+    """
+    {
+      "revision": 13,
+      "session_id": "session-1",
+      "session": \(sessionJSON(revision: 13)),
       "rows": [],
       "total_row_count": 0,
-      "has_more_before": false
+      "has_more_before": false,
+      "oldest_sequence": null,
+      "newest_sequence": null
     }
     """
   }
@@ -138,8 +186,8 @@ struct SessionStoreReconnectRecoveryTests {
 final class SessionStoreConnectionSpy: SessionStoreConnection {
   struct SubscribeCall {
     let sessionId: String
+    let surface: ServerSessionSurface
     let sinceRevision: UInt64?
-    let includeSnapshot: Bool
   }
 
   var connectionStatus: ConnectionStatus = .connected
@@ -154,17 +202,19 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
 
   func removeListener(_ token: ServerConnectionListenerToken) {}
 
-  func subscribeList() {}
-
-  func subscribeSession(_ sessionId: String, sinceRevision: UInt64?, includeSnapshot: Bool) {
-    subscribeCalls.append(SubscribeCall(
-      sessionId: sessionId,
-      sinceRevision: sinceRevision,
-      includeSnapshot: includeSnapshot
-    ))
+  func subscribeSessionSurface(
+    _ sessionId: String, surface: ServerSessionSurface, sinceRevision: UInt64?
+  ) {
+    subscribeCalls.append(
+      SubscribeCall(
+        sessionId: sessionId,
+        surface: surface,
+        sinceRevision: sinceRevision
+      )
+    )
   }
 
-  func unsubscribeSession(_ sessionId: String) {}
+  func unsubscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface) {}
 
   func applySessionsList(_ sessions: [ServerSessionListItem]) {
     appliedSessionLists.append(sessions)
@@ -176,15 +226,26 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
 }
 
 actor RequestCounter {
-  private(set) var bootstrapRequestCount = 0
+  private(set) var detailRequestCount = 0
+  private(set) var composerRequestCount = 0
+  private(set) var conversationRequestCount = 0
 
   func loader(_ request: URLRequest) async throws -> (Data, URLResponse) {
-    if request.url?.path.contains("/conversation") == true {
-      bootstrapRequestCount += 1
+    let path = request.url?.path ?? ""
+    let json: String
+    if path.hasSuffix("/detail") {
+      detailRequestCount += 1
+      json = SessionStoreReconnectRecoveryTests.detailResponseJSON
+    } else if path.hasSuffix("/composer") {
+      composerRequestCount += 1
+      json = SessionStoreReconnectRecoveryTests.composerResponseJSON
+    } else {
+      conversationRequestCount += 1
+      json = SessionStoreReconnectRecoveryTests.conversationResponseJSON
     }
     return SessionStoreReconnectRecoveryTests.makeHTTPResponse(
       for: request.url!,
-      json: SessionStoreReconnectRecoveryTests.bootstrapResponseJSON
+      json: json
     )
   }
 }
@@ -210,7 +271,16 @@ actor BlockingBootstrapFixture {
 
     return SessionStoreReconnectRecoveryTests.makeHTTPResponse(
       for: request.url!,
-      json: SessionStoreReconnectRecoveryTests.bootstrapResponseJSON
+      json: {
+        let path = request.url?.path ?? ""
+        if path.hasSuffix("/detail") {
+          return SessionStoreReconnectRecoveryTests.detailResponseJSON
+        }
+        if path.hasSuffix("/composer") {
+          return SessionStoreReconnectRecoveryTests.composerResponseJSON
+        }
+        return SessionStoreReconnectRecoveryTests.conversationResponseJSON
+      }()
     )
   }
 

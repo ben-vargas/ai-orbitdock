@@ -20,6 +20,32 @@ struct ProtocolResilienceTests {
     #expect(type == "quantum_entanglement_sync")
   }
 
+  @Test func sessionDeltaDecodesKnownLightweightRealtimePatch() throws {
+    let json = Data("""
+    {
+      "type": "session_delta",
+      "session_id": "s-1",
+      "changes": {
+        "work_status": "working",
+        "steerable": true,
+        "accepts_user_input": true
+      }
+    }
+    """.utf8)
+
+    let message = try JSONDecoder().decode(ServerToClientMessage.self, from: json)
+
+    guard case let .sessionDelta(sessionId, changes) = message else {
+      Issue.record("Expected .sessionDelta, got \(message)")
+      return
+    }
+
+    #expect(sessionId == "s-1")
+    #expect(changes.workStatus == .working)
+    #expect(changes.steerable == true)
+    #expect(changes.acceptsUserInput == true)
+  }
+
   @Test func unknownRowTypeDecodesGracefully() throws {
     let json = Data("""
     {
