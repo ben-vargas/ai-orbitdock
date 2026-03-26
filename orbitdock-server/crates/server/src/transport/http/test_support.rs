@@ -31,17 +31,15 @@ pub(crate) fn ensure_test_db() -> PathBuf {
     db_path
 }
 
-pub(crate) fn new_persist_test_state(
+pub(crate) async fn new_persist_test_state(
     is_primary: bool,
 ) -> (
     Arc<SessionRegistry>,
     mpsc::Receiver<PersistCommand>,
     PathBuf,
-    std::sync::MutexGuard<'static, ()>,
+    tokio::sync::MutexGuard<'static, ()>,
 ) {
-    let guard = crate::support::test_support::test_env_lock()
-        .lock()
-        .expect("lock shared test env");
+    let guard = crate::support::test_support::test_env_lock().lock().await;
     let db_path = ensure_test_db();
     let (persist_tx, persist_rx) = mpsc::channel(32);
     (

@@ -590,7 +590,7 @@ mod tests {
     #[tokio::test]
     async fn search_conversation_rows_filters_by_query_and_tool_metadata() {
         let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let session_id = orbitdock_protocol::new_session_id();
         state.add_session(SessionHandle::new(
             session_id.clone(),
             Provider::Codex,
@@ -638,7 +638,7 @@ mod tests {
     #[tokio::test]
     async fn session_stats_reports_tool_rollups() {
         let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let session_id = orbitdock_protocol::new_session_id();
         let handle = SessionHandle::new(
             session_id.clone(),
             Provider::Codex,

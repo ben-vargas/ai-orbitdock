@@ -251,7 +251,7 @@ pub async fn create_session(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<CreateSessionRequest>,
 ) -> Result<Json<CreateSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    let session_id = orbitdock_protocol::new_id();
+    let session_id = orbitdock_protocol::new_session_id();
     let developer_instructions = resolve_developer_instructions(
         body.developer_instructions.clone(),
         body.system_prompt.clone(),

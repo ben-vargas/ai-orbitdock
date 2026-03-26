@@ -362,12 +362,10 @@ mod tests {
 
     #[tokio::test]
     async fn review_comments_endpoint_returns_empty_when_none_exist() {
-        let guard = crate::support::test_support::test_env_lock()
-            .lock()
-            .expect("lock shared test env");
+        let guard = crate::support::test_support::test_env_lock().lock().await;
         crate::support::test_support::ensure_server_test_data_dir();
         drop(guard);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let session_id = orbitdock_protocol::new_session_id();
 
         let Json(response) = list_review_comments_endpoint(
             Path(session_id.clone()),
@@ -381,9 +379,8 @@ mod tests {
 
     #[tokio::test]
     async fn review_comment_mutations_return_authoritative_payloads_and_persist() {
-        let (state, mut persist_rx, db_path, guard) = new_persist_test_state(true);
-        drop(guard);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let (state, mut persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+        let session_id = orbitdock_protocol::new_session_id();
         state.add_session(SessionHandle::new(
             session_id.clone(),
             Provider::Codex,

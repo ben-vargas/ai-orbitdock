@@ -525,11 +525,6 @@ impl SessionRegistry {
             .register_claude_thread(session_id, sdk_session_id);
     }
 
-    /// Check whether a Claude SDK session ID is managed by a direct session
-    pub fn is_managed_claude_thread(&self, sdk_session_id: &str) -> bool {
-        self.connectors.is_managed_claude_thread(sdk_session_id)
-    }
-
     /// Resolve a Claude SDK session ID to the owning OrbitDock session ID
     #[allow(dead_code)]
     pub fn resolve_claude_thread(&self, sdk_session_id: &str) -> Option<String> {

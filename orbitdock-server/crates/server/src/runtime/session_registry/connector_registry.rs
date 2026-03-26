@@ -82,10 +82,6 @@ impl ConnectorRegistry {
         self.codex_threads.contains_key(thread_id)
     }
 
-    pub(crate) fn is_managed_claude_thread(&self, sdk_session_id: &str) -> bool {
-        self.claude_threads.contains_key(sdk_session_id)
-    }
-
     pub(crate) fn resolve_claude_thread(&self, sdk_session_id: &str) -> Option<String> {
         self.claude_threads
             .get(sdk_session_id)

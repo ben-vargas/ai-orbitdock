@@ -65,7 +65,18 @@ pub fn start_event_loop(
 
         loop {
             tokio::select! {
-                Some(event) = event_rx.recv() => {
+                event = event_rx.recv() => {
+                    let Some(event) = event else {
+                        // Channel closed — CLI process exited, stdout reader dropped the sender.
+                        info!(
+                            component = "claude_connector",
+                            event = "claude.event_rx.closed",
+                            session_id = %session_id,
+                            "Connector event channel closed, CLI process likely exited"
+                        );
+                        break;
+                    };
+
                     if is_turn_ending(&event) {
                         if let Some(h) = interrupt_watchdog.take() { h.abort(); }
                     }

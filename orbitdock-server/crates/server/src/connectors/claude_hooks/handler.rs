@@ -10,18 +10,24 @@
 //! If `SessionEnd` arrives first the pending entry is silently discarded, preventing
 //! ghost sessions from `claude -c` bootstrap processes.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
 use serde_json::Value;
-use tracing::warn;
+use tracing::{info, warn};
 
-use orbitdock_protocol::{ClientMessage, Provider, SubagentInfo, SubagentStatus};
+use orbitdock_protocol::{
+    ClientMessage, Provider, SessionControlMode, SessionLifecycleState, SessionStatus,
+    SubagentInfo, SubagentStatus,
+};
 
 use crate::domain::sessions::transition::{
     approval_preview, approval_question, approval_question_prompts, ApprovalPreviewInput,
 };
-use crate::infrastructure::persistence::{ApprovalRequestedParams, PersistCommand};
+use crate::infrastructure::persistence::{
+    load_direct_claude_owner_by_sdk_session_id, ApprovalRequestedParams, PersistCommand,
+};
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::{PendingClaudeSession, SessionRegistry};
 use crate::runtime::session_runtime_helpers::sync_transcript_messages;
@@ -37,9 +43,118 @@ use super::session_materialization::{
     emit_capabilities_from_transcript, is_codex_rollout_payload, materialize_claude_session,
 };
 
+enum ClaudeHookRoutingDecision {
+    ManagedDirect { owner_session_id: String },
+    IgnoreShadowedByDirect { owner_session_id: String },
+    IgnoreOwnershipLookupFailed,
+    Passive,
+}
+
+#[derive(Clone, Default)]
+pub struct ClaudeHookHandlingOptions {
+    transcript_sync_gate: Option<Arc<tokio::sync::Mutex<HashSet<String>>>>,
+}
+
+impl ClaudeHookHandlingOptions {
+    pub fn for_spool_replay() -> Self {
+        Self {
+            transcript_sync_gate: Some(Arc::new(tokio::sync::Mutex::new(HashSet::new()))),
+        }
+    }
+
+    async fn should_sync_transcript(&self, session_id: &str) -> bool {
+        let Some(gate) = self.transcript_sync_gate.as_ref() else {
+            return true;
+        };
+
+        let mut seen = gate.lock().await;
+        seen.insert(session_id.to_string())
+    }
+}
+
+async fn cleanup_claude_shadow_session(
+    state: &Arc<SessionRegistry>,
+    hook_session_id: &str,
+    reason: &str,
+) {
+    let _ = state
+        .persist()
+        .send(PersistCommand::CleanupClaudeShadowSession {
+            claude_sdk_session_id: hook_session_id.to_string(),
+            reason: reason.to_string(),
+        })
+        .await;
+
+    let should_remove_runtime_shadow = state.get_session(hook_session_id).is_some_and(|actor| {
+        let snapshot = actor.snapshot();
+        snapshot.provider == Provider::Claude
+            && snapshot.control_mode != SessionControlMode::Direct
+            && snapshot.id == hook_session_id
+    });
+
+    if should_remove_runtime_shadow && state.remove_session(hook_session_id).is_some() {
+        state.publish_dashboard_snapshot();
+    }
+}
+
+async fn resolve_claude_hook_routing(
+    state: &Arc<SessionRegistry>,
+    hook_session_id: &str,
+) -> ClaudeHookRoutingDecision {
+    let managed_owner = state.resolve_claude_thread(hook_session_id);
+    let persisted_owner = if managed_owner.is_none() {
+        match load_direct_claude_owner_by_sdk_session_id(hook_session_id).await {
+            Ok(owner) => owner.map(|owner| owner.session_id),
+            Err(error) => {
+                warn!(
+                    component = "hook_handler",
+                    event = "claude.hook.ownership_lookup_failed",
+                    session_id = %hook_session_id,
+                    error = %error,
+                    "Failed to resolve Claude direct-session ownership; suppressing hook to avoid shadow session materialization"
+                );
+                return ClaudeHookRoutingDecision::IgnoreOwnershipLookupFailed;
+            }
+        }
+    } else {
+        None
+    };
+
+    let Some(owner_session_id) = managed_owner.or(persisted_owner) else {
+        return ClaudeHookRoutingDecision::Passive;
+    };
+
+    let Some(actor) = state.get_session(&owner_session_id) else {
+        return ClaudeHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id };
+    };
+
+    let snapshot = actor.snapshot();
+    if snapshot.provider != Provider::Claude || snapshot.control_mode != SessionControlMode::Direct
+    {
+        return ClaudeHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id };
+    }
+
+    if snapshot.status != SessionStatus::Active
+        || snapshot.lifecycle_state == SessionLifecycleState::Ended
+    {
+        return ClaudeHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id };
+    }
+
+    state.register_claude_thread(&owner_session_id, hook_session_id);
+    ClaudeHookRoutingDecision::ManagedDirect { owner_session_id }
+}
+
 /// Process a Claude hook message.
 /// These handlers never need `client_tx` or `conn_id` — only `state`.
 pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry>) {
+    handle_hook_message_with_options(msg, state, ClaudeHookHandlingOptions::default()).await;
+}
+
+pub async fn handle_hook_message_with_options(
+    msg: ClientMessage,
+    state: &Arc<SessionRegistry>,
+    options: ClaudeHookHandlingOptions,
+) {
     match msg {
         ClientMessage::ClaudeSessionStart {
             session_id,
@@ -63,9 +178,34 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 return;
             }
 
-            // Skip if this session ID belongs to a managed Claude direct session
-            if state.is_managed_claude_thread(&session_id) {
-                return;
+            match resolve_claude_hook_routing(state, &session_id).await {
+                ClaudeHookRoutingDecision::ManagedDirect { owner_session_id } => {
+                    cleanup_claude_shadow_session(state, &session_id, "managed_direct_session")
+                        .await;
+                    info!(
+                        component = "hook_handler",
+                        event = "claude.hook.shadow_session_suppressed",
+                        session_id = %session_id,
+                        owner_session_id = %owner_session_id,
+                        "Ignored Claude hook session start because the SDK session is owned by a direct session"
+                    );
+                    return;
+                }
+                ClaudeHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id } => {
+                    cleanup_claude_shadow_session(state, &session_id, "direct_owner_exists").await;
+                    info!(
+                        component = "hook_handler",
+                        event = "claude.hook.ignored_ended_direct_owner",
+                        session_id = %session_id,
+                        owner_session_id = %owner_session_id,
+                        "Ignored Claude hook session start because the SDK session belongs to a direct session that is no longer live"
+                    );
+                    return;
+                }
+                ClaudeHookRoutingDecision::IgnoreOwnershipLookupFailed => {
+                    return;
+                }
+                ClaudeHookRoutingDecision::Passive => {}
             }
 
             // If there's a direct Claude session awaiting SDK ID registration, claim it eagerly.
@@ -165,9 +305,34 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
         }
 
         ClientMessage::ClaudeSessionEnd { session_id, reason } => {
-            // Skip if this session ID belongs to a managed Claude direct session
-            if state.is_managed_claude_thread(&session_id) {
-                return;
+            match resolve_claude_hook_routing(state, &session_id).await {
+                ClaudeHookRoutingDecision::ManagedDirect { owner_session_id } => {
+                    cleanup_claude_shadow_session(state, &session_id, "managed_direct_session")
+                        .await;
+                    info!(
+                        component = "hook_handler",
+                        event = "claude.hook.session_end.suppressed",
+                        session_id = %session_id,
+                        owner_session_id = %owner_session_id,
+                        "Ignored Claude session end hook because the SDK session is owned by a direct session"
+                    );
+                    return;
+                }
+                ClaudeHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id } => {
+                    cleanup_claude_shadow_session(state, &session_id, "direct_owner_exists").await;
+                    info!(
+                        component = "hook_handler",
+                        event = "claude.hook.session_end.ignored_ended_direct_owner",
+                        session_id = %session_id,
+                        owner_session_id = %owner_session_id,
+                        "Ignored Claude session end hook because the SDK session belongs to a direct session that is no longer live"
+                    );
+                    return;
+                }
+                ClaudeHookRoutingDecision::IgnoreOwnershipLookupFailed => {
+                    return;
+                }
+                ClaudeHookRoutingDecision::Passive => {}
             }
 
             // If session was never materialized (ghost from `claude -c`), discard silently.
@@ -254,11 +419,12 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 );
             }
 
-            // If this hook is from a managed Claude direct session, route
-            // supplementary data to the owning session.
-            if state.is_managed_claude_thread(&session_id) {
-                if let Some(owning_id) = state.resolve_claude_thread(&session_id) {
-                    if let Some(actor) = state.get_session(&owning_id) {
+            match resolve_claude_hook_routing(state, &session_id).await {
+                ClaudeHookRoutingDecision::ManagedDirect { owner_session_id } => {
+                    cleanup_claude_shadow_session(state, &session_id, "managed_direct_session")
+                        .await;
+
+                    if let Some(actor) = state.get_session(&owner_session_id) {
                         let persist_tx = state.persist().clone();
 
                         // Route summary extraction on Stop
@@ -291,7 +457,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                             .await;
                                         let _ = persist_tx
                                             .send(PersistCommand::SetSummary {
-                                                session_id: owning_id.clone(),
+                                                session_id: owner_session_id.clone(),
                                                 summary,
                                             })
                                             .await;
@@ -304,7 +470,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         if hook_event_name == "PreCompact" {
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeSessionUpdate {
-                                    id: owning_id.clone(),
+                                    id: owner_session_id.clone(),
                                     work_status: None,
                                     attention_reason: None,
                                     last_tool: None,
@@ -332,8 +498,24 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                 .await;
                         }
                     }
+                    return;
                 }
-                return;
+                ClaudeHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id } => {
+                    cleanup_claude_shadow_session(state, &session_id, "direct_owner_exists").await;
+                    info!(
+                        component = "hook_handler",
+                        event = "claude.status.ignored_ended_direct_owner",
+                        session_id = %session_id,
+                        owner_session_id = %owner_session_id,
+                        hook_event_name = %hook_event_name,
+                        "Ignored Claude status hook because the SDK session belongs to a direct session that is no longer live"
+                    );
+                    return;
+                }
+                ClaudeHookRoutingDecision::IgnoreOwnershipLookupFailed => {
+                    return;
+                }
+                ClaudeHookRoutingDecision::Passive => {}
             }
 
             let persist_tx = state.persist().clone();
@@ -649,8 +831,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     .await;
             }
 
-            // Sync new messages from transcript
-            sync_transcript_messages(&actor, &persist_tx).await;
+            maybe_sync_transcript_messages(&actor, &persist_tx, &options).await;
         }
 
         ClientMessage::ClaudeToolEvent {
@@ -666,17 +847,17 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             is_interrupt,
             permission_mode,
         } => {
-            // If this hook is from a managed Claude direct session, route
-            // supplementary data (tool_count, last_tool) to the owning session.
-            if state.is_managed_claude_thread(&session_id) {
-                if let Some(owning_id) = state.resolve_claude_thread(&session_id) {
+            match resolve_claude_hook_routing(state, &session_id).await {
+                ClaudeHookRoutingDecision::ManagedDirect { owner_session_id } => {
+                    cleanup_claude_shadow_session(state, &session_id, "managed_direct_session")
+                        .await;
                     let persist_tx = state.persist().clone();
 
                     match hook_event_name.as_str() {
                         "PreToolUse" => {
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeSessionUpdate {
-                                    id: owning_id.clone(),
+                                    id: owner_session_id.clone(),
                                     work_status: None,
                                     attention_reason: None,
                                     last_tool: Some(Some(tool_name.clone())),
@@ -694,7 +875,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                 })
                                 .await;
 
-                            if let Some(actor) = state.get_session(&owning_id) {
+                            if let Some(actor) = state.get_session(&owner_session_id) {
                                 actor
                                     .send(SessionCommand::SetLastTool {
                                         tool: Some(tool_name.clone()),
@@ -716,13 +897,13 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             tracing::info!(
                                 component = "hook_handler",
                                 event = "claude.permission_request.managed_skip",
-                                session_id = %owning_id,
+                                session_id = %owner_session_id,
                                 tool_name = %tool_name,
                                 permission_suggestions_count,
                                 "Skipping hook-based approval for managed direct session (connector handles it)"
                             );
 
-                            if let Some(actor) = state.get_session(&owning_id) {
+                            if let Some(actor) = state.get_session(&owner_session_id) {
                                 actor
                                     .send(SessionCommand::SetLastTool {
                                         tool: Some(tool_name.clone()),
@@ -732,7 +913,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
 
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeSessionUpdate {
-                                    id: owning_id.clone(),
+                                    id: owner_session_id.clone(),
                                     work_status: None,
                                     attention_reason: None,
                                     last_tool: Some(Some(tool_name)),
@@ -760,14 +941,31 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             // Only persist supplementary metadata (tool count).
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeToolIncrement {
-                                    id: owning_id.clone(),
+                                    id: owner_session_id.clone(),
                                 })
                                 .await;
                         }
                         _ => {}
                     }
+                    return;
                 }
-                return;
+                ClaudeHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id } => {
+                    cleanup_claude_shadow_session(state, &session_id, "direct_owner_exists").await;
+                    info!(
+                        component = "hook_handler",
+                        event = "claude.tool.ignored_ended_direct_owner",
+                        session_id = %session_id,
+                        owner_session_id = %owner_session_id,
+                        hook_event_name = %hook_event_name,
+                        tool_name = %tool_name,
+                        "Ignored Claude tool hook because the SDK session belongs to a direct session that is no longer live"
+                    );
+                    return;
+                }
+                ClaudeHookRoutingDecision::IgnoreOwnershipLookupFailed => {
+                    return;
+                }
+                ClaudeHookRoutingDecision::Passive => {}
             }
 
             let persist_tx = state.persist().clone();
@@ -1178,8 +1376,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 _ => {}
             }
 
-            // Sync new messages from transcript
-            sync_transcript_messages(&actor, &persist_tx).await;
+            maybe_sync_transcript_messages(&actor, &persist_tx, &options).await;
         }
 
         ClientMessage::ClaudeSubagentEvent {
@@ -1191,10 +1388,10 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             stop_hook_active: _,
             last_assistant_message: _,
         } => {
-            // If this hook is from a managed Claude direct session, route
-            // subagent tracking to the owning session.
-            if state.is_managed_claude_thread(&session_id) {
-                if let Some(owning_id) = state.resolve_claude_thread(&session_id) {
+            match resolve_claude_hook_routing(state, &session_id).await {
+                ClaudeHookRoutingDecision::ManagedDirect { owner_session_id } => {
+                    cleanup_claude_shadow_session(state, &session_id, "managed_direct_session")
+                        .await;
                     let persist_tx = state.persist().clone();
 
                     match hook_event_name.as_str() {
@@ -1204,13 +1401,13 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeSubagentStart {
                                     id: agent_id.clone(),
-                                    session_id: owning_id.clone(),
+                                    session_id: owner_session_id.clone(),
                                     agent_type: normalized_type.clone(),
                                 })
                                 .await;
                             publish_claude_subagent_update(
                                 state,
-                                &owning_id,
+                                &owner_session_id,
                                 ClaudeSubagentUpdate::Started {
                                     agent_id: agent_id.clone(),
                                     agent_type: normalized_type.clone(),
@@ -1219,7 +1416,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             .await;
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeSessionUpdate {
-                                    id: owning_id,
+                                    id: owner_session_id,
                                     work_status: None,
                                     attention_reason: None,
                                     last_tool: None,
@@ -1247,7 +1444,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                 .await;
                             publish_claude_subagent_update(
                                 state,
-                                &owning_id,
+                                &owner_session_id,
                                 ClaudeSubagentUpdate::Stopped {
                                     agent_id: subagent_id,
                                 },
@@ -1255,7 +1452,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             .await;
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeSessionUpdate {
-                                    id: owning_id,
+                                    id: owner_session_id,
                                     work_status: None,
                                     attention_reason: None,
                                     last_tool: None,
@@ -1275,8 +1472,24 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         }
                         _ => {}
                     }
+                    return;
                 }
-                return;
+                ClaudeHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id } => {
+                    cleanup_claude_shadow_session(state, &session_id, "direct_owner_exists").await;
+                    info!(
+                        component = "hook_handler",
+                        event = "claude.subagent.ignored_ended_direct_owner",
+                        session_id = %session_id,
+                        owner_session_id = %owner_session_id,
+                        hook_event_name = %hook_event_name,
+                        "Ignored Claude subagent hook because the SDK session belongs to a direct session that is no longer live"
+                    );
+                    return;
+                }
+                ClaudeHookRoutingDecision::IgnoreOwnershipLookupFailed => {
+                    return;
+                }
+                ClaudeHookRoutingDecision::Passive => {}
             }
 
             let persist_tx = state.persist().clone();
@@ -1393,6 +1606,25 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             );
         }
     }
+}
+
+async fn maybe_sync_transcript_messages(
+    actor: &crate::runtime::session_actor::SessionActorHandle,
+    persist_tx: &tokio::sync::mpsc::Sender<crate::infrastructure::persistence::PersistCommand>,
+    options: &ClaudeHookHandlingOptions,
+) {
+    let session_id = actor.snapshot().id.clone();
+    if !options.should_sync_transcript(&session_id).await {
+        tracing::debug!(
+            component = "transcript_sync",
+            event = "transcript_sync.skipped_spool_replay_duplicate",
+            session_id = %session_id,
+            "Skipping duplicate transcript sync during spool replay"
+        );
+        return;
+    }
+
+    sync_transcript_messages(actor, persist_tx).await;
 }
 
 enum ClaudeSubagentUpdate {
@@ -1525,7 +1757,8 @@ mod tests {
 
     use super::{
         apply_claude_subagent_update, classify_permission_request, extract_plan_from_tool_input,
-        extract_question_from_tool_input, is_codex_rollout_payload, ClaudeSubagentUpdate,
+        extract_question_from_tool_input, is_codex_rollout_payload, ClaudeHookHandlingOptions,
+        ClaudeSubagentUpdate,
     };
     use crate::connectors::claude_hooks::session_materialization::most_recent_claude_session_id;
     use crate::support::session_time::chrono_now;
@@ -1766,5 +1999,14 @@ mod tests {
         assert_eq!(updated[0].provider, Some(Provider::Claude));
         assert_eq!(updated[0].agent_type, "unknown");
         assert!(updated[0].ended_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn spool_replay_transcript_sync_gate_allows_one_sync_per_session() {
+        let options = ClaudeHookHandlingOptions::for_spool_replay();
+
+        assert!(options.should_sync_transcript("session-1").await);
+        assert!(!options.should_sync_transcript("session-1").await);
+        assert!(options.should_sync_transcript("session-2").await);
     }
 }

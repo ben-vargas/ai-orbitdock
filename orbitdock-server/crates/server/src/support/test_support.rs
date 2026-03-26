@@ -1,7 +1,7 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::sync::{Arc, Once, OnceLock};
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 
 use crate::infrastructure::paths;
 use crate::runtime::session_registry::SessionRegistry;

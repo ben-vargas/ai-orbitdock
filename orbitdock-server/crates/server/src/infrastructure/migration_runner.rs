@@ -407,6 +407,54 @@ mod tests {
     }
 
     #[test]
+    fn direct_claude_owner_alias_must_be_unique() {
+        let mut conn = Connection::open_in_memory().expect("open in-memory db");
+        run_migrations(&mut conn).expect("migrations should succeed");
+
+        conn.execute(
+            "INSERT INTO sessions (
+                id, provider, status, work_status, lifecycle_state, control_mode,
+                claude_integration_mode, project_path, started_at, last_activity_at
+             ) VALUES (
+                ?1, 'claude', 'active', 'waiting', 'open', 'direct',
+                'direct', '/tmp/alpha', '2026-03-26T10:00:00Z', '2026-03-26T10:00:00Z'
+             )",
+            ["od-direct-1"],
+        )
+        .expect("insert first direct Claude session");
+        conn.execute(
+            "UPDATE sessions SET claude_sdk_session_id = ?1 WHERE id = ?2",
+            ["claude-sdk-1", "od-direct-1"],
+        )
+        .expect("assign first owner alias");
+
+        conn.execute(
+            "INSERT INTO sessions (
+                id, provider, status, work_status, lifecycle_state, control_mode,
+                claude_integration_mode, project_path, started_at, last_activity_at
+             ) VALUES (
+                ?1, 'claude', 'active', 'waiting', 'open', 'direct',
+                'direct', '/tmp/beta', '2026-03-26T10:05:00Z', '2026-03-26T10:05:00Z'
+             )",
+            ["od-direct-2"],
+        )
+        .expect("insert second direct Claude session");
+
+        let err = conn
+            .execute(
+                "UPDATE sessions SET claude_sdk_session_id = ?1 WHERE id = ?2",
+                ["claude-sdk-1", "od-direct-2"],
+            )
+            .expect_err("duplicate direct owner alias should be rejected");
+
+        assert!(
+            err.to_string()
+                .contains("claude direct session owner already exists"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn backfills_last_progress_at_from_last_activity_at() {
         let conn = Connection::open_in_memory().expect("open in-memory db");
         conn.execute_batch(

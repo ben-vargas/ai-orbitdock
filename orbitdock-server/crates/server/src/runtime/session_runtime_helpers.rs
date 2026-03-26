@@ -386,7 +386,7 @@ pub(crate) async fn sync_transcript_messages(
 
     if let Some(candidate) = guard_candidate.as_ref() {
         if cached_transcript_sync_matches(&session_id, candidate) {
-            tracing::info!(
+            tracing::debug!(
                 component = "transcript_sync",
                 event = "transcript_sync.skipped_cached",
                 session_id = %session_id,

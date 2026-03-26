@@ -140,8 +140,12 @@ mod tests {
     use crate::support::test_support::test_env_lock;
     use crate::transport::http::test_support::ensure_test_db;
 
-    fn setup_state_with_workspace() -> (Arc<SessionRegistry>, String) {
-        let _guard = test_env_lock().lock().expect("lock shared test env");
+    async fn setup_state_with_workspace() -> (
+        Arc<SessionRegistry>,
+        String,
+        tokio::sync::MutexGuard<'static, ()>,
+    ) {
+        let guard = test_env_lock().lock().await;
         let db_path = ensure_test_db();
         let issued = auth_tokens::issue_token(Some("workspace-sync")).expect("issue token");
         {
@@ -172,12 +176,13 @@ mod tests {
                 persist_tx, db_path, true,
             )),
             issued.token,
+            guard,
         )
     }
 
     #[tokio::test]
     async fn post_sync_batch_applies_batch_and_returns_ack() {
-        let (state, token) = setup_state_with_workspace();
+        let (state, token, _guard) = setup_state_with_workspace().await;
         let mut headers = HeaderMap::new();
         headers.insert(
             AUTHORIZATION,
@@ -248,7 +253,7 @@ mod tests {
 
     #[tokio::test]
     async fn post_sync_batch_rejects_sequence_gap() {
-        let (state, token) = setup_state_with_workspace();
+        let (state, token, _guard) = setup_state_with_workspace().await;
         let mut headers = HeaderMap::new();
         headers.insert(
             AUTHORIZATION,

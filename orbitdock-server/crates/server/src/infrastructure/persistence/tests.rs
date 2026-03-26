@@ -4,7 +4,7 @@ use std::sync::{Mutex, OnceLock};
 use orbitdock_protocol::conversation_contracts::{
     rows::MessageDeliveryStatus, ConversationRow, ConversationRowEntry, MessageRowContent,
 };
-use orbitdock_protocol::{Provider, SessionLifecycleState};
+use orbitdock_protocol::{Provider, SessionLifecycleState, SessionStatus};
 
 use super::commands::{PersistCommand, SessionCreateParams};
 use super::messages::load_messages_from_db;
@@ -826,6 +826,118 @@ fn load_session_by_id_and_startup_restore_use_persisted_control_mode() {
         session_control_mode(&conn, "control-mode-session"),
         "direct"
     );
+}
+
+#[test]
+fn load_direct_claude_owner_by_sdk_session_id_returns_direct_owner() {
+    let (_conn, db_path, _dir, _guard) = setup_test_db();
+
+    let direct_id = "od-direct-claude";
+    let sdk_id = "claude-sdk-123";
+    let batch = vec![
+        PersistCommand::SessionCreate(Box::new(SessionCreateParams {
+            id: direct_id.to_string(),
+            provider: Provider::Claude,
+            control_mode: orbitdock_protocol::SessionControlMode::Direct,
+            project_path: "/tmp/test".to_string(),
+            project_name: Some("Test Project".to_string()),
+            branch: None,
+            model: Some("claude-opus-4-6".to_string()),
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
+            codex_config_mode: None,
+            codex_config_profile: None,
+            codex_model_provider: None,
+            codex_config_source: None,
+            codex_config_overrides_json: None,
+            forked_from_session_id: None,
+            mission_id: None,
+            issue_identifier: None,
+            allow_bypass_permissions: false,
+            worktree_id: None,
+        })),
+        PersistCommand::SetClaudeSdkSessionId {
+            session_id: direct_id.to_string(),
+            claude_sdk_session_id: sdk_id.to_string(),
+        },
+        PersistCommand::SessionEnd {
+            id: direct_id.to_string(),
+            reason: "completed".to_string(),
+        },
+    ];
+    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let owner = runtime
+        .block_on(super::session_reads::load_direct_claude_owner_by_sdk_session_id(sdk_id))
+        .unwrap()
+        .expect("direct Claude owner should be found");
+
+    assert_eq!(owner.session_id, direct_id);
+    assert_eq!(owner.status, SessionStatus::Ended);
+    assert_eq!(owner.lifecycle_state, SessionLifecycleState::Ended);
+}
+
+#[test]
+fn startup_restore_ends_passive_claude_shadow_owned_by_direct_session() {
+    let (conn, db_path, _dir, _guard) = setup_test_db();
+
+    let direct_id = "od-direct-shadow-owner";
+    let sdk_id = "claude-sdk-shadow";
+
+    conn.execute(
+        "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, claude_integration_mode, claude_sdk_session_id, started_at, last_activity_at
+         ) VALUES (
+            ?1, 'claude', 'active', 'waiting', 'open', 'direct',
+            '/tmp/test', 'direct', ?2, '2026-03-26T10:00:00Z', '2026-03-26T10:00:00Z'
+         )",
+        [direct_id, sdk_id],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, claude_integration_mode, started_at, last_activity_at
+         ) VALUES (
+            ?1, 'claude', 'active', 'working', 'open', 'passive',
+            '/tmp/test', 'passive', '2026-03-26T10:05:00Z', '2026-03-26T10:05:00Z'
+         )",
+        [sdk_id],
+    )
+    .unwrap();
+    drop(conn);
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _ = runtime
+        .block_on(super::session_reads::load_sessions_for_startup())
+        .unwrap();
+
+    let conn = Connection::open(&db_path).unwrap();
+    let shadow: (String, String, String) = conn
+        .query_row(
+            "SELECT status, work_status, COALESCE(end_reason, '') FROM sessions WHERE id = ?1",
+            [sdk_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+
+    assert_eq!(shadow.0, "ended");
+    assert_eq!(shadow.1, "ended");
+    assert_eq!(shadow.2, "startup_direct_shadow");
 }
 
 // ── Mission-scoped tracker credentials ─────────────────────────────

@@ -14,7 +14,15 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 const DEFAULT_FILTER: &str = "info,tower_http=warn,hyper=warn";
-const QUIET_TARGET_DIRECTIVES: &[(&str, &str)] = &[("codex_otel.trace_safe", "warn")];
+const QUIET_TARGET_DIRECTIVES: &[(&str, &str)] = &[
+    ("codex_otel.trace_safe", "warn"),
+    ("codex_otel.log_only", "warn"),
+    ("codex_client::custom_ca", "warn"),
+    ("codex_api::endpoint::responses_websocket", "warn"),
+    ("codex_core::features", "error"),
+    ("feedback_tags", "warn"),
+    ("rmcp::transport::worker", "off"),
+];
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum StderrLogMode {
@@ -363,13 +371,22 @@ mod tests {
 
         assert!(resolved.contains("info"));
         assert!(resolved.contains("codex_otel.trace_safe=warn"));
+        assert!(resolved.contains("codex_otel.log_only=warn"));
+        assert!(resolved.contains("codex_client::custom_ca=warn"));
+        assert!(resolved.contains("codex_api::endpoint::responses_websocket=warn"));
+        assert!(resolved.contains("codex_core::features=error"));
+        assert!(resolved.contains("feedback_tags=warn"));
+        assert!(resolved.contains("rmcp::transport::worker=off"));
     }
 
     #[test]
     fn resolve_filter_directives_adds_trace_safe_suppression_to_custom_filter() {
         let resolved = resolve_filter_directives(Some("debug".to_string()));
 
-        assert_eq!(resolved, "debug,codex_otel.trace_safe=warn");
+        assert_eq!(
+            resolved,
+            "debug,codex_otel.trace_safe=warn,codex_otel.log_only=warn,codex_client::custom_ca=warn,codex_api::endpoint::responses_websocket=warn,codex_core::features=error,feedback_tags=warn,rmcp::transport::worker=off"
+        );
     }
 
     #[test]
@@ -377,7 +394,10 @@ mod tests {
         let resolved =
             resolve_filter_directives(Some("debug,codex_otel.trace_safe=info".to_string()));
 
-        assert_eq!(resolved, "debug,codex_otel.trace_safe=info");
+        assert!(resolved.starts_with("debug,codex_otel.trace_safe=info"));
+        assert!(resolved.contains("codex_otel.log_only=warn"));
+        assert!(resolved.contains("feedback_tags=warn"));
+        assert!(resolved.contains("rmcp::transport::worker=off"));
     }
 
     #[test]
@@ -386,6 +406,9 @@ mod tests {
             "debug,codex_otel.trace_safe.summary=trace".to_string(),
         ));
 
-        assert_eq!(resolved, "debug,codex_otel.trace_safe.summary=trace");
+        assert!(resolved.starts_with("debug,codex_otel.trace_safe.summary=trace"));
+        assert!(resolved.contains("codex_otel.log_only=warn"));
+        assert!(resolved.contains("feedback_tags=warn"));
+        assert!(resolved.contains("rmcp::transport::worker=off"));
     }
 }

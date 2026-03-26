@@ -479,7 +479,7 @@ mod tests {
     #[tokio::test]
     async fn list_skills_endpoint_dispatches_action_and_returns_payload() {
         let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let session_id = orbitdock_protocol::new_session_id();
         state.add_session(SessionHandle::new(
             session_id.clone(),
             Provider::Codex,
@@ -566,7 +566,7 @@ mod tests {
     #[tokio::test]
     async fn list_plugins_endpoint_dispatches_action_and_returns_payload() {
         let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let session_id = orbitdock_protocol::new_session_id();
         state.add_session(SessionHandle::new(
             session_id.clone(),
             Provider::Codex,
@@ -656,7 +656,7 @@ mod tests {
     #[tokio::test]
     async fn install_plugin_endpoint_dispatches_action_and_returns_payload() {
         let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let session_id = orbitdock_protocol::new_session_id();
         state.add_session(SessionHandle::new(
             session_id.clone(),
             Provider::Codex,
@@ -727,7 +727,7 @@ mod tests {
     #[tokio::test]
     async fn uninstall_plugin_endpoint_dispatches_action_and_returns_payload() {
         let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let session_id = orbitdock_protocol::new_session_id();
         state.add_session(SessionHandle::new(
             session_id.clone(),
             Provider::Codex,
@@ -782,7 +782,7 @@ mod tests {
     #[tokio::test]
     async fn list_mcp_tools_endpoint_dispatches_action_and_returns_payload() {
         let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let session_id = orbitdock_protocol::new_session_id();
         state.add_session(SessionHandle::new(
             session_id.clone(),
             Provider::Codex,
@@ -908,7 +908,7 @@ mod tests {
     #[tokio::test]
     async fn list_skills_endpoint_returns_conflict_when_connector_missing() {
         let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let session_id = orbitdock_protocol::new_session_id();
         state.add_session(SessionHandle::new(
             session_id.clone(),
             Provider::Codex,
@@ -934,7 +934,7 @@ mod tests {
     #[tokio::test]
     async fn instructions_endpoint_returns_codex_developer_instructions() {
         let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let session_id = orbitdock_protocol::new_session_id();
         let mut handle = SessionHandle::new(
             session_id.clone(),
             Provider::Codex,

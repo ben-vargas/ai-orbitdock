@@ -1,12 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tracing::{info, warn};
+use tracing::info;
 
-use crate::connectors::claude_session::{ClaudeAction, ClaudeSession, ClaudeSessionConfig};
+use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
 use crate::domain::sessions::session::SessionHandle;
-use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
@@ -205,7 +204,6 @@ pub(crate) async fn start_direct_claude_session(
         "Claude connector started"
     );
 
-    spawn_claude_init_watchdog(state, persist_tx, action_tx, session_id);
     Ok(())
 }
 
@@ -220,43 +218,4 @@ pub(crate) struct StartDirectClaudeRequest<'a> {
     pub effort: Option<&'a str>,
     pub allow_bypass_permissions: bool,
     pub extra_env: &'a [(String, String)],
-}
-
-fn spawn_claude_init_watchdog(
-    state: &Arc<SessionRegistry>,
-    persist_tx: tokio::sync::mpsc::Sender<PersistCommand>,
-    action_tx: tokio::sync::mpsc::Sender<ClaudeAction>,
-    session_id: String,
-) {
-    let watchdog_state = state.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(45)).await;
-
-        let has_sdk_id = watchdog_state
-            .claude_sdk_id_for_session(&session_id)
-            .is_some();
-        if has_sdk_id {
-            return;
-        }
-
-        warn!(
-            component = "session",
-            event = "session.init_timeout",
-            session_id = %session_id,
-            "Claude session never initialized after 45s — ending ghost"
-        );
-
-        let _ = action_tx.send(ClaudeAction::EndSession).await;
-        let _ = persist_tx
-            .send(PersistCommand::SessionEnd {
-                id: session_id.clone(),
-                reason: "init_timeout".to_string(),
-            })
-            .await;
-        watchdog_state.remove_session(&session_id);
-        watchdog_state.broadcast_to_list(orbitdock_protocol::ServerMessage::SessionEnded {
-            session_id,
-            reason: "init_timeout".into(),
-        });
-    });
 }

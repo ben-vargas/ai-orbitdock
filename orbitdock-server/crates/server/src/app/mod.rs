@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::UNIX_EPOCH;
+use std::time::{Instant, UNIX_EPOCH};
 
 use axum::{
     extract::DefaultBodyLimit,
@@ -661,7 +661,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         }
     }
 
-    drain_spool(&state).await;
+    spawn_spool_replay(state.clone());
 
     {
         let summaries = state.get_session_summaries();
@@ -1046,6 +1046,8 @@ async fn drain_spool(state: &Arc<SessionRegistry>) {
     let total = files.len();
     let mut drained = 0u64;
     let mut failed = 0u64;
+    let replay_options =
+        crate::connectors::claude_hooks::ClaudeHookHandlingOptions::for_spool_replay();
 
     for path in &files {
         let content = match std::fs::read_to_string(path) {
@@ -1078,7 +1080,12 @@ async fn drain_spool(state: &Arc<SessionRegistry>) {
             }
         };
 
-        crate::connectors::hook_handler::handle_hook_message(message, state).await;
+        crate::connectors::claude_hooks::handle_hook_message_with_options(
+            message,
+            state,
+            replay_options.clone(),
+        )
+        .await;
         let _ = std::fs::remove_file(path);
         drained += 1;
     }
@@ -1091,4 +1098,22 @@ async fn drain_spool(state: &Arc<SessionRegistry>) {
         failed = failed,
         "Spool drain complete"
     );
+}
+
+fn spawn_spool_replay(state: Arc<SessionRegistry>) {
+    tokio::spawn(async move {
+        let started_at = Instant::now();
+        info!(
+            component = "spool",
+            event = "spool.replay.started",
+            "Replaying spooled hooks in background"
+        );
+        drain_spool(&state).await;
+        info!(
+            component = "spool",
+            event = "spool.replay.completed",
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            "Background spool replay completed"
+        );
+    });
 }

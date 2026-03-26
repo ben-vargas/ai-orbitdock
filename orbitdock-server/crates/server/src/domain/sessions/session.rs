@@ -2390,6 +2390,7 @@ impl SessionHandle {
         self.work_status = phase.to_work_status();
         self.rows = state.rows;
         self.total_row_count = state.total_row_count;
+        self.newest_synced_row_id = self.rows.last().map(|row| row.id().to_string());
         self.token_usage = state.token_usage;
         self.token_usage_snapshot_kind = state.token_usage_snapshot_kind;
         self.current_diff = state.current_diff;
@@ -2744,5 +2745,35 @@ mod tests {
         session.add_row(steer);
 
         assert!(!session.has_user_row_with_content("same content"));
+    }
+
+    #[test]
+    fn apply_state_recomputes_newest_synced_row_id_from_rows() {
+        let mut session = pending_approval_session();
+        session.add_row(user_entry("session-1", "user-1", "hello"));
+        session.set_newest_synced_row_id(Some("stale-row".to_string()));
+
+        let mut state = session.extract_state();
+        state.rows.push(ConversationRowEntry {
+            session_id: "session-1".to_string(),
+            sequence: 1,
+            turn_id: None,
+            turn_status: Default::default(),
+            row: ConversationRow::Assistant(MessageRowContent {
+                id: "assistant-2".to_string(),
+                content: "done".to_string(),
+                turn_id: None,
+                timestamp: None,
+                is_streaming: false,
+                images: vec![],
+                memory_citation: None,
+                delivery_status: None,
+            }),
+        });
+        state.total_row_count = state.rows.len() as u64;
+
+        session.apply_state(state);
+
+        assert_eq!(session.newest_synced_row_id(), Some("assistant-2"));
     }
 }

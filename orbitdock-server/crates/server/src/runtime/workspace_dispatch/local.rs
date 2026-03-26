@@ -176,7 +176,7 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
                 })
                 .collect();
 
-        let session_id = orbitdock_protocol::new_id();
+        let session_id = orbitdock_protocol::new_session_id();
         let request = DirectSessionRequest {
             provider,
             cwd: worktree_path,

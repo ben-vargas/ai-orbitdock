@@ -45,7 +45,7 @@ pub(crate) async fn start_claude_fork_session(
     allowed_tools: &[String],
     disallowed_tools: &[String],
 ) -> Result<ForkedSessionStart, String> {
-    let new_session_id = orbitdock_protocol::new_id();
+    let new_session_id = orbitdock_protocol::new_session_id();
     let project_name = effective_cwd.split('/').next_back().map(String::from);
     let fork_branch = crate::domain::git::repo::resolve_git_branch(effective_cwd).await;
 
@@ -144,7 +144,7 @@ pub(crate) async fn finalize_codex_fork_session(
         new_connector,
         new_thread_id,
     } = request;
-    let new_session_id = orbitdock_protocol::new_id();
+    let new_session_id = orbitdock_protocol::new_session_id();
     let project_name = effective_cwd.split('/').next_back().map(String::from);
     let fork_branch = crate::domain::git::repo::resolve_git_branch(effective_cwd).await;
 

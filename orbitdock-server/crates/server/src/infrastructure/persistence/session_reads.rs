@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
     CodexConfigMode, CodexConfigSource, CodexSessionOverrides, SessionControlMode,
-    SessionLifecycleState, TokenUsageSnapshotKind,
+    SessionLifecycleState, SessionStatus, TokenUsageSnapshotKind,
 };
 
 use super::chrono_now;
@@ -122,6 +122,13 @@ pub struct RestoredSession {
     pub allow_bypass_permissions: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectClaudeOwner {
+    pub session_id: String,
+    pub status: SessionStatus,
+    pub lifecycle_state: SessionLifecycleState,
+}
+
 fn resolve_custom_name_from_first_prompt(
     _conn: &Connection,
     _session_id: &str,
@@ -136,6 +143,13 @@ fn parse_lifecycle_state(value: Option<String>) -> SessionLifecycleState {
         Some("resumable") => SessionLifecycleState::Resumable,
         Some("ended") => SessionLifecycleState::Ended,
         _ => SessionLifecycleState::Open,
+    }
+}
+
+fn parse_session_status(value: &str) -> SessionStatus {
+    match value.to_ascii_lowercase().as_str() {
+        "ended" => SessionStatus::Ended,
+        _ => SessionStatus::Active,
     }
 }
 
@@ -218,6 +232,25 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
             conn.execute_batch(
                 "PRAGMA journal_mode = WAL;
                  PRAGMA busy_timeout = 5000;",
+            )?;
+
+            conn.execute(
+                "UPDATE sessions
+                 SET status = 'ended',
+                     work_status = 'ended',
+                     ended_at = COALESCE(ended_at, ?1),
+                     end_reason = COALESCE(end_reason, 'startup_direct_shadow')
+                 WHERE provider = 'claude'
+                   AND status = 'active'
+                   AND (claude_integration_mode IS NULL OR claude_integration_mode != 'direct')
+                   AND EXISTS (
+                       SELECT 1
+                       FROM sessions direct
+                       WHERE direct.provider = 'claude'
+                         AND direct.claude_integration_mode = 'direct'
+                         AND direct.claude_sdk_session_id = sessions.id
+                   )",
+                params![chrono_now()],
             )?;
 
             conn.execute(
@@ -1099,6 +1132,56 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
     .await??;
 
     Ok(result)
+}
+
+pub async fn load_direct_claude_owner_by_sdk_session_id(
+    sdk_session_id: &str,
+) -> Result<Option<DirectClaudeOwner>, anyhow::Error> {
+    let db_path = crate::infrastructure::paths::db_path();
+    let sdk_session_id = sdk_session_id.to_string();
+
+    tokio::task::spawn_blocking(move || -> Result<Option<DirectClaudeOwner>, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(None);
+        }
+
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        let row = conn
+            .query_row(
+                "SELECT s.id,
+                        s.status,
+                        COALESCE(s.lifecycle_state, CASE WHEN s.status = 'ended' THEN 'ended' ELSE 'open' END)
+                 FROM sessions s
+                 WHERE s.provider = 'claude'
+                   AND s.claude_sdk_session_id = ?1
+                   AND COALESCE(s.control_mode, CASE
+                        WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
+                        ELSE 'passive'
+                   END) = 'direct'
+                 ORDER BY CASE s.status WHEN 'active' THEN 0 ELSE 1 END,
+                          COALESCE(s.last_activity_at, s.started_at, '') DESC
+                 LIMIT 1",
+                params![sdk_session_id],
+                |row| {
+                    let status: String = row.get(1)?;
+                    let lifecycle_state: String = row.get(2)?;
+                    Ok(DirectClaudeOwner {
+                        session_id: row.get(0)?,
+                        status: parse_session_status(&status),
+                        lifecycle_state: parse_lifecycle_state(Some(lifecycle_state)),
+                    })
+                },
+            )
+            .optional()?;
+
+        Ok(row)
+    })
+    .await?
 }
 
 /// Load only the persisted Claude permission_mode for a session.
