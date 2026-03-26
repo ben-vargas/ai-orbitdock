@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OrbitDock - Mission Control for AI Agents</title>
+  <meta name="description" content="A native macOS and iOS app to run, review, and orchestrate AI coding agents across all your machines. Open source and self-hosted.">
+  <meta name="theme-color" content="#0C0B0F">
+  <meta property="og:title" content="OrbitDock - Mission Control for AI Agents">
+  <meta property="og:description" content="A native app to run, review, and orchestrate AI coding agents. On your Mac, your phone, or anywhere.">
+  <meta property="og:type" content="website">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ======== Fixed background layers ======== -->
+  <div class="star-field" aria-hidden="true"></div>
+  <div class="nebula" aria-hidden="true"></div>
+  <div class="coord-grid" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <!-- ======== Page content ======== -->
+  <div class="page-content">
+
+    <!-- Nav -->
+    <nav class="site-nav">
+      <div class="nav-inner">
+        <a href="/" class="nav-brand">
+          <svg viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="15" cy="15" r="13" stroke="#54AEE5" stroke-width="1" opacity="0.3"/>
+            <circle cx="15" cy="15" r="4.5" fill="#54AEE5"/>
+            <circle cx="15" cy="15" r="4.5" fill="#54AEE5" opacity="0.4" style="filter:blur(4px)"/>
+            <ellipse cx="15" cy="15" rx="13" ry="5.5" stroke="#54AEE5" stroke-width="0.75" opacity="0.2" transform="rotate(-22 15 15)"/>
+            <ellipse cx="15" cy="15" rx="13" ry="5.5" stroke="#B373F2" stroke-width="0.75" opacity="0.15" transform="rotate(22 15 15)"/>
+          </svg>
+          OrbitDock
+        </a>
+        <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Toggle navigation">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        </button>
+        <ul class="nav-links">
+          <li><a href="/#features">Features</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/support.html">Support</a></li>
+          <li><a href="https://github.com/Robdel12/OrbitDock" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="https://testflight.apple.com/join/w4jThqxE" class="nav-cta">Get the Beta</a></li>
+        </ul>
+      </div>
+    </nav>
+
+    <!-- ======== HERO ======== -->
+    <section class="hero">
+      <!-- Orbital visualization -->
+      <div class="orbit-viz" aria-hidden="true">
+        <div class="orbit-station"></div>
+        <div class="orbit-ring orbit-ring-1">
+          <span class="craft craft-1"></span>
+          <span class="craft craft-2" style="top:auto;bottom:-2px;left:25%"></span>
+        </div>
+        <div class="orbit-ring orbit-ring-2">
+          <span class="craft craft-3" style="top:-2px;left:70%"></span>
+          <span class="craft craft-4"></span>
+        </div>
+        <div class="orbit-ring orbit-ring-3">
+          <span class="craft craft-5"></span>
+        </div>
+      </div>
+
+      <!-- Content -->
+      <div class="hero-content">
+        <h1>Mission control for<br><span class="gradient">AI coding agents</span></h1>
+        <p class="hero-sub">
+          On your phone. On a VM. On a Pi in the closet. A native app to orchestrate, review, and steer your fleet of AI coding agents, wherever they run.
+        </p>
+        <div class="hero-actions">
+          <a href="https://testflight.apple.com/join/w4jThqxE" class="btn btn-primary">Join the Beta</a>
+          <a href="https://github.com/Robdel12/OrbitDock" class="btn btn-secondary">View on GitHub</a>
+        </div>
+      </div>
+
+      <!-- Status beacons -->
+      <div class="status-bar">
+        <div class="beacon working">
+          <span class="beacon-dot"></span> Working
+        </div>
+        <div class="beacon permission">
+          <span class="beacon-dot"></span> Permission
+        </div>
+        <div class="beacon question">
+          <span class="beacon-dot"></span> Question
+        </div>
+        <div class="beacon reply">
+          <span class="beacon-dot"></span> Reply
+        </div>
+        <div class="beacon ended">
+          <span class="beacon-dot"></span> Ended
+        </div>
+      </div>
+
+      <!-- Hero app screenshot -->
+      <div class="hero-screenshot reveal">
+        <div class="app-frame">
+          <div class="app-frame-bar">
+            <span class="frame-dot" style="background:#F26673"></span>
+            <span class="frame-dot" style="background:#F2BF4D"></span>
+            <span class="frame-dot" style="background:#59D18C"></span>
+            <span class="frame-bar-title">OrbitDock</span>
+          </div>
+          <div class="app-frame-content">
+            <!-- Replace this placeholder with: <img src="screenshots/macos-dashboard.png" alt="OrbitDock macOS dashboard"> -->
+            <div class="screenshot-placeholder">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+              <span class="ph-label">macOS app screenshot</span>
+              <span class="ph-size">1440 &times; 900</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== DASHBOARD ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker"></span></div>
+
+    <section class="section reveal">
+      <div class="section-label">The Dashboard</div>
+      <h2 class="section-title">Every agent, one screen</h2>
+      <p class="section-sub">
+        Three agents across two machines? One glance. Sessions sort by urgency: what needs you now, what's working, and what's done.
+      </p>
+
+      <div class="bento">
+        <div class="hud-panel bento-card wide">
+          <h3>Unified activity stream</h3>
+          <p>Sessions across every connected server, sorted into Attention, Working, and Ready. Tap any row to jump straight into the conversation.</p>
+
+          <div class="terminal">
+            <div class="terminal-header">
+              <span class="terminal-dot"></span>
+              <span class="terminal-dot"></span>
+              <span class="terminal-dot"></span>
+              <span class="terminal-title">orbitdock · 3 active sessions</span>
+            </div>
+            <div class="terminal-body">
+              <div class="session-row attention">
+                <span class="session-dot active" style="background:var(--status-permission);box-shadow:0 0 8px var(--status-permission);color:var(--status-permission)"></span>
+                <span class="session-name">auth-refactor</span>
+                <span class="session-badge" style="background:rgba(179,115,242,0.12);color:var(--model-opus)">Opus</span>
+                <span class="session-meta">Needs approval &middot; 3m ago</span>
+              </div>
+              <div class="session-row working-row">
+                <span class="session-dot active" style="background:var(--status-working);box-shadow:0 0 8px var(--status-working);color:var(--status-working)"></span>
+                <span class="session-name">fix-pagination-bug</span>
+                <span class="session-badge" style="background:rgba(102,165,255,0.12);color:var(--model-sonnet)">Sonnet</span>
+                <span class="session-meta">Writing tests &middot; 12s ago</span>
+              </div>
+              <div class="session-row working-row">
+                <span class="session-dot active" style="background:var(--status-working);box-shadow:0 0 8px var(--status-working);color:var(--status-working)"></span>
+                <span class="session-name">add-dark-mode</span>
+                <span class="session-badge" style="background:rgba(77,217,204,0.12);color:var(--model-haiku)">Codex</span>
+                <span class="session-meta">Editing 4 files &middot; 5s ago</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hud-panel hud-purple bento-card">
+          <h3>Code review canvas</h3>
+          <p>Inline diffs with syntax highlighting. Leave a comment and the agent incorporates your feedback on the next turn.</p>
+          <div class="mini-diff">
+            <div class="diff-file">src/auth/session.ts</div>
+            <div class="diff-lines">
+              <div class="diff-line removed"><span class="diff-prefix">-</span><span class="code">  const timeout = setTimeout(retry, 5000);</span></div>
+              <div class="diff-line added"><span class="diff-prefix">+</span><span class="code">  const result = await retry({ limit: 3 });</span></div>
+              <div class="diff-line context"><span class="diff-prefix">&nbsp;</span><span class="code">  return result.session;</span></div>
+            </div>
+            <div class="diff-comment-inline">
+              <span class="author">You</span> Use exponential backoff here instead of fixed retry
+            </div>
+          </div>
+        </div>
+
+        <div class="hud-panel hud-orange bento-card">
+          <h3>Approval triage</h3>
+          <p>Tool calls classified by risk level. Approve or deny with a keyboard shortcut on Mac, a tap on your phone.</p>
+          <div class="mock-approval">
+            <div class="approval-header">
+              <span>Tool call from</span>
+              <span style="color:var(--model-sonnet)">Sonnet</span>
+            </div>
+            <div class="approval-tool">
+              <span class="approval-tool-icon">&#9889;</span>
+              <span class="approval-tool-cmd">bash: npm run test -- --coverage</span>
+            </div>
+            <div class="approval-risk">
+              <span class="risk-badge normal">Normal</span>
+              <div class="approval-keys">
+                <span class="key-hint approve"><kbd>y</kbd> approve</span>
+                <span class="key-hint deny"><kbd>n</kbd> deny</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="section-atmosphere cyan" aria-hidden="true"></div>
+
+    <!-- ======== ORCHESTRATION ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker"></span></div>
+
+    <section class="section reveal">
+      <div class="section-label">Agent Orchestration</div>
+      <h2 class="section-title">Point it at your backlog.<br>Watch it work.</h2>
+      <p class="section-sub">
+        Connect Linear or GitHub. OrbitDock polls for issues, dispatches agents with the right model and permissions, retries on failure, and opens PRs when done. You review when you're ready.
+      </p>
+
+      <div class="bento">
+        <div class="hud-panel bento-card wide">
+          <h3>Autonomous dispatch</h3>
+          <p>Define a mission in a single MISSION.md file. Pick a tracker, set concurrency limits, choose your provider strategy, and let it run. OrbitDock handles the rest: worktree creation, prompt rendering, stall detection, retry with exponential backoff.</p>
+
+          <div class="terminal">
+            <div class="terminal-header">
+              <span class="terminal-dot"></span>
+              <span class="terminal-dot"></span>
+              <span class="terminal-dot"></span>
+              <span class="terminal-title">MISSION.md</span>
+            </div>
+            <div class="terminal-body">
+              <div class="cmd-line"><span class="flag">strategy:</span> <span class="cmd">priority</span> <span class="comment"># Claude primary, Codex overflow</span></div>
+              <div class="cmd-line"><span class="flag">max_concurrent:</span> <span class="cmd">3</span></div>
+              <div class="cmd-line"><span class="flag">tracker:</span> <span class="cmd">linear</span></div>
+              <div class="cmd-line"><span class="flag">poll_interval:</span> <span class="cmd">60s</span></div>
+              <div class="cmd-line"><span class="flag">stall_timeout:</span> <span class="cmd">600s</span></div>
+              <div class="cmd-line"><span class="flag">max_retries:</span> <span class="cmd">3</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hud-panel hud-purple bento-card">
+          <h3>Multi-provider fleet</h3>
+          <p>Route high-priority issues to Claude, overflow the rest to Codex. Or round-robin for even distribution. Each provider gets its own model, permission level, and tool config.</p>
+        </div>
+
+        <div class="hud-panel hud-green bento-card">
+          <h3>Self-healing agents</h3>
+          <p>Stall detection kills stuck sessions. Exponential backoff retries automatically. If an agent hits a real blocker, it signals and the issue gets flagged. No babysitting.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="section-atmosphere purple" aria-hidden="true"></div>
+
+    <!-- ======== FEATURES ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker"></span></div>
+
+    <section class="section section-centered reveal" id="features">
+      <div class="section-label">Features</div>
+      <h2 class="section-title">Not just monitoring.<br>Full control.</h2>
+      <p class="section-sub">
+        Create sessions, pick models, set autonomy levels, review every diff, approve every tool call. A cockpit for AI-assisted development.
+      </p>
+
+      <div class="feature-grid reveal-stagger">
+        <div class="hud-panel feature-card">
+          <div class="feature-icon blue">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none"><path d="M10 2L18 6V14L10 18L2 14V6L10 2Z" stroke="currentColor" stroke-width="1.5"/><path d="M10 10V18M10 10L18 6M10 10L2 6" stroke="currentColor" stroke-width="1.5"/></svg>
+          </div>
+          <h3>Multi-provider</h3>
+          <p>Claude Code and Codex in the same app. Pick the right model for the job. Rate limits tracked per provider so you always know your headroom.</p>
+        </div>
+
+        <div class="hud-panel hud-purple feature-card">
+          <div class="feature-icon purple">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M10 6V10L13 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </div>
+          <h3>Direct control</h3>
+          <p>Start sessions, choose models, set permission levels, message mid-turn, fork conversations. Not a read-only dashboard. Full bidirectional control.</p>
+        </div>
+
+        <div class="hud-panel hud-green feature-card">
+          <div class="feature-icon green">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none"><path d="M7 10L9 12L13 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/></svg>
+          </div>
+          <h3>Code review</h3>
+          <p>Unified diffs with syntax highlighting, rendered natively. Leave inline comments and the agent picks them up as structured feedback.</p>
+        </div>
+
+        <div class="hud-panel hud-orange feature-card">
+          <div class="feature-icon orange">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none"><path d="M5 12V6a5 5 0 0 1 10 0v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="3" y="12" width="14" height="6" rx="2" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="15" r="1.5" fill="currentColor"/></svg>
+          </div>
+          <h3>Self-hosted</h3>
+          <p>Your infrastructure, your data. The server runs on your hardware. No cloud dependency, no telemetry, no third-party accounts. Fully open source.</p>
+        </div>
+
+        <div class="hud-panel hud-teal feature-card">
+          <div class="feature-icon teal">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none"><path d="M4 10C4 6.7 6.7 4 10 4M16 10C16 13.3 13.3 16 10 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="4" r="1.5" fill="currentColor"/><circle cx="10" cy="16" r="1.5" fill="currentColor"/></svg>
+          </div>
+          <h3>Multi-server</h3>
+          <p>Your laptop. A VPS. A Raspberry Pi in the closet. Connect them all. Sessions from every machine merge into one unified view in the app.</p>
+        </div>
+
+        <div class="hud-panel hud-yellow feature-card">
+          <div class="feature-icon yellow">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none"><path d="M10 3L12.5 8H17L13.5 11.5L15 17L10 13.5L5 17L6.5 11.5L3 8H7.5L10 3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          </div>
+          <h3>Usage tracking</h3>
+          <p>Real-time token counts, cost estimates, and rate limit gauges for Claude's sliding windows. Always know your headroom before kicking off another agent.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="section-atmosphere purple" aria-hidden="true"></div>
+
+    <!-- ======== NATIVE APPS ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker"></span></div>
+
+    <section class="section reveal">
+      <div class="app-showcase">
+        <div class="app-showcase-text">
+          <div class="section-label">Native Apps</div>
+          <h2 class="section-title">Native on every screen</h2>
+          <p class="section-sub">
+            Swift on macOS. SwiftUI on iOS. Not an Electron wrapper. A real app built for your dock and your home screen. Keyboard-first on desktop, touch-optimized on mobile, real-time on both.
+          </p>
+          <div class="showcase-features">
+            <div class="showcase-feature">
+              <span class="showcase-feature-dot"></span>
+              <span>Full keyboard navigation and Emacs bindings on macOS</span>
+            </div>
+            <div class="showcase-feature">
+              <span class="showcase-feature-dot" style="background:var(--model-opus);box-shadow:0 0 6px var(--model-opus)"></span>
+              <span>Review diffs and approve tool calls from the couch</span>
+            </div>
+            <div class="showcase-feature">
+              <span class="showcase-feature-dot" style="background:var(--feedback-positive);box-shadow:0 0 6px var(--feedback-positive)"></span>
+              <span>Push notifications when an agent needs your attention</span>
+            </div>
+            <div class="showcase-feature">
+              <span class="showcase-feature-dot" style="background:var(--feedback-caution);box-shadow:0 0 6px var(--feedback-caution)"></span>
+              <span>Real-time WebSocket updates. Never poll, never stale</span>
+            </div>
+          </div>
+        </div>
+        <div class="app-showcase-devices">
+          <div class="app-frame mac-mini">
+            <div class="app-frame-bar">
+              <span class="frame-dot" style="background:#F26673"></span>
+              <span class="frame-dot" style="background:#F2BF4D"></span>
+              <span class="frame-dot" style="background:#59D18C"></span>
+              <span class="frame-bar-title">OrbitDock</span>
+            </div>
+            <div class="app-frame-content">
+              <!-- Replace with: <img src="screenshots/macos-review.png" alt="Code review in OrbitDock macOS"> -->
+              <div class="screenshot-placeholder">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                <span class="ph-label">macOS screenshot</span>
+                <span class="ph-size">1440 &times; 900</span>
+              </div>
+            </div>
+          </div>
+          <div class="phone-frame">
+            <div class="phone-notch"></div>
+            <div class="phone-screen">
+              <!-- Replace with: <img src="screenshots/ios-dashboard.png" alt="OrbitDock iOS dashboard"> -->
+              <div class="screenshot-placeholder">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 18h.01"/></svg>
+                <span class="ph-label">iOS screenshot</span>
+                <span class="ph-size">390 &times; 844</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="section-atmosphere warm" aria-hidden="true"></div>
+
+    <!-- ======== INSTALL ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker"></span></div>
+
+    <section class="section section-centered reveal">
+      <div class="section-label">Launch Sequence</div>
+      <h2 class="section-title">Up and running in 60 seconds</h2>
+      <p class="section-sub">
+        Install the server, connect the app, and start managing your agents.
+      </p>
+
+      <div class="install-terminal">
+        <div class="terminal">
+          <div class="terminal-header">
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-title">launch sequence</span>
+          </div>
+          <div class="terminal-body">
+            <div class="cmd-line"><span class="comment"># Install the server</span></div>
+            <div class="cmd-line"><span class="prompt">$</span> <span class="cmd">curl -fsSL</span> <span class="flag">https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh</span> <span class="cmd">| bash</span></div>
+            <br>
+            <div class="cmd-line"><span class="comment"># Configure for local development</span></div>
+            <div class="cmd-line"><span class="prompt">$</span> <span class="cmd">orbitdock setup</span> <span class="flag">--local</span></div>
+            <br>
+            <div class="cmd-line"><span class="comment"># Or connect to a remote server</span></div>
+            <div class="cmd-line"><span class="prompt">$</span> <span class="cmd">orbitdock install-hooks</span> <span class="flag">--server-url</span> <span class="path">https://your-server.example.com</span></div>
+            <br>
+            <div class="cmd-line"><span class="prompt">$</span> <span class="cursor"></span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== CTA ======== -->
+    <section class="cta-banner reveal">
+      <div class="cta-orbit" aria-hidden="true"><span class="craft"></span></div>
+      <div class="cta-orbit cta-orbit-2" aria-hidden="true"><span class="craft"></span></div>
+      <h2>Your agents are working.<br>You should know about it.</h2>
+      <p>OrbitDock is free, open source, and self-hosted. Your agents, your infrastructure, your data. Join the beta.</p>
+      <div class="hero-actions">
+        <a href="https://testflight.apple.com/join/w4jThqxE" class="btn btn-primary">Join the Beta</a>
+        <a href="https://github.com/Robdel12/OrbitDock" class="btn btn-secondary">Star on GitHub</a>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span class="footer-brand">&copy; 2026 <a href="https://stubbornmule.software/" target="_blank" rel="noopener">Stubborn Mule Software</a></span>
+        <ul class="footer-links">
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/support.html">Support</a></li>
+          <li><a href="/privacy.html">Privacy</a></li>
+          <li><a href="/terms.html">Terms</a></li>
+          <li><a href="https://github.com/Robdel12/OrbitDock" target="_blank" rel="noopener">GitHub</a></li>
+        </ul>
+      </div>
+    </footer>
+
+  </div><!-- .page-content -->
+
+  <!-- ======== Scripts ======== -->
+  <script>
+    // -- Star field generator --
+    // Uses seeded PRNG for consistent positions across loads
+    (function() {
+      let seed = 42;
+      function rand() {
+        seed = (seed * 16807) % 2147483647;
+        return (seed - 1) / 2147483646;
+      }
+
+      let field = document.querySelector('.star-field');
+      let layers = [
+        { count: 260, size: 1, minO: 0.15, maxO: 0.45, className: 'star-layer-1' },
+        { count: 120, size: 1.5, minO: 0.25, maxO: 0.6, className: 'star-layer-2' },
+        { count: 35, size: 2, minO: 0.5, maxO: 0.9, className: 'star-layer-3', glow: true },
+      ];
+
+      layers.forEach(function(layer) {
+        let shadows = [];
+        for (let i = 0; i < layer.count; i++) {
+          let x = Math.floor(rand() * 2400);
+          let y = Math.floor(rand() * 2400);
+          let opacity = (layer.minO + rand() * (layer.maxO - layer.minO)).toFixed(2);
+
+          if (layer.glow) {
+            // Slight color tint on bright stars
+            let tints = ['200,220,255', '180,200,255', '220,200,255', '200,240,255'];
+            let tint = tints[Math.floor(rand() * tints.length)];
+            shadows.push(x + 'px ' + y + 'px 1px rgba(' + tint + ',' + opacity + ')');
+          } else {
+            shadows.push(x + 'px ' + y + 'px 0 rgba(255,255,255,' + opacity + ')');
+          }
+        }
+
+        let el = document.createElement('div');
+        el.className = 'star-layer ' + layer.className;
+        el.style.width = layer.size + 'px';
+        el.style.height = layer.size + 'px';
+        el.style.boxShadow = shadows.join(',');
+        field.appendChild(el);
+      });
+    })();
+
+    // -- Scroll reveal --
+    (function() {
+      let els = document.querySelectorAll('.reveal, .reveal-stagger');
+      let observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+      els.forEach(function(el) { observer.observe(el); });
+    })();
+  </script>
+
+</body>
+</html>

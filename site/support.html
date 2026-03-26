@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Support - OrbitDock</title>
+  <meta name="description" content="Get help with OrbitDock. Report bugs, request features, or ask questions.">
+  <meta name="theme-color" content="#0C0B0F">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <div class="star-field" aria-hidden="true"></div>
+  <div class="nebula" aria-hidden="true"></div>
+  <div class="coord-grid" aria-hidden="true"></div>
+
+  <div class="page-content">
+
+    <nav class="site-nav">
+      <div class="nav-inner">
+        <a href="/" class="nav-brand">
+          <svg viewBox="0 0 30 30" fill="none"><circle cx="15" cy="15" r="13" stroke="#54AEE5" stroke-width="1" opacity="0.3"/><circle cx="15" cy="15" r="4.5" fill="#54AEE5"/><ellipse cx="15" cy="15" rx="13" ry="5.5" stroke="#54AEE5" stroke-width="0.75" opacity="0.2" transform="rotate(-22 15 15)"/><ellipse cx="15" cy="15" rx="13" ry="5.5" stroke="#B373F2" stroke-width="0.75" opacity="0.15" transform="rotate(22 15 15)"/></svg>
+          OrbitDock
+        </a>
+        <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Toggle navigation">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        </button>
+        <ul class="nav-links">
+          <li><a href="/#features">Features</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/support.html" class="active">Support</a></li>
+          <li><a href="https://github.com/Robdel12/OrbitDock" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="https://testflight.apple.com/join/w4jThqxE" class="nav-cta">Get the Beta</a></li>
+        </ul>
+      </div>
+    </nav>
+
+    <section class="about-hero reveal" style="text-align: center; max-width: 600px;">
+      <h1>Support</h1>
+      <p>
+        OrbitDock is open source and community supported. Here's how to get help.
+      </p>
+    </section>
+
+    <div class="support-options reveal-stagger">
+      <div class="hud-panel support-card">
+        <div class="icon">&#128027;</div>
+        <h3>Report a Bug</h3>
+        <p>Found something broken? Open a GitHub issue with steps to reproduce and we'll look into it.</p>
+        <a href="https://github.com/Robdel12/OrbitDock/issues/new?template=bug_report.md" target="_blank" rel="noopener" class="btn btn-secondary">File a Bug</a>
+      </div>
+
+      <div class="hud-panel hud-purple support-card">
+        <div class="icon">&#128161;</div>
+        <h3>Request a Feature</h3>
+        <p>Have an idea that would make OrbitDock better? We'd love to hear it.</p>
+        <a href="https://github.com/Robdel12/OrbitDock/issues/new?template=feature_request.md" target="_blank" rel="noopener" class="btn btn-secondary">Request Feature</a>
+      </div>
+
+      <div class="hud-panel hud-green support-card">
+        <div class="icon">&#128214;</div>
+        <h3>Documentation</h3>
+        <p>Setup guides, architecture docs, and configuration references are all in the repo.</p>
+        <a href="https://github.com/Robdel12/OrbitDock/tree/main/docs" target="_blank" rel="noopener" class="btn btn-secondary">Read the Docs</a>
+      </div>
+
+      <div class="hud-panel hud-orange support-card">
+        <div class="icon">&#128172;</div>
+        <h3>Discussions</h3>
+        <p>Questions, ideas, or just want to chat? GitHub Discussions is the place.</p>
+        <a href="https://github.com/Robdel12/OrbitDock/discussions" target="_blank" rel="noopener" class="btn btn-secondary">Join Discussions</a>
+      </div>
+    </div>
+
+    <section class="prose" style="padding-top: 20px;">
+      <h2>Frequently Asked Questions</h2>
+
+      <h3>How do I install OrbitDock?</h3>
+      <p>
+        Install the server with a single command:
+        <code>curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash</code>
+        Then run <code>orbitdock setup --local</code>
+        to configure for local use, or see the
+        <a href="https://github.com/Robdel12/OrbitDock/blob/main/docs/DEPLOYMENT.md" target="_blank" rel="noopener">deployment guide</a>
+        for remote setups.
+      </p>
+
+      <h3>What platforms are supported?</h3>
+      <p>
+        The server runs on macOS (ARM), Linux x86_64, and Linux aarch64 (Raspberry Pi).
+        Native apps are available for macOS 15+ and iOS 18+. A web client is in development.
+      </p>
+
+      <h3>Is OrbitDock free?</h3>
+      <p>
+        Yes. OrbitDock is free and open source under the
+        <a href="https://github.com/Robdel12/OrbitDock/blob/main/LICENSE" target="_blank" rel="noopener">project license</a>.
+        You run it on your own infrastructure.
+      </p>
+
+      <h3>Does OrbitDock collect my data?</h3>
+      <p>
+        No. OrbitDock is entirely self-hosted. All data stays on your machines. There is
+        no analytics, telemetry, or tracking. See the <a href="/privacy.html">privacy policy</a>
+        for full details.
+      </p>
+
+      <h3>How do I connect from my phone?</h3>
+      <p>
+        Install the iOS app via <a href="https://testflight.apple.com/join/w4jThqxE" target="_blank" rel="noopener">TestFlight</a>,
+        then add your server URL in the app settings. For remote access, we recommend
+        using a Cloudflare Tunnel for zero-config HTTPS.
+      </p>
+
+      <h3>Which AI providers are supported?</h3>
+      <p>
+        OrbitDock currently supports <strong>Claude Code</strong> (Anthropic) and
+        <strong>Codex</strong> (OpenAI). Both can run simultaneously with independent
+        rate limit tracking.
+      </p>
+    </section>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span class="footer-brand">&copy; 2026 <a href="https://stubbornmule.software/" target="_blank" rel="noopener">Stubborn Mule Software</a></span>
+        <ul class="footer-links">
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/support.html">Support</a></li>
+          <li><a href="/privacy.html">Privacy</a></li>
+          <li><a href="/terms.html">Terms</a></li>
+          <li><a href="https://github.com/Robdel12/OrbitDock" target="_blank" rel="noopener">GitHub</a></li>
+        </ul>
+      </div>
+    </footer>
+
+  </div>
+
+  <script>
+    (function(){let s=42;function r(){s=(s*16807)%2147483647;return(s-1)/2147483646}let f=document.querySelector('.star-field');[[260,1,.15,.45,'star-layer-1'],[120,1.5,.25,.6,'star-layer-2'],[35,2,.5,.9,'star-layer-3']].forEach(function(l){let sh=[];for(let i=0;i<l[0];i++){let x=Math.floor(r()*2400),y=Math.floor(r()*2400),o=(l[2]+r()*(l[3]-l[2])).toFixed(2);sh.push(x+'px '+y+'px 0 rgba(255,255,255,'+o+')')}let e=document.createElement('div');e.className='star-layer '+l[4];e.style.width=l[1]+'px';e.style.height=l[1]+'px';e.style.boxShadow=sh.join(',');f.appendChild(e)});let o=new IntersectionObserver(function(e){e.forEach(function(en){if(en.isIntersecting){en.target.classList.add('visible');o.unobserve(en.target)}})},{threshold:.08,rootMargin:'0px 0px -40px 0px'});document.querySelectorAll('.reveal,.reveal-stagger').forEach(function(e){o.observe(e)})})();
+  </script>
+
+</body>
+</html>
