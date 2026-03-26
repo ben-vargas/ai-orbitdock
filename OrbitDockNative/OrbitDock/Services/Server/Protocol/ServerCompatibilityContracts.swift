@@ -79,8 +79,8 @@ extension ServerCompatibilityStatus {
 extension HTTPResponse {
   func validateServerCompatibilityHeaders() throws {
     guard let serverVersion = headerValue(for: "X-OrbitDock-Server-Version"),
-      let serverCompatibility = headerValue(for: "X-OrbitDock-Server-Compatibility"),
-      let rawCompatible = headerValue(for: "X-OrbitDock-Compatible")
+          let serverCompatibility = headerValue(for: "X-OrbitDock-Server-Compatibility"),
+          let rawCompatible = headerValue(for: "X-OrbitDock-Compatible")
     else {
       throw ServerCompatibilityError.missingCompatibilityMetadata(transport: "HTTP")
     }

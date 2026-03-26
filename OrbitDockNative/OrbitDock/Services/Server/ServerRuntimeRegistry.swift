@@ -438,7 +438,7 @@ final class ServerRuntimeRegistry {
 
   func reconnectAllIfNeeded() {
     for runtime in runtimesByEndpointId.values {
-      if runtime.readiness.transportReady && !runtime.readiness.queryReady {
+      if runtime.readiness.transportReady, !runtime.readiness.queryReady {
         scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
       } else {
         runtime.reconnectIfNeeded()
@@ -452,7 +452,7 @@ final class ServerRuntimeRegistry {
       .filter(\.endpoint.isEnabled)
       .map { runtime in
         if runtime.isStarted {
-          if runtime.readiness.transportReady && !runtime.readiness.queryReady {
+          if runtime.readiness.transportReady, !runtime.readiness.queryReady {
             scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
           } else {
             runtime.reconnectIfNeeded()
@@ -464,7 +464,7 @@ final class ServerRuntimeRegistry {
 
   func refreshAll() async {
     for runtime in runtimes where runtime.endpoint.isEnabled && runtime.isStarted {
-      if runtime.readiness.transportReady && !runtime.readiness.queryReady {
+      if runtime.readiness.transportReady, !runtime.readiness.queryReady {
         scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
       } else {
         runtime.reconnectIfNeeded()
@@ -695,7 +695,7 @@ final class ServerRuntimeRegistry {
         case .dashboardInvalidated:
           Task { [weak self, weak runtime] in
             guard let self, let runtime else { return }
-              _ = await self.refreshDashboardConversations(for: runtime)
+            _ = await self.refreshDashboardConversations(for: runtime)
           }
 
         case let .missionsSnapshot(snapshot):

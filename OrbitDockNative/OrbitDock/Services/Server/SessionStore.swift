@@ -414,9 +414,9 @@ final class SessionStore {
       return
     }
 
-      let detailRevision = bootstrap?.sharedSurfaceRevision
-      let composerRevision = bootstrap?.sharedSurfaceRevision
-      let conversationRevision = bootstrap?.sharedSurfaceRevision
+    let detailRevision = bootstrap?.sharedSurfaceRevision
+    let composerRevision = bootstrap?.sharedSurfaceRevision
+    let conversationRevision = bootstrap?.sharedSurfaceRevision
     netLog(.info, cat: .store, "WS subscribeSessionSurface", sid: sessionId, data: [
       "detailRevision": detailRevision as Any,
       "composerRevision": composerRevision as Any,

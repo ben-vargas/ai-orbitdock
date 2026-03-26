@@ -18,11 +18,11 @@ nonisolated enum ConversationScrollCommand: Equatable, Sendable {
   var nonce: Int {
     switch self {
       case let .latest(nonce),
-        let .message(_, nonce),
-        let .jumpToLatest(nonce),
-        let .revealMessage(_, nonce),
-        let .toggleFollow(nonce),
-        let .openPendingApproval(nonce):
+           let .message(_, nonce),
+           let .jumpToLatest(nonce),
+           let .revealMessage(_, nonce),
+           let .toggleFollow(nonce),
+           let .openPendingApproval(nonce):
         nonce
     }
   }

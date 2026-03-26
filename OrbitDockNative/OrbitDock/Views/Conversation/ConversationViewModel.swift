@@ -81,9 +81,9 @@ final class ConversationViewModel {
 
     // Full skip — nothing changed at all (same revisions, same load state).
     if let current = timeline, let incoming = snapshot.timeline,
-      current.structureRevision == incoming.structureRevision,
-      current.contentRevision == incoming.contentRevision,
-      loadState == nextLoadState
+       current.structureRevision == incoming.structureRevision,
+       current.contentRevision == incoming.contentRevision,
+       loadState == nextLoadState
     {
       return
     }

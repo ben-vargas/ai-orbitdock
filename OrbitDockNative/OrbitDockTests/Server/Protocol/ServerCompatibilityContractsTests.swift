@@ -93,7 +93,7 @@ struct ServerCompatibilityContractsTests {
     let response = HTTPResponse(
       statusCode: 200,
       headers: [
-        "X-OrbitDock-Server-Version": OrbitDockProtocol.releaseVersion
+        "X-OrbitDock-Server-Version": OrbitDockProtocol.releaseVersion,
       ],
       body: Data()
     )

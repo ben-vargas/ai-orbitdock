@@ -585,8 +585,7 @@ final class SessionObservable {
 
     guard !duplicateIDs.isEmpty else { return rows }
 
-    let normalized = order.compactMap { dedupedByID[$0] }
-    return normalized
+    return order.compactMap { dedupedByID[$0] }
   }
 }
 

@@ -217,22 +217,14 @@ pub fn normalize_client_server_url(url: &str) -> String {
         return DEFAULT_SERVER_URL.to_string();
     }
 
-    let mut parsed = match reqwest::Url::parse(trimmed) {
+    let trimmed = trimmed
+        .replacen("://0.0.0.0", "://127.0.0.1", 1)
+        .replacen("://[::]", "://[::1]", 1);
+
+    let parsed = match reqwest::Url::parse(&trimmed) {
         Ok(url) => url,
-        Err(_) => return trimmed.to_string(),
+        Err(_) => return trimmed,
     };
-
-    let replacement_host = match parsed.host_str() {
-        Some("0.0.0.0") => Some("127.0.0.1"),
-        Some("::") => Some("::1"),
-        _ => None,
-    };
-
-    if let Some(host) = replacement_host {
-        if parsed.set_host(Some(host)).is_err() {
-            return trimmed.to_string();
-        }
-    }
 
     parsed.to_string().trim_end_matches('/').to_string()
 }

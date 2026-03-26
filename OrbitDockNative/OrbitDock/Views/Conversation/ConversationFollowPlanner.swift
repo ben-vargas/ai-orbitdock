@@ -68,7 +68,7 @@ enum ConversationFollowPlanner {
     current: ConversationFollowState,
     intent: ConversationFollowIntent
   ) -> ConversationFollowPlan {
-    let plan = switch intent {
+    switch intent {
       case let .viewportEvent(event):
         viewportPlan(current: current, event: event)
       case let .latestEntriesAppended(count):
@@ -97,7 +97,6 @@ enum ConversationFollowPlanner {
           scrollAction: .latest
         )
     }
-    return plan
   }
 
   private static func viewportPlan(
