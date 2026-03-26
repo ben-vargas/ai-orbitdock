@@ -236,6 +236,8 @@ enum ApprovalCardConfiguration {
   }
 
   static func approveMenuActions(for model: ApprovalCardModel) -> [MenuAction] {
+    // Permissions type has its own scope picker in the UI — the decision
+    // string is ignored, so only one approve action makes sense here.
     if model.approvalType == .permissions {
       return [
         MenuAction(title: "Grant Requested", iconName: "checkmark", keyEquivalent: "y", decision: "approved"),
@@ -250,7 +252,9 @@ enum ApprovalCardConfiguration {
         decision: "approved_for_session"
       ),
     ]
-    if model.approvalType == .exec, model.hasAmendment {
+    // "Always Allow" for exec approvals — Codex patches reject this decision,
+    // so only offer it for exec type where both providers handle it.
+    if model.approvalType == .exec {
       actions.append(
         MenuAction(title: "Always Allow", iconName: "checkmark.shield", keyEquivalent: "!", decision: "approved_always")
       )

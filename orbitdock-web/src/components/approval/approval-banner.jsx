@@ -9,7 +9,6 @@ import styles from './approval-banner.module.css'
 
 const ExecContent = ({ request, onDecide }) => {
   const toolName = request.tool_name || null
-  const hasAmendment = request.proposed_amendment?.length > 0
 
   return (
     <div class={styles.body}>
@@ -39,11 +38,12 @@ const ExecContent = ({ request, onDecide }) => {
         <Button variant="primary" size="sm" onClick={() => onDecide('approved')}>
           Allow
         </Button>
-        {hasAmendment && (
-          <Button variant="secondary" size="sm" onClick={() => onDecide('approved_always')}>
-            Always Allow
-          </Button>
-        )}
+        <Button variant="secondary" size="sm" onClick={() => onDecide('approved_for_session')}>
+          Allow for Session
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => onDecide('approved_always')}>
+          Always Allow
+        </Button>
         <Button variant="danger" size="sm" onClick={() => onDecide('denied')}>
           Deny
         </Button>
@@ -74,6 +74,9 @@ const PatchContent = ({ request, onDecide }) => {
       <div class={styles.actions}>
         <Button variant="primary" size="sm" onClick={() => onDecide('approved')}>
           Allow
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => onDecide('approved_for_session')}>
+          Allow for Session
         </Button>
         <Button variant="danger" size="sm" onClick={() => onDecide('denied')}>
           Deny
@@ -505,6 +508,12 @@ const DefaultContent = ({ request, onDecide }) => (
     <div class={styles.actions}>
       <Button variant="primary" size="sm" onClick={() => onDecide('approved')}>
         Allow
+      </Button>
+      <Button variant="secondary" size="sm" onClick={() => onDecide('approved_for_session')}>
+        Allow for Session
+      </Button>
+      <Button variant="secondary" size="sm" onClick={() => onDecide('approved_always')}>
+        Always Allow
       </Button>
       <Button variant="danger" size="sm" onClick={() => onDecide('denied')}>
         Deny

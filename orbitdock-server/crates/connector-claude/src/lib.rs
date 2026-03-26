@@ -563,10 +563,10 @@ fn infer_media_type(path: &str) -> String {
 // ClaudeConnector
 // ---------------------------------------------------------------------------
 
-/// Stores the `input`, `tool_use_id`, and `permission_suggestions` from a
-/// `can_use_tool` control request so we can echo them back in the approval
-/// response (required by the SDK).
+/// Stores context from a `can_use_tool` control request so we can echo fields
+/// back in the approval response (required by the SDK).
 struct PendingApproval {
+    tool_name: Option<String>,
     input: Value,
     tool_use_id: Option<String>,
     permission_suggestions: Option<Value>,
@@ -968,6 +968,29 @@ impl ClaudeConnector {
                     ) {
                         if let Some(ref suggestions) = p.permission_suggestions {
                             allow["updatedPermissions"] = suggestions.clone();
+                        } else if let Some(ref name) = p.tool_name {
+                            // Construct a fallback PermissionUpdate so the CLI
+                            // remembers this approval even when the SDK didn't
+                            // send permission_suggestions.
+                            let destination = match scope {
+                                ClaudeAllowToolApprovalScope::Always => "localSettings",
+                                _ => "session",
+                            };
+                            let fallback = serde_json::json!([{
+                                "type": "addRules",
+                                "behavior": "allow",
+                                "destination": destination,
+                                "rules": [{ "toolName": name }]
+                            }]);
+                            info!(
+                                component = "claude_connector",
+                                event = "claude.approval.fallback_permission_update",
+                                request_id = %request_id,
+                                tool_name = %name,
+                                destination,
+                                "No permission_suggestions from CLI; constructed fallback updatedPermissions"
+                            );
+                            allow["updatedPermissions"] = fallback;
                         } else {
                             warn!(
                                 component = "claude_connector",
@@ -975,7 +998,7 @@ impl ClaudeConnector {
                                 request_id = %request_id,
                                 decision = %decision,
                                 tool_use_id = ?p.tool_use_id,
-                                "Session-scoped approval missing permission suggestions; CLI may reprompt the same command"
+                                "Session-scoped approval missing both permission_suggestions and tool_name; CLI will reprompt"
                             );
                         }
                     }
@@ -2691,6 +2714,7 @@ impl ClaudeConnector {
         pending_approvals.lock().await.insert(
             request_id.clone(),
             PendingApproval {
+                tool_name: tool_name.clone(),
                 input: input.clone().unwrap_or(Value::Null),
                 tool_use_id: tool_use_id.clone(),
                 permission_suggestions,
