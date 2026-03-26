@@ -96,5 +96,46 @@ struct ServerSetupVisibilityTests {
         ) == .notConfigured
       )
     }
+
+    @Test func parsesBinaryVersionsFromCliOutput() {
+      let stable = OrbitDockBinaryVersion.parse("orbitdock 0.5.0")
+      let nightly = OrbitDockBinaryVersion.parse("orbitdock v0.5.0-nightly.20260326")
+
+      #expect(stable?.major == 0)
+      #expect(stable?.minor == 5)
+      #expect(stable?.patch == 0)
+      #expect(stable?.suffix == nil)
+      #expect(nightly?.suffix == "nightly.20260326")
+    }
+
+    @Test func bundledServerSyncReplacesWhenBundleCoreVersionIsNewer() {
+      let bundled = OrbitDockBinaryVersion.parse("orbitdock 0.5.0")
+      let installed = OrbitDockBinaryVersion.parse("orbitdock 0.4.0")
+
+      #expect(ServerManager.bundledServerSyncDecision(
+        bundledVersion: bundled,
+        installedVersion: installed
+      ) == .replace)
+    }
+
+    @Test func bundledServerSyncReplacesWhenOnlyTheSameCoreBuildDiffers() {
+      let bundled = OrbitDockBinaryVersion.parse("orbitdock 0.5.0-nightly.20260326")
+      let installed = OrbitDockBinaryVersion.parse("orbitdock 0.5.0")
+
+      #expect(ServerManager.bundledServerSyncDecision(
+        bundledVersion: bundled,
+        installedVersion: installed
+      ) == .replace)
+    }
+
+    @Test func bundledServerSyncSkipsDowngradeWhenInstalledCoreVersionIsNewer() {
+      let bundled = OrbitDockBinaryVersion.parse("orbitdock 0.5.0")
+      let installed = OrbitDockBinaryVersion.parse("orbitdock 0.6.0")
+
+      #expect(ServerManager.bundledServerSyncDecision(
+        bundledVersion: bundled,
+        installedVersion: installed
+      ) == .skipDowngrade)
+    }
   }
 #endif

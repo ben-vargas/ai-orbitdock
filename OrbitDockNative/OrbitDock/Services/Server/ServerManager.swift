@@ -19,6 +19,57 @@ enum ServerInstallState: Equatable {
   case remote // Remote endpoint configured
 }
 
+struct OrbitDockBinaryVersion: Equatable, Sendable {
+  let major: Int
+  let minor: Int
+  let patch: Int
+  let suffix: String?
+
+  var core: (Int, Int, Int) {
+    (major, minor, patch)
+  }
+
+  static func parse(_ rawValue: String) -> OrbitDockBinaryVersion? {
+    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+
+    guard let token = trimmed
+      .split(whereSeparator: \.isWhitespace)
+      .last
+      .map(String.init)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    else {
+      return nil
+    }
+    guard !token.isEmpty else { return nil }
+
+    let normalized = token.hasPrefix("v") ? String(token.dropFirst()) : token
+    let components = normalized.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+    let core = components[0].split(separator: ".", omittingEmptySubsequences: false)
+    guard core.count == 3,
+          let major = Int(core[0]),
+          let minor = Int(core[1]),
+          let patch = Int(core[2])
+    else {
+      return nil
+    }
+
+    let suffix = components.count > 1 ? String(components[1]) : nil
+    return OrbitDockBinaryVersion(
+      major: major,
+      minor: minor,
+      patch: patch,
+      suffix: suffix?.isEmpty == true ? nil : suffix
+    )
+  }
+}
+
+enum BundledServerSyncDecision: Equatable {
+  case upToDate
+  case replace
+  case skipDowngrade
+}
+
 enum ServerInstallStateResolver {
   static func resolve(
     isHealthy: Bool,
@@ -42,6 +93,7 @@ enum ServerInstallStateResolver {
   @MainActor
   final class ServerManager: ObservableObject {
     private nonisolated static let forcedInstallStateEnvKey = "ORBITDOCK_FORCE_SERVER_INSTALL_STATE"
+    private nonisolated static let appManagedLocalInstallKey = "orbitdock.server.app-managed-local-install"
     private let logger = Logger(subsystem: "com.orbitdock", category: "server-manager")
     private let endpointSettings: ServerEndpointSettingsClient
 
@@ -209,28 +261,8 @@ enum ServerInstallStateResolver {
         let binDir = PlatformPaths.orbitDockBinDirectory
         PlatformPaths.ensureDirectory(binDir)
         let destPath = binDir.appendingPathComponent("orbitdock").path
-        let staleInstalledPath = binDir.appendingPathComponent("orbitdock-server").path
-
         do {
-          // Remove existing if present
-          if FileManager.default.fileExists(atPath: destPath) {
-            try FileManager.default.removeItem(atPath: destPath)
-          }
-          if FileManager.default.fileExists(atPath: staleInstalledPath) {
-            try FileManager.default.removeItem(atPath: staleInstalledPath)
-          }
-          try FileManager.default.copyItem(atPath: sourcePath, toPath: destPath)
-
-          // Ensure executable
-          let attrs: [FileAttributeKey: Any] = [.posixPermissions: 0o755]
-          try FileManager.default.setAttributes(attrs, ofItemAtPath: destPath)
-
-          // Strip quarantine xattr — the app bundle inherits com.apple.quarantine
-          // when downloaded, and FileManager.copyItem propagates it to the copy.
-          // launchd refuses to load quarantined binaries.
-          removexattr(destPath, "com.apple.quarantine", 0)
-
-          logger.info("Copied server binary to \(destPath)")
+          try installBundledBinary(from: sourcePath, to: destPath)
           binaryPath = destPath
         } catch {
           let msg = "Failed to copy binary: \(error.localizedDescription)"
@@ -243,7 +275,7 @@ enum ServerInstallStateResolver {
 
       // Ensure CLI binary directory is persisted on PATH.
       do {
-        try await runCLI(binaryPath, arguments: ["ensure-path"])
+        _ = try await runCLI(binaryPath, arguments: ["ensure-path"])
         logger.info("orbitdock ensure-path completed")
       } catch {
         logger.warning("orbitdock ensure-path failed: \(error.localizedDescription)")
@@ -251,7 +283,7 @@ enum ServerInstallStateResolver {
 
       // Run init
       do {
-        try await runCLI(binaryPath, arguments: ["init"])
+        _ = try await runCLI(binaryPath, arguments: ["init"])
         logger.info("orbitdock init completed")
       } catch {
         let msg = "init failed: \(error.localizedDescription)"
@@ -261,7 +293,7 @@ enum ServerInstallStateResolver {
 
       // Install hooks
       do {
-        try await runCLI(binaryPath, arguments: ["install-hooks"])
+        _ = try await runCLI(binaryPath, arguments: ["install-hooks"])
         logger.info("orbitdock install-hooks completed")
       } catch {
         let msg = "install-hooks failed: \(error.localizedDescription)"
@@ -271,7 +303,7 @@ enum ServerInstallStateResolver {
 
       // Install + enable launchd service
       do {
-        try await runCLI(binaryPath, arguments: ["install-service", "--enable"])
+        _ = try await runCLI(binaryPath, arguments: ["install-service", "--enable"])
         logger.info("orbitdock install-service --enable completed")
       } catch {
         let msg = "install-service failed: \(error.localizedDescription)"
@@ -288,6 +320,7 @@ enum ServerInstallStateResolver {
       }
 
       await refreshState()
+      markAppManagedLocalInstall()
       logger.info("Server installation complete")
     }
 
@@ -310,6 +343,7 @@ enum ServerInstallStateResolver {
       }
 
       await refreshState()
+      clearAppManagedLocalInstallMarker()
     }
 
     // MARK: - Service Control
@@ -333,6 +367,50 @@ enum ServerInstallStateResolver {
     func restartService() async throws {
       try await stopService()
       try await startService()
+    }
+
+    func syncBundledServerIfNeeded() async {
+      guard let bundledBinaryPath = bundledServerBinaryPath() else { return }
+
+      let installedBinaryPath = installedServerBinaryPath()
+      guard FileManager.default.fileExists(atPath: installedBinaryPath) else { return }
+      guard shouldManageLocalInstalledServer() else { return }
+
+      let bundledVersionOutput: String
+      let installedVersionOutput: String
+      do {
+        bundledVersionOutput = try await runCLI(bundledBinaryPath, arguments: ["--version"])
+        installedVersionOutput = try await runCLI(installedBinaryPath, arguments: ["--version"])
+      } catch {
+        logger.warning("Skipping bundled server sync; version probe failed: \(error.localizedDescription)")
+        return
+      }
+
+      let bundledVersion = OrbitDockBinaryVersion.parse(bundledVersionOutput)
+      let installedVersion = OrbitDockBinaryVersion.parse(installedVersionOutput)
+      let decision = Self.bundledServerSyncDecision(
+        bundledVersion: bundledVersion,
+        installedVersion: installedVersion
+      )
+
+      guard decision == .replace else {
+        if decision == .skipDowngrade {
+          logger.info("Skipping bundled server sync because the installed server is newer")
+        }
+        return
+      }
+
+      do {
+        try await upgradeInstalledLocalServer(
+          bundledBinaryPath: bundledBinaryPath,
+          installedBinaryPath: installedBinaryPath,
+          bundledVersionOutput: bundledVersionOutput,
+          installedVersionOutput: installedVersionOutput
+        )
+        await refreshState()
+      } catch {
+        logger.error("Bundled server sync failed: \(error.localizedDescription)")
+      }
     }
 
     // MARK: - Health Check
@@ -378,8 +456,121 @@ enum ServerInstallStateResolver {
       FileManager.default.fileExists(atPath: launchdPlistPath())
     }
 
+    private func bundledServerBinaryPath() -> String? {
+      guard let bundlePath = Bundle.main.url(forResource: "orbitdock", withExtension: nil),
+            FileManager.default.fileExists(atPath: bundlePath.path)
+      else {
+        return nil
+      }
+      return bundlePath.path
+    }
+
+    private func installedServerBinaryPath() -> String {
+      PlatformPaths.orbitDockBinDirectory
+        .appendingPathComponent("orbitdock").path
+    }
+
+    private func installedServerBackupPath() -> String {
+      PlatformPaths.orbitDockBinDirectory
+        .appendingPathComponent("orbitdock.backup").path
+    }
+
+    private func shouldManageLocalInstalledServer() -> Bool {
+      if UserDefaults.standard.bool(forKey: Self.appManagedLocalInstallKey) {
+        return true
+      }
+
+      // Older app-installed setups won't have the marker yet. If the launchd service
+      // exists and we still have a local managed endpoint configured, treat it as an
+      // app-managed install and migrate it onto the safer update path.
+      return launchdPlistExists() && endpointSettings.endpoints().contains(where: \.isLocalManaged)
+    }
+
+    private func markAppManagedLocalInstall() {
+      UserDefaults.standard.set(true, forKey: Self.appManagedLocalInstallKey)
+    }
+
+    private func clearAppManagedLocalInstallMarker() {
+      UserDefaults.standard.removeObject(forKey: Self.appManagedLocalInstallKey)
+    }
+
+    private func installBundledBinary(from sourcePath: String, to destinationPath: String) throws {
+      let fileManager = FileManager.default
+      let binDir = PlatformPaths.orbitDockBinDirectory
+      PlatformPaths.ensureDirectory(binDir)
+
+      let staleInstalledPath = binDir.appendingPathComponent("orbitdock-server").path
+      if fileManager.fileExists(atPath: destinationPath) {
+        try fileManager.removeItem(atPath: destinationPath)
+      }
+      if fileManager.fileExists(atPath: staleInstalledPath) {
+        try fileManager.removeItem(atPath: staleInstalledPath)
+      }
+
+      try fileManager.copyItem(atPath: sourcePath, toPath: destinationPath)
+      try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destinationPath)
+
+      // Quarantine tags propagate from the app bundle copy and will prevent launchd
+      // from starting the service unless we clear them here.
+      removexattr(destinationPath, "com.apple.quarantine", 0)
+      logger.info("Installed bundled server binary at \(destinationPath)")
+    }
+
+    private func upgradeInstalledLocalServer(
+      bundledBinaryPath: String,
+      installedBinaryPath: String,
+      bundledVersionOutput: String,
+      installedVersionOutput: String
+    ) async throws {
+      let backupPath = installedServerBackupPath()
+      let fileManager = FileManager.default
+
+      if fileManager.fileExists(atPath: backupPath) {
+        try? fileManager.removeItem(atPath: backupPath)
+      }
+      try fileManager.copyItem(atPath: installedBinaryPath, toPath: backupPath)
+
+      do {
+        try installBundledBinary(from: bundledBinaryPath, to: installedBinaryPath)
+
+        do {
+          _ = try await runCLI(installedBinaryPath, arguments: ["ensure-path"])
+        } catch {
+          logger.warning("Bundled server upgrade ensure-path failed: \(error.localizedDescription)")
+        }
+
+        if launchdPlistExists() {
+          _ = try await runCLI(installedBinaryPath, arguments: ["install-service", "--enable"])
+          let ready = await waitForHealth(maxAttempts: 15)
+          guard ready else {
+            throw ServerInstallError.healthCheckFailed
+          }
+        }
+
+        markAppManagedLocalInstall()
+        logger.info(
+          "Upgraded bundled server from \(installedVersionOutput.trimmingCharacters(in: .whitespacesAndNewlines)) to \(bundledVersionOutput.trimmingCharacters(in: .whitespacesAndNewlines))"
+        )
+        try? fileManager.removeItem(atPath: backupPath)
+      } catch {
+        logger.error("Bundled server upgrade failed; restoring previous binary")
+        try? installBundledBinary(from: backupPath, to: installedBinaryPath)
+
+        if launchdPlistExists() {
+          do {
+            _ = try await runCLI(installedBinaryPath, arguments: ["install-service", "--enable"])
+          } catch {
+            logger.error("Failed to restore previous local server service after upgrade error: \(error.localizedDescription)")
+          }
+        }
+
+        try? fileManager.removeItem(atPath: backupPath)
+        throw error
+      }
+    }
+
     /// Run the orbitdock CLI binary with arguments.
-    private func runCLI(_ binaryPath: String, arguments: [String]) async throws {
+    private func runCLI(_ binaryPath: String, arguments: [String]) async throws -> String {
       try await runShell(binaryPath, arguments: arguments)
     }
 
@@ -451,6 +642,28 @@ enum ServerInstallStateResolver {
       }
 
       return nil
+    }
+
+    static func bundledServerSyncDecision(
+      bundledVersion: OrbitDockBinaryVersion?,
+      installedVersion: OrbitDockBinaryVersion?
+    ) -> BundledServerSyncDecision {
+      guard let bundledVersion, let installedVersion else {
+        return .replace
+      }
+
+      if bundledVersion.core > installedVersion.core {
+        return .replace
+      }
+      if bundledVersion.core < installedVersion.core {
+        return .skipDowngrade
+      }
+
+      if bundledVersion != installedVersion {
+        return .replace
+      }
+
+      return .upToDate
     }
   }
 
