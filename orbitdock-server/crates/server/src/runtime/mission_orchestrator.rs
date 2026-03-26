@@ -20,8 +20,6 @@ use crate::infrastructure::persistence::mission_control::{
 };
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::workspace_dispatch::local::LocalWorkspaceProvider;
-use crate::runtime::workspace_dispatch::WorkspaceProvider;
 
 use super::mission_dispatch::{dispatch_issue, DispatchContext};
 use super::mission_reconciliation::reconcile_mission;
@@ -318,9 +316,6 @@ async fn process_mission(
     )
     .await;
 
-    // Construct workspace provider for dispatch
-    let workspace_provider: Arc<dyn WorkspaceProvider> = Arc::new(LocalWorkspaceProvider::new());
-
     // Skip candidate fetch + dispatch for manual-only missions
     if workflow.config.trigger.kind == "manual_only" {
         broadcast_mission_delta_by_id(registry, &mission.id).await;
@@ -386,7 +381,6 @@ async fn process_mission(
             worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
             state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
             tracker: tracker.clone(),
-            workspace_provider: workspace_provider.clone(),
         };
 
         tokio::spawn(async move {
@@ -464,7 +458,6 @@ async fn process_mission(
             worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
             state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
             tracker: tracker.clone(),
-            workspace_provider: workspace_provider.clone(),
         };
 
         tokio::spawn(async move {
@@ -544,7 +537,6 @@ async fn process_mission(
             worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
             state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
             tracker: tracker.clone(),
-            workspace_provider: workspace_provider.clone(),
         };
 
         tokio::spawn(async move {

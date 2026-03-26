@@ -1421,9 +1421,6 @@ pub async fn dispatch_mission_issue(
         worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
         state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
         tracker,
-        workspace_provider: Arc::new(
-            crate::runtime::workspace_dispatch::local::LocalWorkspaceProvider::new(),
-        ),
     };
 
     tokio::spawn(async move {

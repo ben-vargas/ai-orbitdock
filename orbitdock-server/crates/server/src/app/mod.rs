@@ -15,7 +15,7 @@ use axum::{
 };
 use orbitdock_protocol::{
     ClaudeIntegrationMode, CodexApprovalPolicy, CodexIntegrationMode, Provider, SessionControlMode,
-    SessionLifecycleState, SessionStatus, TokenUsage, TurnDiff, WorkStatus,
+    SessionLifecycleState, SessionStatus, TokenUsage, TurnDiff, WorkStatus, WorkspaceProviderKind,
 };
 use tokio::sync::{mpsc, watch};
 use tower_http::cors::CorsLayer;
@@ -63,6 +63,7 @@ pub struct ServerRunOptions {
     pub logging: ServerLoggingOptions,
     pub serve_web: bool,
     pub managed_sync: Option<ManagedSyncRunOptions>,
+    pub workspace_provider_override: Option<WorkspaceProviderKind>,
 }
 
 pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
@@ -146,6 +147,12 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     let persisted_is_primary = crate::infrastructure::persistence::load_config_value("server_role")
         .and_then(|value| parse_server_role_value(&value));
     let is_primary = persisted_is_primary.unwrap_or(options.startup_is_primary);
+    let persisted_workspace_provider_value =
+        crate::infrastructure::persistence::load_config_value("workspace_provider");
+    let workspace_provider_kind = resolve_workspace_provider_kind(
+        options.workspace_provider_override,
+        persisted_workspace_provider_value.clone(),
+    )?;
     info!(
         component = "server",
         event = "server.role.resolved",
@@ -156,6 +163,19 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
             "startup_default"
         },
         "Resolved server control-plane role"
+    );
+    info!(
+        component = "server",
+        event = "server.workspace_provider.resolved",
+        provider = workspace_provider_kind.as_str(),
+        source = if options.workspace_provider_override.is_some() {
+            "startup_override"
+        } else if persisted_workspace_provider_value.is_some() {
+            "config"
+        } else {
+            "default"
+        },
+        "Resolved workspace provider"
     );
 
     {
@@ -226,6 +246,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         persist_tx.clone(),
         db_path.clone(),
         is_primary,
+        workspace_provider_kind,
     ));
 
     if let Err(error) = cleanup_stale_permission_state().await {
@@ -850,6 +871,22 @@ fn normalize_auth_token(auth_token: Option<String>) -> Option<String> {
         .filter(|token| !token.is_empty())
 }
 
+fn resolve_workspace_provider_kind(
+    override_kind: Option<WorkspaceProviderKind>,
+    persisted_value: Option<String>,
+) -> anyhow::Result<WorkspaceProviderKind> {
+    if let Some(override_kind) = override_kind {
+        return Ok(override_kind);
+    }
+
+    match persisted_value {
+        Some(value) => value
+            .parse::<WorkspaceProviderKind>()
+            .map_err(|error| anyhow::anyhow!(error)),
+        None => Ok(WorkspaceProviderKind::default()),
+    }
+}
+
 fn configured_cors_layer() -> anyhow::Result<Option<CorsLayer>> {
     let raw = match std::env::var("ORBITDOCK_CORS_ALLOWED_ORIGINS") {
         Ok(value) => value,
@@ -1116,4 +1153,29 @@ fn spawn_spool_replay(state: Arc<SessionRegistry>) {
             "Background spool replay completed"
         );
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_workspace_provider_kind;
+    use orbitdock_protocol::WorkspaceProviderKind;
+
+    #[test]
+    fn workspace_provider_override_wins_over_persisted_value() {
+        let resolved = resolve_workspace_provider_kind(
+            Some(WorkspaceProviderKind::Local),
+            Some("local".to_string()),
+        )
+        .expect("workspace provider should resolve");
+
+        assert_eq!(resolved, WorkspaceProviderKind::Local);
+    }
+
+    #[test]
+    fn workspace_provider_defaults_to_local_when_missing() {
+        let resolved =
+            resolve_workspace_provider_kind(None, None).expect("workspace provider should default");
+
+        assert_eq!(resolved, WorkspaceProviderKind::Local);
+    }
 }

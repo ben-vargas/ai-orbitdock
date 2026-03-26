@@ -1,4 +1,5 @@
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use orbitdock_protocol::WorkspaceProviderKind;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -92,12 +93,20 @@ pub enum BinaryCommand {
         /// Upstream bearer token for sync replication.
         #[arg(long, env = "ORBITDOCK_SYNC_TOKEN")]
         sync_token: Option<String>,
+
+        /// Workspace provider to use for mission dispatch.
+        #[arg(long, env = "ORBITDOCK_WORKSPACE_PROVIDER")]
+        workspace_provider: Option<WorkspaceProviderKind>,
     },
 
     /// Bootstrap a fresh machine (create dirs and run migrations)
     Init {
         #[arg(long, default_value = "http://127.0.0.1:4000")]
         server_url: String,
+
+        /// Default workspace provider to store in server config.
+        #[arg(long, default_value = "local", env = "ORBITDOCK_WORKSPACE_PROVIDER")]
+        workspace_provider: WorkspaceProviderKind,
     },
 
     /// Install Claude Code hooks into ~/.claude/settings.json
@@ -179,6 +188,9 @@ pub enum BinaryCommand {
         server_url: Option<String>,
 
         #[arg(long)]
+        workspace_provider: Option<WorkspaceProviderKind>,
+
+        #[arg(long)]
         skip_service: bool,
 
         #[arg(long)]
@@ -245,6 +257,12 @@ pub enum BinaryCommand {
         action: ServerAction,
     },
 
+    /// Scripted configuration access
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+
     /// Codex account management
     #[command(name = "codex")]
     CodexAccount {
@@ -305,6 +323,9 @@ pub fn binary_to_client_command(command: &BinaryCommand) -> Option<Command> {
             action: action.clone(),
         }),
         BinaryCommand::Server { action } => Some(Command::Server {
+            action: action.clone(),
+        }),
+        BinaryCommand::Config { action } => Some(Command::Config {
             action: action.clone(),
         }),
         BinaryCommand::CodexAccount { action } => Some(Command::Codex {
@@ -395,6 +416,12 @@ pub enum Command {
     Server {
         #[command(subcommand)]
         action: ServerAction,
+    },
+
+    /// Scripted configuration access
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
     },
 
     /// Codex account management
@@ -887,6 +914,29 @@ pub enum ServerAction {
     },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum ConfigKey {
+    #[value(name = "workspace-provider")]
+    WorkspaceProvider,
+}
+
+#[derive(Clone, Debug, Subcommand)]
+pub enum ConfigAction {
+    /// Read a config value
+    Get {
+        #[arg(value_enum)]
+        key: ConfigKey,
+    },
+
+    /// Update a config value
+    Set {
+        #[arg(value_enum)]
+        key: ConfigKey,
+
+        value: String,
+    },
+}
+
 // ── Codex ────────────────────────────────────────────────────
 
 #[derive(Clone, Debug, Subcommand)]
@@ -1268,6 +1318,8 @@ mod tests {
             "https://control-plane.example",
             "--sync-token",
             "sync-token-1",
+            "--workspace-provider",
+            "local",
         ])
         .expect("binary cli should parse managed start flags");
 
@@ -1277,14 +1329,54 @@ mod tests {
                 workspace_id,
                 sync_url,
                 sync_token,
+                workspace_provider,
                 ..
             }) => {
                 assert!(managed);
                 assert_eq!(workspace_id.as_deref(), Some("workspace-1"));
                 assert_eq!(sync_url.as_deref(), Some("https://control-plane.example"));
                 assert_eq!(sync_token.as_deref(), Some("sync-token-1"));
+                assert_eq!(workspace_provider, Some(WorkspaceProviderKind::Local));
             }
             other => panic!("expected start command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn binary_cli_parses_init_workspace_provider() {
+        let cli = BinaryCli::try_parse_from(["orbitdock", "init", "--workspace-provider", "local"])
+            .expect("binary cli should parse init workspace provider");
+
+        match cli.command {
+            Some(BinaryCommand::Init {
+                workspace_provider, ..
+            }) => {
+                assert_eq!(workspace_provider, WorkspaceProviderKind::Local);
+            }
+            other => panic!("expected init command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn binary_cli_parses_config_set_workspace_provider() {
+        let cli = BinaryCli::try_parse_from([
+            "orbitdock",
+            "config",
+            "set",
+            "workspace-provider",
+            "local",
+        ])
+        .expect("binary cli should parse config set");
+
+        match cli.command {
+            Some(BinaryCommand::Config {
+                action:
+                    ConfigAction::Set {
+                        key: ConfigKey::WorkspaceProvider,
+                        value,
+                    },
+            }) => assert_eq!(value, "local"),
+            other => panic!("expected config set command, got {other:?}"),
         }
     }
 
@@ -1300,5 +1392,6 @@ mod tests {
         assert!(help.contains("--workspace-id"));
         assert!(help.contains("--sync-url"));
         assert!(help.contains("--sync-token"));
+        assert!(help.contains("--workspace-provider"));
     }
 }

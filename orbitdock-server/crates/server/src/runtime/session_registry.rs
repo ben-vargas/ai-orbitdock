@@ -7,7 +7,7 @@ mod recent_projects;
 use dashmap::DashMap;
 use orbitdock_protocol::{
     ClientPrimaryClaim, DashboardConversationItem, DashboardCounts, DashboardDiffPreview,
-    DashboardSnapshot, MissionsSnapshot, SessionListItem, SessionSummary,
+    DashboardSnapshot, MissionsSnapshot, SessionListItem, SessionSummary, WorkspaceProviderKind,
 };
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -81,6 +81,7 @@ pub struct SessionRegistry {
 
     dashboard_revision: AtomicU64,
     mission_revision: AtomicU64,
+    workspace_provider_kind: std::sync::RwLock<WorkspaceProviderKind>,
 
     /// Channel for manual mission trigger requests (HTTP → orchestrator).
     mission_trigger_tx: mpsc::Sender<String>,
@@ -95,6 +96,7 @@ impl SessionRegistry {
             persist_tx,
             crate::infrastructure::paths::db_path(),
             true,
+            WorkspaceProviderKind::default(),
         )
     }
 
@@ -104,6 +106,7 @@ impl SessionRegistry {
             persist_tx,
             crate::infrastructure::paths::db_path(),
             is_primary,
+            WorkspaceProviderKind::default(),
         )
     }
 
@@ -111,6 +114,7 @@ impl SessionRegistry {
         persist_tx: mpsc::Sender<PersistCommand>,
         db_path: PathBuf,
         is_primary: bool,
+        workspace_provider_kind: WorkspaceProviderKind,
     ) -> Self {
         let (list_tx, _) = broadcast::channel(256);
         #[cfg(test)]
@@ -140,6 +144,7 @@ impl SessionRegistry {
             connections: ConnectionState::new(is_primary),
             dashboard_revision: AtomicU64::new(0),
             mission_revision: AtomicU64::new(0),
+            workspace_provider_kind: std::sync::RwLock::new(workspace_provider_kind),
             mission_trigger_tx,
             mission_trigger_rx: std::sync::Mutex::new(Some(mission_trigger_rx)),
         }
@@ -151,6 +156,20 @@ impl SessionRegistry {
 
     pub fn set_primary(&self, is_primary: bool) -> bool {
         self.connections.set_primary(is_primary)
+    }
+
+    pub fn workspace_provider_kind(&self) -> WorkspaceProviderKind {
+        *self
+            .workspace_provider_kind
+            .read()
+            .expect("workspace provider lock poisoned")
+    }
+
+    pub fn set_workspace_provider_kind(&self, provider_kind: WorkspaceProviderKind) {
+        *self
+            .workspace_provider_kind
+            .write()
+            .expect("workspace provider lock poisoned") = provider_kind;
     }
 
     pub fn ws_connect(&self) -> u64 {
