@@ -153,8 +153,8 @@ final class DirectSessionComposerViewModel {
     data: Data,
     mimeType: String,
     displayName: String,
-    pixelWidth: Int,
-    pixelHeight: Int
+    pixelWidth: Int?,
+    pixelHeight: Int?
   ) async throws -> ServerImageInput {
     try await currentSessionStore.uploadImageAttachment(
       sessionId: resolvedSessionId,

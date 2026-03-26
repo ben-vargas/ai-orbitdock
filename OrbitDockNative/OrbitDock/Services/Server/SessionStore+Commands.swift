@@ -376,8 +376,8 @@ extension SessionStore {
     data: Data,
     mimeType: String,
     displayName: String,
-    pixelWidth: Int,
-    pixelHeight: Int
+    pixelWidth: Int?,
+    pixelHeight: Int?
   ) async throws -> ServerImageInput {
     try await clients.conversation.uploadImageAttachment(
       sessionId: sessionId,

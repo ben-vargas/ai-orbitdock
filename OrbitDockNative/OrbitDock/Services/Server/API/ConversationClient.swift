@@ -190,19 +190,23 @@ struct ConversationClient: Sendable {
     data: Data,
     mimeType: String,
     displayName: String,
-    pixelWidth: Int,
-    pixelHeight: Int
+    pixelWidth: Int?,
+    pixelHeight: Int?
   ) async throws -> ServerImageInput {
+    var query = [URLQueryItem(name: "display_name", value: displayName)]
+    if let pixelWidth {
+      query.append(URLQueryItem(name: "pixel_width", value: "\(pixelWidth)"))
+    }
+    if let pixelHeight {
+      query.append(URLQueryItem(name: "pixel_height", value: "\(pixelHeight)"))
+    }
+
     let response: ServerUploadedImageAttachmentResponse = try await http.requestRaw(
       path: "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/attachments/images",
       method: "POST",
       bodyData: data,
       contentType: mimeType,
-      query: [
-        URLQueryItem(name: "display_name", value: displayName),
-        URLQueryItem(name: "pixel_width", value: "\(pixelWidth)"),
-        URLQueryItem(name: "pixel_height", value: "\(pixelHeight)"),
-      ]
+      query: query
     )
     return response.image
   }

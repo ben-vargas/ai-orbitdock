@@ -10,6 +10,11 @@ nonisolated enum ComposerImageAttachmentPolicy {
   // Attachments upload individually, so the main limit is per-image reliability,
   // not one giant serialized turn payload.
   static let maxSingleImageBytes = 12 * 1_024 * 1_024
+  // Keep remote uploads comfortably below common proxy/tunnel ceilings.
+  static let preferredRemoteSingleImageBytes = 4 * 1_024 * 1_024
+  static let preferredLocalSingleImageBytes = 8 * 1_024 * 1_024
+  static let recommendedMaxLongEdgePixels = 8_192
+  static let recommendedMaxPixelCount = 12_000_000
   static let maxTotalRawBytes = maxImageCount * maxSingleImageBytes
   static let nearLimitFraction = 0.85
 

@@ -119,11 +119,30 @@ extension DirectSessionComposer {
             sessionId: sessionId,
             data: ["error": String(describing: error)]
           )
-          errorMessage = "Couldn't send message. Your draft is still here."
+          errorMessage = composerSendErrorMessage(for: error)
           requestComposerFocus()
         }
       }
     }
+  }
+
+  func composerSendErrorMessage(for error: Error) -> String {
+    let hasImages = attachmentState.hasImages
+
+    if let requestError = error as? ServerRequestError, hasImages {
+      switch requestError {
+        case .transport(.timedOut):
+          return "Image upload timed out. Try a smaller screenshot or crop the page a bit."
+        case let .httpStatus(status, _, _) where status == 413:
+          return "That image is too large to upload reliably. Try a smaller screenshot or crop the page a bit."
+        case .transport, .httpStatus:
+          return "Image upload failed before the session could accept it. Try a smaller screenshot or crop the page a bit."
+        default:
+          break
+      }
+    }
+
+    return "Couldn't send message. Your draft is still here."
   }
 
   var sendContext: DirectSessionComposerSendContext {
@@ -176,8 +195,8 @@ extension DirectSessionComposer {
             data: image.uploadData,
             mimeType: image.uploadMimeType,
             displayName: image.displayName ?? "image",
-            pixelWidth: image.pixelWidth ?? 0,
-            pixelHeight: image.pixelHeight ?? 0
+            pixelWidth: image.pixelWidth,
+            pixelHeight: image.pixelHeight
           )
           uploaded.append(input)
         }
