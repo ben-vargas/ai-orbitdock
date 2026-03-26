@@ -8,9 +8,7 @@ Run, review, and orchestrate AI coding agents from anywhere.
 ![Rust](https://img.shields.io/badge/Rust-stable-red)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-
-https://github.com/user-attachments/assets/b1e23968-6196-45b3-8b86-c177b3e59e6d
-
+![OrbitDock macOS dashboard](https://orbitdock.dev/macos-orbitdock.png)
 
 ## Why
 
