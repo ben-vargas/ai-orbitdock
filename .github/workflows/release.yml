@@ -130,6 +130,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install native Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libcap-dev
+
       - name: Build orbitdock (linux x86_64)
         run: |
           cd orbitdock-server
