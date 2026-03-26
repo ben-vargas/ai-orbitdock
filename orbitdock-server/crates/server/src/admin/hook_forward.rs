@@ -211,13 +211,34 @@ fn write_secure_config(path: &Path, body: &str) -> anyhow::Result<()> {
     }
 }
 
-fn normalize_server_url(url: &str) -> String {
+pub fn normalize_client_server_url(url: &str) -> String {
     let trimmed = url.trim().trim_end_matches('/');
     if trimmed.is_empty() {
-        DEFAULT_SERVER_URL.to_string()
-    } else {
-        trimmed.to_string()
+        return DEFAULT_SERVER_URL.to_string();
     }
+
+    let mut parsed = match reqwest::Url::parse(trimmed) {
+        Ok(url) => url,
+        Err(_) => return trimmed.to_string(),
+    };
+
+    let replacement_host = match parsed.host_str() {
+        Some("0.0.0.0") => Some("127.0.0.1"),
+        Some("::") => Some("::1"),
+        _ => None,
+    };
+
+    if let Some(host) = replacement_host {
+        if parsed.set_host(Some(host)).is_err() {
+            return trimmed.to_string();
+        }
+    }
+
+    parsed.to_string().trim_end_matches('/').to_string()
+}
+
+fn normalize_server_url(url: &str) -> String {
+    normalize_client_server_url(url)
 }
 
 fn normalized_non_empty(value: Option<String>) -> Option<String> {
@@ -380,7 +401,7 @@ async fn post_hook(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_hook_body, normalize_server_url, plan_forwarded_hook,
+        build_hook_body, normalize_client_server_url, normalize_server_url, plan_forwarded_hook,
         resolve_hook_target_with_persisted, HookForwardType, HookTransportConfig,
     };
 
@@ -423,6 +444,18 @@ mod tests {
             "http://127.0.0.1:4000"
         );
         assert_eq!(normalize_server_url("   "), "http://127.0.0.1:4000");
+    }
+
+    #[test]
+    fn normalize_client_server_url_rewrites_wildcard_hosts_to_loopback() {
+        assert_eq!(
+            normalize_client_server_url("http://0.0.0.0:4000/"),
+            "http://127.0.0.1:4000"
+        );
+        assert_eq!(
+            normalize_client_server_url("http://[::]:4000/"),
+            "http://[::1]:4000"
+        );
     }
 
     #[test]

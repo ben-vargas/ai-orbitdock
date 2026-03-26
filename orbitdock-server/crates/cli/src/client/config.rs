@@ -60,6 +60,7 @@ impl ClientConfig {
         let server_url = normalized_non_empty(server)
             .or_else(|| normalized_non_empty(file_config.server.as_deref()))
             .unwrap_or_else(|| DEFAULT_SERVER.to_string());
+        let server_url = orbitdock_server::admin::normalize_client_server_url(&server_url);
 
         // Token: flag/env > config file > hook-forward.json (local auto-provisioned token)
         let token = normalized_non_empty(token)
@@ -110,5 +111,16 @@ fn normalized_non_empty(value: Option<&str>) -> Option<String> {
         None
     } else {
         Some(trimmed.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ClientConfig;
+
+    #[test]
+    fn from_sources_normalizes_wildcard_server_urls_to_loopback() {
+        let config = ClientConfig::from_sources(Some("http://0.0.0.0:4000"), None, false, None);
+        assert_eq!(config.server_url, "http://127.0.0.1:4000");
     }
 }

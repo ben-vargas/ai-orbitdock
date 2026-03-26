@@ -9,7 +9,7 @@ Companion to [`data-flow.md`](data-flow.md), which describes the shared HTTP/WS 
 1. WebSocket is the liveness gate.
    If WS is not connected, the client does not treat the endpoint as query-ready.
 2. HTTP owns initial and heavy reads.
-   Dashboard, detail, composer, conversation bootstrap, and pagination start from HTTP.
+   Dashboard, session bootstrap, and pagination start from HTTP.
 3. WebSocket owns realtime updates and replay.
    The client subscribes only after it already has a snapshot revision.
 4. One endpoint, one runtime.
@@ -41,6 +41,8 @@ An endpoint is only query-ready when:
 
 This matters because “server reachable” is not enough. A healthy socket without a loaded dashboard snapshot should not be treated as a fully bootstrapped client state.
 
+The handshake itself is part of readiness. The first WebSocket frame must be `hello`, and the client should reject the connection if the server reports the pair as incompatible instead of trying to operate in a degraded mode.
+
 ## Dashboard Flow
 
 Dashboard must use one bootstrap owner.
@@ -70,8 +72,7 @@ The client should subscribe only to the surfaces it actually renders.
 
 Load:
 
-1. HTTP detail snapshot
-2. HTTP conversation bootstrap if the screen renders the timeline
+1. HTTP session bootstrap
 
 Then subscribe:
 
@@ -82,13 +83,24 @@ Then subscribe:
 
 Load:
 
-1. HTTP composer snapshot
+1. HTTP session bootstrap
 
 Then subscribe:
 
 1. composer surface replay/deltas
 
 Only add conversation bootstrap/subscription if that composer surface also renders history.
+
+### Session bootstrap
+
+For native session screens, bootstrap with one HTTP read:
+
+1. `GET /api/sessions/{id}/conversation?limit=...`
+2. Apply the returned `session` to detail and composer state.
+3. Apply the returned rows to conversation state.
+4. Subscribe to the surfaces the screen renders using `since_revision = session.revision`.
+
+We do not fan this out into separate detail and composer HTTP reads. They carry the same `SessionState`, so the extra round-trips only add latency and duplicate decode/apply work.
 
 ### Unsubscribe
 

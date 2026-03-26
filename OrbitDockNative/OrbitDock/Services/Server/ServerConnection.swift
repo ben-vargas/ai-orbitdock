@@ -372,8 +372,10 @@ final class ServerConnection {
       request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
     }
     request.setValue(OrbitDockProtocol.clientVersion, forHTTPHeaderField: "X-OrbitDock-Client-Version")
-    request.setValue(String(OrbitDockProtocol.major), forHTTPHeaderField: "X-OrbitDock-Client-Protocol-Major")
-    request.setValue(String(OrbitDockProtocol.minor), forHTTPHeaderField: "X-OrbitDock-Client-Protocol-Minor")
+    request.setValue(
+      OrbitDockProtocol.compatibility,
+      forHTTPHeaderField: "X-OrbitDock-Client-Compatibility"
+    )
 
     let socket = wsSession.webSocketTask(with: request)
     socket.maximumMessageSize = Self.maxInboundBytes
@@ -580,10 +582,6 @@ final class ServerConnection {
     guard isCurrentGeneration(generation) else { return }
     guard let data = text.data(using: .utf8) else { return }
 
-    if case .connecting = connectionStatus {
-      completeConnection(expectedGeneration: generation)
-    }
-
     let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     let messageType = json?["type"] as? String
     let sessionId = json?["session_id"] as? String
@@ -599,6 +597,11 @@ final class ServerConnection {
 
     do {
       let msg = try JSONDecoder().decode(ServerToClientMessage.self, from: data)
+      if case .connecting = connectionStatus {
+        guard validateHandshake(message: msg, messageType: messageType, expectedGeneration: generation)
+        else { return }
+        completeConnection(expectedGeneration: generation)
+      }
       routeMessage(msg)
     } catch {
       let preview = String(text.prefix(500))
@@ -608,6 +611,43 @@ final class ServerConnection {
         "preview": preview,
       ])
     }
+  }
+
+  private func validateHandshake(
+    message: ServerToClientMessage,
+    messageType: String?,
+    expectedGeneration generation: UInt64
+  ) -> Bool {
+    switch message {
+      case let .hello(hello):
+        do {
+          try hello.validateCompatibility()
+          return true
+        } catch {
+          failHandshake(error, expectedGeneration: generation)
+          return false
+        }
+      default:
+        failHandshake(
+          ServerCompatibilityError.missingHelloHandshake(messageType: messageType ?? "unknown"),
+          expectedGeneration: generation
+        )
+        return false
+    }
+  }
+
+  private func failHandshake(_ error: Error, expectedGeneration generation: UInt64) {
+    guard isCurrentGeneration(generation) else { return }
+
+    let reconnectGeneration = invalidateConnectionGeneration()
+    pruneStaleConnectionProbe(for: reconnectGeneration)
+    teardownConnectionTasks()
+    lastConnectedAt = nil
+
+    let message = (error as? LocalizedError)?.errorDescription
+      ?? String(describing: error)
+    netLog(.error, cat: .ws, "Server handshake failed", data: ["error": message])
+    setStatus(.failed(message))
   }
 
   private func routeMessage(_ message: ServerToClientMessage) {

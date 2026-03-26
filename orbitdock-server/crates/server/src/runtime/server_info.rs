@@ -1,8 +1,8 @@
 use orbitdock_protocol::{
-    ServerHello, ServerMessage, ServerMeta, CAPABILITY_CONVERSATION_SURFACE_V1,
-    CAPABILITY_DASHBOARD_PROJECTION_V1, CAPABILITY_MISSIONS_PROJECTION_V1,
-    CAPABILITY_SESSION_COMPOSER_SURFACE_V1, CAPABILITY_SESSION_DETAIL_SURFACE_V1, PROTOCOL_MAJOR,
-    PROTOCOL_MINOR,
+    CompatibilityStatus, ServerHello, ServerMessage, ServerMeta,
+    CAPABILITY_CONVERSATION_SURFACE_V1, CAPABILITY_DASHBOARD_PROJECTION_V1,
+    CAPABILITY_MISSIONS_PROJECTION_V1, CAPABILITY_SESSION_COMPOSER_SURFACE_V1,
+    CAPABILITY_SESSION_DETAIL_SURFACE_V1,
 };
 
 use crate::runtime::session_registry::SessionRegistry;
@@ -18,22 +18,23 @@ fn capabilities() -> Vec<String> {
     ]
 }
 
-pub(crate) fn server_hello_message() -> ServerMessage {
+pub(crate) fn server_hello_message(compatibility: CompatibilityStatus) -> ServerMessage {
     ServerMessage::Hello {
         hello: ServerHello {
             server_version: VERSION.to_string(),
-            protocol_major: PROTOCOL_MAJOR,
-            protocol_minor: PROTOCOL_MINOR,
+            compatibility,
             capabilities: capabilities(),
         },
     }
 }
 
-pub(crate) fn server_meta(state: &SessionRegistry) -> ServerMeta {
+pub(crate) fn server_meta(
+    state: &SessionRegistry,
+    compatibility: CompatibilityStatus,
+) -> ServerMeta {
     ServerMeta {
         server_version: VERSION.to_string(),
-        protocol_major: PROTOCOL_MAJOR,
-        protocol_minor: PROTOCOL_MINOR,
+        compatibility,
         capabilities: capabilities(),
         is_primary: state.is_primary(),
         client_primary_claims: state.active_client_primary_claims(),

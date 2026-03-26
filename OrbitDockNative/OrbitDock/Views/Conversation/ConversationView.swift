@@ -15,12 +15,10 @@ struct ConversationView: View {
   var chatViewMode: ChatViewMode = .focused
   @Binding var scrollCommand: ConversationScrollCommand?
 
-  let followMode: ConversationFollowMode
-  let unreadCount: Int
   let onJumpToLatest: () -> Void
-  let onViewportEvent: (ConversationViewportEvent) -> Void
-  let onLatestEntriesAppended: (_ count: Int) -> Void
+  let onFollowStateChanged: (ConversationFollowState) -> Void
   @State private var viewModel = ConversationViewModel()
+  @State private var localFollowState = ConversationFollowState.initial
 
   var body: some View {
     ZStack {
@@ -50,15 +48,15 @@ struct ConversationView: View {
             ZStack(alignment: .bottomTrailing) {
               conversationTimeline
 
-              if !followMode.isFollowing {
+              if !localFollowState.mode.isFollowing {
                 ConversationFollowPill(
-                  unreadCount: unreadCount,
+                  unreadCount: localFollowState.unreadCount,
                   onTap: onJumpToLatest
                 )
                 .padding(.trailing, Spacing.lg)
                 .padding(.bottom, Spacing.sm)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-                .animation(Motion.standard, value: followMode)
+                .animation(Motion.standard, value: localFollowState.mode)
               }
             }
 
@@ -74,8 +72,9 @@ struct ConversationView: View {
     }
     .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId ?? "")") {
       ConversationFollowDebug.log(
-        "ConversationView.task bind sessionId=\(sessionId ?? "nil") endpointId=\(sessionStore.endpointId.uuidString) followMode=\(followMode.rawValue) unread=\(unreadCount)"
+        "ConversationView.task bind sessionId=\(sessionId ?? "nil") endpointId=\(sessionStore.endpointId.uuidString) followMode=\(localFollowState.mode.rawValue) unread=\(localFollowState.unreadCount)"
       )
+      localFollowState = .initial
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore, viewMode: chatViewMode)
     }
     .animation(Motion.fade, value: viewModel.loadState == .loading)
@@ -83,26 +82,9 @@ struct ConversationView: View {
       ConversationFollowDebug.log("ConversationView.loadStateChanged newState=\(String(describing: newState))")
       viewModel.handleLoadStateChange(newState)
     }
-    .onChange(of: viewModel.latestAppendEvent) { _, event in
-      guard let event else { return }
-      ConversationFollowDebug.log(
-        "ConversationView.latestAppendEvent count=\(event.count) nonce=\(event.nonce) followMode=\(followMode.rawValue) unread=\(unreadCount)"
-      )
-      onLatestEntriesAppended(event.count)
-    }
     .onChange(of: chatViewMode) { _, newMode in
       ConversationFollowDebug.log("ConversationView.chatViewModeChanged newMode=\(String(describing: newMode))")
       viewModel.handleTimelineViewModeChange(newMode)
-    }
-    .onChange(of: followMode) { oldMode, newMode in
-      ConversationFollowDebug.log(
-        "ConversationView.followModeChanged old=\(oldMode.rawValue) new=\(newMode.rawValue) unread=\(unreadCount)"
-      )
-    }
-    .onChange(of: unreadCount) { oldCount, newCount in
-      ConversationFollowDebug.log(
-        "ConversationView.unreadChanged old=\(oldCount) new=\(newCount) followMode=\(followMode.rawValue)"
-      )
     }
   }
 
@@ -119,8 +101,11 @@ struct ConversationView: View {
         onLoadMore: {
           viewModel.loadOlderMessages()
         },
-        followMode: followMode,
-        onViewportEvent: onViewportEvent
+        latestAppendEvent: viewModel.latestAppendEvent,
+        onFollowStateChanged: { state in
+          localFollowState = state
+          onFollowStateChanged(state)
+        }
       )
     } else {
       ConversationEmptyStateView()
@@ -136,8 +121,6 @@ enum ConversationLoadState: Equatable {
 // MARK: - Preview
 
 #Preview {
-  @Previewable @State var followMode: ConversationFollowMode = .following
-  @Previewable @State var unreadCount = 0
   @Previewable @State var scrollCommand: ConversationScrollCommand?
 
   ConversationView(
@@ -147,24 +130,11 @@ enum ConversationLoadState: Equatable {
     displayStatus: .working,
     currentTool: "Edit",
     scrollCommand: $scrollCommand,
-    followMode: followMode,
-    unreadCount: unreadCount,
     onJumpToLatest: {
-      followMode = .following
-      unreadCount = 0
+      // In real usage, the parent emits a .jumpToLatest scroll command
     },
-    onViewportEvent: { event in
-      switch event {
-        case .reachedBottom:
-          followMode = .following
-          unreadCount = 0
-        case .leftBottomByUser:
-          followMode = .detachedByUser
-      }
-    },
-    onLatestEntriesAppended: { count in
-      guard !followMode.isFollowing else { return }
-      unreadCount += count
+    onFollowStateChanged: { state in
+      print("Follow state: \(state.mode.rawValue) unread: \(state.unreadCount)")
     }
   )
   .frame(width: 700, height: 600)

@@ -530,18 +530,6 @@ struct SessionsClient: Sendable {
     self.requestBuilder = requestBuilder
   }
 
-  func fetchSessionDetail(_ sessionId: String) async throws -> ServerSessionDetailSnapshotPayload {
-    try await http.get(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/detail"
-    )
-  }
-
-  func fetchSessionComposer(_ sessionId: String) async throws -> ServerSessionComposerSnapshotPayload {
-    try await http.get(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/composer"
-    )
-  }
-
   func createSession(_ request: CreateSessionRequest) async throws -> CreateSessionResponse {
     try await http.post("/api/sessions", body: request)
   }

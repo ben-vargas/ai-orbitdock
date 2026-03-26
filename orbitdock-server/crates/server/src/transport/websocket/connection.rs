@@ -7,6 +7,7 @@ use axum::{
         ws::{Message, WebSocket},
         State, WebSocketUpgrade,
     },
+    http::HeaderMap,
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
@@ -15,8 +16,9 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use orbitdock_protocol::SessionSurface;
-use orbitdock_protocol::{ClientMessage, ServerMessage};
+use orbitdock_protocol::{ClientMessage, CompatibilityStatus, ServerMessage};
 
+use crate::infrastructure::protocol_compat::compatibility_status_from_headers;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::support::snapshot_compaction::{
     sanitize_server_message_for_transport, WS_MAX_TEXT_MESSAGE_BYTES,
@@ -93,13 +95,19 @@ impl ConnectionSubscriptions {
 /// WebSocket upgrade handler
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
+    headers: HeaderMap,
     State(state): State<Arc<SessionRegistry>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+    let compatibility = compatibility_status_from_headers(&headers);
+    ws.on_upgrade(move |socket| handle_socket(socket, state, compatibility))
 }
 
 /// Handle a WebSocket connection
-async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
+async fn handle_socket(
+    socket: WebSocket,
+    state: Arc<SessionRegistry>,
+    compatibility: CompatibilityStatus,
+) {
     let conn_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
     state.ws_connect();
     info!(
@@ -178,7 +186,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
     let client_tx = outbound_tx.clone();
     let mut subscriptions = ConnectionSubscriptions::default();
 
-    send_json(&outbound_tx, server_hello_message()).await;
+    send_json(&outbound_tx, server_hello_message(compatibility)).await;
     // Announce server role immediately so clients can derive control-plane routing.
     send_json(&outbound_tx, server_info_message(&state)).await;
 

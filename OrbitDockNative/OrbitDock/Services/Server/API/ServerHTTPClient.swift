@@ -243,6 +243,24 @@ struct ServerHTTPClient: Sendable {
   }
 
   private func validate(response: HTTPResponse, method: String, path: String) throws {
+    do {
+      try response.validateServerCompatibilityHeaders()
+    } catch let error as ServerCompatibilityError {
+      netLog(
+        .error,
+        cat: .api,
+        "HTTP compatibility failed \(method) \(path)",
+        data: [
+          "serverVersion": response.headerValue(for: "X-OrbitDock-Server-Version") ?? "-",
+          "serverCompatibility": response.headerValue(for: "X-OrbitDock-Server-Compatibility") ?? "-",
+          "compatible": response.headerValue(for: "X-OrbitDock-Compatible") ?? "-",
+          "reason": response.headerValue(for: "X-OrbitDock-Compatibility-Reason") ?? "-",
+          "error": error.localizedDescription,
+        ]
+      )
+      throw ServerRequestError.incompatibleServer(error)
+    }
+
     guard (200 ..< 300).contains(response.statusCode) else {
       let apiError = try? Self.decoder.decode(APIErrorResponse.self, from: response.body)
       netLog(

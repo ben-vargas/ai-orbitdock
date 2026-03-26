@@ -395,23 +395,10 @@ Optional display guidance from server to client. All fields default to `false`/`
 
 ## WebSocket Events
 
-### `conversation_bootstrap`
+Conversation bootstrap now lives on HTTP:
 
-Sent on session subscribe. Contains the full `SessionState` plus a `ConversationRowPage`.
-
-```json
-{
-  "type": "conversation_bootstrap",
-  "session": { ... },
-  "conversation": {
-    "rows": [ ... ],
-    "total_row_count": 120,
-    "has_more_before": true,
-    "oldest_sequence": 71,
-    "newest_sequence": 120
-  }
-}
-```
+- `GET /api/sessions/{session_id}/conversation` for the initial window and shared session bootstrap
+- `GET /api/sessions/{session_id}/messages` for older pages
 
 ### `conversation_rows_changed`
 

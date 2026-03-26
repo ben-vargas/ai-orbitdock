@@ -131,8 +131,8 @@ fn plan_hook_install(
     let target_url = server_url
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("http://127.0.0.1:4000")
-        .to_string();
+        .map(crate::admin::normalize_client_server_url)
+        .unwrap_or_else(|| "http://127.0.0.1:4000".to_string());
     let explicit_auth_token = normalized_non_empty(auth_token);
     let auth_token_required =
         explicit_auth_token.is_none() && should_prompt_for_auth_token(&target_url);

@@ -22,6 +22,11 @@ struct HTTPRequestBuilderTests {
     #expect(request.httpMethod == "POST")
     #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret-token")
     #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+    #expect(request.value(forHTTPHeaderField: "X-OrbitDock-Client-Version") == OrbitDockProtocol.clientVersion)
+    #expect(
+      request.value(forHTTPHeaderField: "X-OrbitDock-Client-Compatibility")
+        == OrbitDockProtocol.compatibility
+    )
     #expect(request.httpBody == body)
   }
 

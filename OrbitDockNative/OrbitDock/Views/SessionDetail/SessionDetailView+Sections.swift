@@ -117,11 +117,8 @@ extension SessionDetailView {
         focusWorkerInDeck(workerId)
       } : nil,
       scrollCommand: $viewModel.conversationScrollCommand,
-      followMode: viewModel.followMode,
-      unreadCount: viewModel.unreadCount,
       onJumpToLatest: viewModel.jumpConversationToLatest,
-      onViewportEvent: viewModel.handleConversationViewportEvent,
-      onLatestEntriesAppended: viewModel.handleConversationLatestEntriesAppended
+      onFollowStateChanged: viewModel.handleConversationFollowStateChanged
     )
   }
 

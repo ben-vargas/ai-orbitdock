@@ -4,6 +4,9 @@ import Testing
 
 @MainActor
 struct SessionStoreReconnectRecoveryTests {
+  fileprivate nonisolated static let fixtureServerVersion = "0.4.0"
+  fileprivate nonisolated static let fixtureServerCompatibility = "server_authoritative_session_v1"
+
   @Test func bootstrapFetchIsSingleFlightForTheSameGeneration() async throws {
     let counter = RequestCounter()
     let store = try makeStore(
@@ -20,8 +23,6 @@ struct SessionStoreReconnectRecoveryTests {
 
     #expect(firstBootstrap != nil)
     #expect(secondBootstrap != nil)
-    #expect(await counter.detailRequestCount == 1)
-    #expect(await counter.composerRequestCount == 1)
     #expect(await counter.conversationRequestCount == 1)
     #expect(store.session("session-1").conversationLoaded == true)
     #expect(store.session("session-1").rowEntries.isEmpty)
@@ -40,8 +41,6 @@ struct SessionStoreReconnectRecoveryTests {
     async let second: Void = store.ensureSessionRecovery("session-1", generation: 4)
     _ = await (first, second)
 
-    #expect(await counter.detailRequestCount == 1)
-    #expect(await counter.composerRequestCount == 1)
     #expect(await counter.conversationRequestCount == 1)
     #expect(connection.subscribeCalls.count == 3)
     #expect(connection.subscribeCalls.allSatisfy { $0.sessionId == "session-1" })
@@ -49,8 +48,8 @@ struct SessionStoreReconnectRecoveryTests {
       Set(connection.subscribeCalls.map(\.surface))
         == Set([.detail, .composer, .conversation])
     )
-    #expect(connection.subscribeCalls.first(where: { $0.surface == .detail })?.sinceRevision == 11)
-    #expect(connection.subscribeCalls.first(where: { $0.surface == .composer })?.sinceRevision == 12)
+    #expect(connection.subscribeCalls.first(where: { $0.surface == .detail })?.sinceRevision == 13)
+    #expect(connection.subscribeCalls.first(where: { $0.surface == .composer })?.sinceRevision == 13)
     #expect(connection.subscribeCalls.first(where: { $0.surface == .conversation })?.sinceRevision == 13)
     #expect(store.recoveredSessionGenerations["session-1"] == 4)
   }
@@ -119,7 +118,12 @@ struct SessionStoreReconnectRecoveryTests {
       url: url,
       statusCode: 200,
       httpVersion: nil,
-      headerFields: ["Content-Type": "application/json"]
+      headerFields: [
+        "Content-Type": "application/json",
+        "X-OrbitDock-Server-Version": fixtureServerVersion,
+        "X-OrbitDock-Server-Compatibility": fixtureServerCompatibility,
+        "X-OrbitDock-Compatible": "true",
+      ]
     )!
     return (Data(json.utf8), response)
   }
@@ -144,24 +148,6 @@ struct SessionStoreReconnectRecoveryTests {
       "has_pending_approval": false,
       "claude_integration_mode": "direct",
       "revision": \(revision)
-    }
-    """
-  }
-
-  fileprivate nonisolated static var detailResponseJSON: String {
-    """
-    {
-      "revision": 11,
-      "session": \(sessionJSON(revision: 11))
-    }
-    """
-  }
-
-  fileprivate nonisolated static var composerResponseJSON: String {
-    """
-    {
-      "revision": 12,
-      "session": \(sessionJSON(revision: 12))
     }
     """
   }
@@ -226,26 +212,13 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
 }
 
 actor RequestCounter {
-  private(set) var detailRequestCount = 0
-  private(set) var composerRequestCount = 0
   private(set) var conversationRequestCount = 0
 
   func loader(_ request: URLRequest) async throws -> (Data, URLResponse) {
-    let path = request.url?.path ?? ""
-    let json: String
-    if path.hasSuffix("/detail") {
-      detailRequestCount += 1
-      json = SessionStoreReconnectRecoveryTests.detailResponseJSON
-    } else if path.hasSuffix("/composer") {
-      composerRequestCount += 1
-      json = SessionStoreReconnectRecoveryTests.composerResponseJSON
-    } else {
-      conversationRequestCount += 1
-      json = SessionStoreReconnectRecoveryTests.conversationResponseJSON
-    }
+    conversationRequestCount += 1
     return SessionStoreReconnectRecoveryTests.makeHTTPResponse(
       for: request.url!,
-      json: json
+      json: SessionStoreReconnectRecoveryTests.conversationResponseJSON
     )
   }
 }
@@ -271,16 +244,7 @@ actor BlockingBootstrapFixture {
 
     return SessionStoreReconnectRecoveryTests.makeHTTPResponse(
       for: request.url!,
-      json: {
-        let path = request.url?.path ?? ""
-        if path.hasSuffix("/detail") {
-          return SessionStoreReconnectRecoveryTests.detailResponseJSON
-        }
-        if path.hasSuffix("/composer") {
-          return SessionStoreReconnectRecoveryTests.composerResponseJSON
-        }
-        return SessionStoreReconnectRecoveryTests.conversationResponseJSON
-      }()
+      json: SessionStoreReconnectRecoveryTests.conversationResponseJSON
     )
   }
 

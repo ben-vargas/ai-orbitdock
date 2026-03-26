@@ -167,7 +167,7 @@ Error responses:
 
 #### `GET /api/sessions/{session_id}/conversation?limit=<n>&before_sequence=<seq>`
 
-Returns the bootstrap payload for a conversation view. Includes the session state plus the first page of typed `ConversationRow` entries.
+Returns the bootstrap payload for a conversation view. Includes the shared `SessionState` plus the first page of typed `ConversationRow` entries.
 
 Query params:
 
@@ -226,6 +226,7 @@ See `docs/conversation-contracts.md` for the full row type reference.
 Notes:
 
 - The top-level response is flattened: `session`, `total_row_count`, `has_more_before`, `oldest_sequence`, and `newest_sequence`.
+- Native clients use this as the single session bootstrap read, then subscribe detail/composer/conversation surfaces from `session.revision`.
 - Every `ConversationRowEntry` now carries row-level `turn_id`.
 - Message rows (`user`, `assistant`, `thinking`, `system`) may carry `is_streaming` and `images`.
 - The server now upgrades many wrapper-style provider messages into semantic rows before they reach clients. For example, bootstrap prompts and environment blocks become `context` rows, lifecycle notices become `notice` rows, shell wrappers become `shell_command` rows, and background task wrappers become `task` rows.
@@ -2844,18 +2845,59 @@ Response: same shape as `GET /api/server/mission-defaults`.
 
 WebSocket is used for:
 
-- session and list subscriptions
+- dashboard, missions, and session-surface subscriptions
 - real-time turn interaction
 - server-pushed updates
 - approval prompts and results
 - shell streaming updates
 - worktree, review comment, and auth status broadcasts
 
+#### Handshake
+
+The server sends a `hello` immediately after connect:
+
+```json
+{
+  "type": "hello",
+  "hello": {
+    "server_version": "0.4.0",
+    "compatibility": {
+      "compatible": true,
+      "server_compatibility": "server_authoritative_session_v1"
+    },
+    "capabilities": [
+      "dashboard_projection_v1",
+      "missions_projection_v1",
+      "session_detail_surface_v1",
+      "session_composer_surface_v1",
+      "conversation_surface_v1"
+    ]
+  }
+}
+```
+
+The server owns the compatibility verdict. If `hello.compatibility.compatible` is `false`, the client should stop and surface that reason directly to the user.
+
+WebSocket handshake request headers should include:
+
+- `Authorization: Bearer <token>` when auth is enabled
+- `X-OrbitDock-Client-Version: <client-version>`
+- `X-OrbitDock-Client-Compatibility: server_authoritative_session_v1`
+
+HTTP responses mirror the same contract with:
+
+- `X-OrbitDock-Server-Version: <server-version>`
+- `X-OrbitDock-Server-Compatibility: server_authoritative_session_v1`
+- `X-OrbitDock-Compatible: true|false`
+- `X-OrbitDock-Compatibility-Reason: upgrade_app|upgrade_server|unsupported_client`
+- `X-OrbitDock-Compatibility-Message: <human-readable guidance>`
+
 Common client messages include:
 
-- `subscribe_list`
-- `subscribe_session`
-- `unsubscribe_session`
+- `subscribe_dashboard`
+- `subscribe_missions`
+- `subscribe_session_surface`
+- `unsubscribe_session_surface`
 - `create_session`
 - `resume_session`
 - `send_message`
@@ -2863,44 +2905,43 @@ Common client messages include:
 - `answer_question`
 - `interrupt_session`
 
-`subscribe_session` supports:
+`subscribe_dashboard`, `subscribe_missions`, and `subscribe_session_surface` all support:
 
 - `since_revision` optional
-- `include_snapshot` optional, default `true`
 
 Example:
 
 ```json
 {
-  "type": "subscribe_session",
+  "type": "subscribe_session_surface",
   "session_id": "od-...",
-  "since_revision": 120,
-  "include_snapshot": false
+  "surface": "conversation",
+  "since_revision": 120
 }
 ```
 
-When `include_snapshot=false`, the server skips the initial snapshot and only streams replayed or live incremental events.
+WebSocket does not bootstrap heavy surface state. Use HTTP first, then subscribe with `since_revision`.
 
 Server-pushed event types:
 
-- `conversation_bootstrap` — full session state + conversation rows (on subscribe)
+- `hello` — compatibility handshake + capabilities
+- `dashboard_invalidated` / `missions_invalidated` — list refresh hints
 - `conversation_rows_changed` — incremental row upserts/removals
 - `session_delta` — session metadata changes (status, tokens, name, etc.)
 - `approval_requested` — tool needs user approval
 - `approval_decision_result` — approval outcome
 - `tokens_updated` — token usage snapshot
-- `session_created` / `session_ended` / `session_forked`
+- `session_ended` / `session_forked`
 - `shell_started` / `shell_output` — shell execution streaming
 - `context_compacted` / `undo_started` / `undo_completed` / `thread_rolled_back`
 - `rate_limit_event` / `prompt_suggestion` / `files_persisted`
 - `skills_list` / `mcp_tools_list` / `mcp_startup_update` / `mcp_startup_complete`
 - `review_comment_created` / `review_comment_updated` / `review_comment_deleted`
 - `worktree_created` / `worktree_removed` / `worktree_status_changed`
-- `mission_updated` / `mission_issue_updated` / `mission_orchestrator_status`
 
-See `docs/conversation-contracts.md` for the typed row schema used in `conversation_bootstrap` and `conversation_rows_changed`.
+See `docs/conversation-contracts.md` for the typed row schema used in `conversation_rows_changed`.
 
 Notes:
 
-- `conversation_bootstrap` and `conversation_rows_changed` use the same typed row families as the REST conversation endpoints.
+- `conversation_rows_changed` uses the same typed row families as the REST conversation endpoints.
 - Wrapper-style provider text is normalized on the server before broadcast. Clients should treat row typing as authoritative and should not need to parse raw XML-like wrappers such as `<environment_context>`, `<turn_aborted>`, or `<user_shell_command>`.

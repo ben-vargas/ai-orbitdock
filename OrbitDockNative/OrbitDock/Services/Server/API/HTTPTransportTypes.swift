@@ -5,6 +5,12 @@ struct HTTPResponse: Sendable {
   let headers: [AnyHashable: Any]
   let body: Data
 
+  init(statusCode: Int, headers: [AnyHashable: Any], body: Data) {
+    self.statusCode = statusCode
+    self.headers = headers
+    self.body = body
+  }
+
   init(data: Data, response: URLResponse) throws {
     guard let http = response as? HTTPURLResponse else {
       throw HTTPTransportError.invalidResponse
@@ -12,6 +18,16 @@ struct HTTPResponse: Sendable {
     self.statusCode = http.statusCode
     self.headers = http.allHeaderFields
     self.body = data
+  }
+
+  func headerValue(for field: String) -> String? {
+    for (key, value) in headers {
+      guard let name = key as? String, name.caseInsensitiveCompare(field) == .orderedSame else {
+        continue
+      }
+      return value as? String
+    }
+    return nil
   }
 }
 

@@ -170,51 +170,13 @@ final class SessionDetailViewModel {
     )
   }
 
-  private func applyFollowPlan(_ plan: ConversationFollowPlan) {
-    let previousState = conversationFollowState
-    conversationFollowState = plan.state
-    ConversationFollowDebug.log(
-      """
-      SessionDetailViewModel.applyFollowPlan sessionId=\(sessionId) oldMode=\(previousState.mode
-        .rawValue) oldUnread=\(previousState.unreadCount) newMode=\(plan.state.mode.rawValue) newUnread=\(plan.state
-        .unreadCount) scrollAction=\(describe(plan.scrollAction))
-      """
-    )
-    guard let action = plan.scrollAction else { return }
+  // MARK: - Follow State (mirrored from TimelineScrollView)
 
-    conversationScrollCommandNonce += 1
-    switch action {
-      case .latest:
-        conversationScrollCommand = .latest(nonce: conversationScrollCommandNonce)
-      case let .message(messageID):
-        conversationScrollCommand = .message(id: messageID, nonce: conversationScrollCommandNonce)
-    }
+  func handleConversationFollowStateChanged(_ state: ConversationFollowState) {
+    let previous = conversationFollowState
+    conversationFollowState = state
     ConversationFollowDebug.log(
-      "SessionDetailViewModel.emittedScrollCommand command=\(describe(conversationScrollCommand)) nonce=\(conversationScrollCommandNonce)"
-    )
-  }
-
-  func handleConversationViewportEvent(_ event: ConversationViewportEvent) {
-    ConversationFollowDebug.log(
-      "SessionDetailViewModel.handleConversationViewportEvent event=\(describe(event)) mode=\(followMode.rawValue) unread=\(unreadCount)"
-    )
-    applyFollowPlan(
-      ConversationFollowPlanner.apply(
-        current: conversationFollowState,
-        intent: .viewportEvent(event)
-      )
-    )
-  }
-
-  func handleConversationLatestEntriesAppended(_ count: Int) {
-    ConversationFollowDebug.log(
-      "SessionDetailViewModel.handleConversationLatestEntriesAppended count=\(count) mode=\(followMode.rawValue) unread=\(unreadCount)"
-    )
-    applyFollowPlan(
-      ConversationFollowPlanner.apply(
-        current: conversationFollowState,
-        intent: .latestEntriesAppended(count)
-      )
+      "SessionDetailViewModel.handleConversationFollowStateChanged sessionId=\(sessionId) oldMode=\(previous.mode.rawValue) oldUnread=\(previous.unreadCount) newMode=\(state.mode.rawValue) newUnread=\(state.unreadCount)"
     )
   }
 
@@ -222,24 +184,16 @@ final class SessionDetailViewModel {
     ConversationFollowDebug.log(
       "SessionDetailViewModel.jumpConversationToLatest mode=\(followMode.rawValue) unread=\(unreadCount)"
     )
-    applyFollowPlan(
-      ConversationFollowPlanner.apply(
-        current: conversationFollowState,
-        intent: .jumpToLatest
-      )
-    )
+    conversationScrollCommandNonce += 1
+    conversationScrollCommand = .jumpToLatest(nonce: conversationScrollCommandNonce)
   }
 
   func toggleConversationFollowMode() {
     ConversationFollowDebug.log(
       "SessionDetailViewModel.toggleConversationFollowMode mode=\(followMode.rawValue) unread=\(unreadCount)"
     )
-    applyFollowPlan(
-      ConversationFollowPlanner.apply(
-        current: conversationFollowState,
-        intent: .toggleFollow
-      )
-    )
+    conversationScrollCommandNonce += 1
+    conversationScrollCommand = .toggleFollow(nonce: conversationScrollCommandNonce)
   }
 
   func openPendingApprovalPanel() {
@@ -249,12 +203,8 @@ final class SessionDetailViewModel {
     withAnimation(Motion.standard) {
       pendingApprovalPanelOpenSignal += 1
     }
-    applyFollowPlan(
-      ConversationFollowPlanner.apply(
-        current: conversationFollowState,
-        intent: .openPendingApprovalPanel
-      )
-    )
+    conversationScrollCommandNonce += 1
+    conversationScrollCommand = .openPendingApproval(nonce: conversationScrollCommandNonce)
   }
 
   func navigateToReviewComment(_ comment: ServerReviewComment) {
@@ -294,41 +244,8 @@ final class SessionDetailViewModel {
     if layoutConfig == .reviewOnly {
       layoutConfig = .split
     }
-    applyFollowPlan(
-      ConversationFollowPlanner.apply(
-        current: conversationFollowState,
-        intent: .revealMessage(messageId)
-      )
-    )
-  }
-
-  private func describe(_ action: ConversationScrollAction?) -> String {
-    guard let action else { return "nil" }
-    return switch action {
-      case .latest:
-        "latest"
-      case let .message(messageID):
-        "message(\(messageID))"
-    }
-  }
-
-  private func describe(_ command: ConversationScrollCommand?) -> String {
-    guard let command else { return "nil" }
-    return switch command {
-      case let .latest(nonce):
-        "latest(nonce: \(nonce))"
-      case let .message(id, nonce):
-        "message(id: \(id), nonce: \(nonce))"
-    }
-  }
-
-  private func describe(_ event: ConversationViewportEvent) -> String {
-    switch event {
-      case .reachedBottom:
-        "reachedBottom"
-      case .leftBottomByUser:
-        "leftBottomByUser"
-    }
+    conversationScrollCommandNonce += 1
+    conversationScrollCommand = .revealMessage(id: messageId, nonce: conversationScrollCommandNonce)
   }
 
   func selectLayout(_ layout: LayoutConfiguration) {

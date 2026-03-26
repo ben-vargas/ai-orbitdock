@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use orbitdock_protocol::{
     conversation_contracts::extract_row_content_str_summary, ClientMessage,
-    ConversationSnapshotPage, Provider, ServerMessage, SessionDetailSnapshot, SessionState,
-    SessionStatus, SessionSummary, SessionSurface, ToolApprovalDecision, WorkStatus,
+    ConversationSnapshotPage, DashboardSnapshot, Provider, ServerMessage, SessionDetailSnapshot,
+    SessionState, SessionStatus, SessionSummary, SessionSurface, ToolApprovalDecision, WorkStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -334,6 +334,14 @@ fn work_status_str(s: &WorkStatus) -> &'static str {
     }
 }
 
+fn stream_turn_should_exit(status: &WorkStatus, saw_turn_activity: bool) -> bool {
+    match status {
+        WorkStatus::Working => false,
+        WorkStatus::Waiting => saw_turn_activity,
+        _ => true,
+    }
+}
+
 // ── REST Commands ────────────────────────────────────────────
 
 async fn list(
@@ -344,11 +352,14 @@ async fn list(
     project: Option<&str>,
 ) -> i32 {
     match rest
-        .get::<SessionsResponse>("/api/sessions")
+        .get::<DashboardSnapshot>("/api/dashboard")
         .await
         .into_result()
     {
-        Ok(mut resp) => {
+        Ok(snapshot) => {
+            let mut resp = SessionsResponse {
+                sessions: snapshot.sessions,
+            };
             if let Some(p) = provider {
                 let target = match p {
                     ProviderFilter::Claude => Provider::Claude,
@@ -1279,6 +1290,7 @@ async fn resume(rest: &RestClient, output: &Output, session_id: &str) -> i32 {
 
 async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
     let timeout = Duration::from_secs(300);
+    let mut saw_turn_activity = false;
 
     loop {
         match ws.recv_timeout(timeout).await {
@@ -1288,6 +1300,9 @@ async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
                 }
                 match msg {
                     ServerMessage::ConversationRowsChanged { upserted, .. } => {
+                        if !upserted.is_empty() {
+                            saw_turn_activity = true;
+                        }
                         if !output.json {
                             for entry in upserted {
                                 let role = format_row_type_summary(&entry.row);
@@ -1299,6 +1314,9 @@ async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
                         }
                     }
                     ServerMessage::SessionDelta { changes, .. } => {
+                        if changes.work_status.is_some() || changes.last_message.is_some() {
+                            saw_turn_activity = true;
+                        }
                         if !output.json {
                             let dim = console::Style::new().dim();
                             if let Some(status) = &changes.work_status {
@@ -1307,9 +1325,8 @@ async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
                                     dim.apply_to("delta"),
                                     work_status_str(status)
                                 );
-                                match status {
-                                    WorkStatus::Working | WorkStatus::Waiting => {}
-                                    _ => return EXIT_SUCCESS,
+                                if stream_turn_should_exit(status, saw_turn_activity) {
+                                    return EXIT_SUCCESS;
                                 }
                             }
                             if let Some(Some(name)) = &changes.custom_name {
@@ -1319,9 +1336,8 @@ async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
                                 println!("{} summary -> {summary}", dim.apply_to("delta"));
                             }
                         } else if let Some(status) = &changes.work_status {
-                            match status {
-                                WorkStatus::Working | WorkStatus::Waiting => {}
-                                _ => return EXIT_SUCCESS,
+                            if stream_turn_should_exit(status, saw_turn_activity) {
+                                return EXIT_SUCCESS;
                             }
                         }
                     }
@@ -1449,10 +1465,14 @@ fn print_watch_event(msg: &ServerMessage) {
     match msg {
         ServerMessage::Hello { hello } => {
             println!(
-                "{} protocol {}.{} ({})",
+                "{} compatibility {} [{}] ({})",
                 dim.apply_to("hello"),
-                hello.protocol_major,
-                hello.protocol_minor,
+                if hello.compatibility.compatible {
+                    "compatible"
+                } else {
+                    "incompatible"
+                },
+                hello.compatibility.server_compatibility,
                 hello.server_version
             );
         }
@@ -1607,4 +1627,24 @@ fn print_session_detail(session: &SessionState, show_messages: bool) {
     // Messages are now delivered via ConversationRowPage, not inline on SessionState.
     // The CLI `session get -m` flag should use the conversation history endpoint.
     let _ = show_messages;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stream_turn_should_exit;
+    use orbitdock_protocol::WorkStatus;
+
+    #[test]
+    fn stream_turn_waiting_requires_real_turn_activity() {
+        assert!(!stream_turn_should_exit(&WorkStatus::Waiting, false));
+        assert!(stream_turn_should_exit(&WorkStatus::Waiting, true));
+    }
+
+    #[test]
+    fn stream_turn_exit_rules_match_user_visible_completion() {
+        assert!(!stream_turn_should_exit(&WorkStatus::Working, true));
+        assert!(stream_turn_should_exit(&WorkStatus::Permission, true));
+        assert!(stream_turn_should_exit(&WorkStatus::Reply, true));
+        assert!(stream_turn_should_exit(&WorkStatus::Ended, true));
+    }
 }

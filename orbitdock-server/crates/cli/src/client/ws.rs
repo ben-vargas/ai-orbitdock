@@ -6,7 +6,8 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use orbitdock_protocol::{
-    ClientMessage, ServerHello, ServerMessage, SessionSurface, PROTOCOL_MAJOR, PROTOCOL_MINOR,
+    ClientMessage, ServerHello, ServerMessage, SessionSurface, HTTP_HEADER_CLIENT_COMPATIBILITY,
+    HTTP_HEADER_CLIENT_VERSION, SERVER_COMPATIBILITY,
 };
 
 use crate::client::config::ClientConfig;
@@ -41,24 +42,16 @@ impl WsClient {
             );
         }
         request.headers_mut().insert(
-            orbitdock_protocol::HTTP_HEADER_CLIENT_VERSION,
-            "orbitdock-cli"
+            HTTP_HEADER_CLIENT_VERSION,
+            env!("CARGO_PKG_VERSION")
                 .parse()
                 .context("Invalid client version header")?,
         );
         request.headers_mut().insert(
-            orbitdock_protocol::HTTP_HEADER_CLIENT_PROTOCOL_MAJOR,
-            PROTOCOL_MAJOR
-                .to_string()
+            HTTP_HEADER_CLIENT_COMPATIBILITY,
+            SERVER_COMPATIBILITY
                 .parse()
-                .context("Invalid protocol major header")?,
-        );
-        request.headers_mut().insert(
-            orbitdock_protocol::HTTP_HEADER_CLIENT_PROTOCOL_MINOR,
-            PROTOCOL_MINOR
-                .to_string()
-                .parse()
-                .context("Invalid protocol minor header")?,
+                .context("Invalid client compatibility header")?,
         );
 
         let (ws_stream, _) = tokio_tungstenite::connect_async(request)
@@ -140,13 +133,14 @@ impl WsClient {
 }
 
 fn validate_hello(hello: &ServerHello) -> Result<()> {
-    if hello.protocol_major != PROTOCOL_MAJOR {
+    if !hello.compatibility.compatible {
         bail!(
-            "Incompatible server protocol: server speaks {}.{}, client expects {}.{}",
-            hello.protocol_major,
-            hello.protocol_minor,
-            PROTOCOL_MAJOR,
-            PROTOCOL_MINOR
+            "{}",
+            hello
+                .compatibility
+                .message
+                .as_deref()
+                .unwrap_or("This OrbitDock client is not compatible with the connected server.")
         );
     }
     Ok(())

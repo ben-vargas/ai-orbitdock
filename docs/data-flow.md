@@ -8,12 +8,14 @@ The short version:
 - WebSocket owns realtime updates and replay.
 - The Rust server owns durable business truth.
 - The client renders server state. It does not reconstruct business state from connector internals.
+- WebSocket begins with a lightweight `hello` handshake that advertises `server_version`, a server-authored `compatibility` verdict, and surface capabilities.
 
 Today’s important nuance:
 
 - HTTP is the only bootstrap path.
 - WebSocket carries deltas, replay, heartbeats, and explicit resync/refetch hints only.
 - If replay cannot satisfy a revision gap, the client refetches the matching HTTP surface.
+- Compatibility is server-authored. Clients should fail fast when the server says the pair is incompatible instead of guessing.
 
 ## Architecture Diagram
 
@@ -77,7 +79,7 @@ stateDiagram-v2
 ## Principles
 
 1. HTTP is the bootstrap path.
-   Dashboard, detail, composer, conversation bootstrap, and pagination all start from HTTP.
+   Dashboard, session bootstrap, and pagination all start from HTTP.
 2. WebSocket is the follow-up path.
    After the client has a snapshot revision, it subscribes for realtime updates and replay from that revision.
 3. Session authority lives on the server.
@@ -117,18 +119,18 @@ OrbitDock now treats UI data as named surfaces instead of one catch-all session 
 
 ### Session Detail
 
-- HTTP: `GET /api/sessions/{id}/detail`
+- HTTP state source: session bootstrap payload
 - WS subscribe: `subscribe_session_surface { session_id, surface: detail, since_revision }`
 
 ### Session Composer
 
-- HTTP: `GET /api/sessions/{id}/composer`
+- HTTP state source: session bootstrap payload
 - WS subscribe: `subscribe_session_surface { session_id, surface: composer, since_revision }`
 
 ### Conversation
 
 - HTTP bootstrap: `GET /api/sessions/{id}/conversation?limit=...`
-- HTTP pagination: `GET /api/sessions/{id}/conversation?before_sequence=...&limit=...`
+- HTTP pagination: `GET /api/sessions/{id}/messages?before_sequence=...&limit=...`
 - WS subscribe: `subscribe_session_surface { session_id, surface: conversation, since_revision }`
 
 ## Boot Sequences
@@ -144,20 +146,20 @@ There should not be a second eager dashboard bootstrap path in parallel.
 
 ### Session Boot
 
-1. Client fetches the HTTP snapshot for the surface it needs.
-2. Client applies that snapshot and stores the returned revision.
-3. Client subscribes to the matching WS surface with `since_revision`.
+1. Client fetches `GET /api/sessions/{id}/conversation?limit=...`.
+2. Client applies the returned `session` to detail and composer state.
+3. Client applies the returned rows to conversation state and stores `session.revision`.
+4. Client subscribes to the WS surfaces it renders with `since_revision = session.revision`.
 
 Conversation screens usually need:
 
-1. conversation HTTP bootstrap
-2. detail HTTP snapshot
-3. conversation WS replay/deltas
-4. detail WS replay/deltas
+1. session bootstrap HTTP
+2. conversation WS replay/deltas
+3. detail WS replay/deltas
 
 Composer screens usually need:
 
-1. composer HTTP snapshot
+1. session bootstrap HTTP
 2. composer WS replay/deltas
 3. conversation HTTP/WS only if the composer screen also renders history
 

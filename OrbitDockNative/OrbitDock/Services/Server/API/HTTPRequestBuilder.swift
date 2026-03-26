@@ -26,8 +26,10 @@ struct HTTPRequestBuilder: Sendable {
       request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
     }
     request.setValue(OrbitDockProtocol.clientVersion, forHTTPHeaderField: "X-OrbitDock-Client-Version")
-    request.setValue(String(OrbitDockProtocol.major), forHTTPHeaderField: "X-OrbitDock-Client-Protocol-Major")
-    request.setValue(String(OrbitDockProtocol.minor), forHTTPHeaderField: "X-OrbitDock-Client-Protocol-Minor")
+    request.setValue(
+      OrbitDockProtocol.compatibility,
+      forHTTPHeaderField: "X-OrbitDock-Client-Compatibility"
+    )
     request.httpBody = body
     return request
   }

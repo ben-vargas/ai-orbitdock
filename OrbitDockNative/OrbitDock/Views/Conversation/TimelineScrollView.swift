@@ -6,13 +6,14 @@
 //  Heights are automatic — no manual measurement or caching needed.
 //
 //  Follow (pin-to-bottom) logic:
-//  - The timeline owns a bound scroll position anchored to the bottom sentinel.
+//  - Follow state is owned locally as @State so the scroll position binding
+//    only reads same-view state — no cross-frame race with parent props.
 //  - When pinned, the bound position stays on the bottom sentinel so container
 //    height and content height changes preserve bottom alignment declaratively.
 //  - User-driven scrolling is detected by bridging the underlying platform
 //    scroll view so content/layout changes do not masquerade as user intent.
-//  - Targeted navigation (jump to a specific message) stays a one-shot command
-//    layered on top via ScrollViewReader instead of becoming persistent state.
+//  - The parent is notified of follow state changes via onFollowStateChanged
+//    and sends commands (jump to latest, toggle, reveal) via scrollCommand.
 //
 
 import SwiftUI
@@ -23,37 +24,20 @@ struct TimelineScrollView: View {
   let clients: ServerClients
   @Binding var scrollCommand: ConversationScrollCommand?
   let onLoadMore: (() -> Void)?
-  let followMode: ConversationFollowMode
-  let onViewportEvent: (ConversationViewportEvent) -> Void
+  let latestAppendEvent: ConversationLatestAppendEvent?
+  let onFollowStateChanged: (ConversationFollowState) -> Void
 
   private static let bottomSentinelID = "timeline-bottom"
   private static let bottomAnchorHeight: CGFloat = 20
   private static let bottomThreshold: CGFloat = 36
 
+  @State private var localFollowState = ConversationFollowState.initial
   @State private var isNearBottom = true
   @State private var commandedScrollPositionID: String? = bottomSentinelID
   @State private var observedScrollPositionID: String? = bottomSentinelID
   @State private var hasInitializedScrollPosition = false
   @State private var isUserScrolling = false
   @State private var hasDetachedFromBottomDuringCurrentGesture = false
-
-  init(
-    viewModel: ConversationTimelineViewModel,
-    sessionId: String,
-    clients: ServerClients,
-    scrollCommand: Binding<ConversationScrollCommand?>,
-    onLoadMore: (() -> Void)?,
-    followMode: ConversationFollowMode,
-    onViewportEvent: @escaping (ConversationViewportEvent) -> Void
-  ) {
-    self.viewModel = viewModel
-    self.sessionId = sessionId
-    self.clients = clients
-    _scrollCommand = scrollCommand
-    self.onLoadMore = onLoadMore
-    self.followMode = followMode
-    self.onViewportEvent = onViewportEvent
-  }
 
   var body: some View {
     let displayed = viewModel.displayedEntries
@@ -68,7 +52,7 @@ struct TimelineScrollView: View {
             .frame(height: 1)
             .id("pagination-\(displayed.first?.sequence ?? 0)")
             .onAppear {
-              guard hasInitializedScrollPosition, !followMode.isFollowing else { return }
+              guard hasInitializedScrollPosition, !localFollowState.mode.isFollowing else { return }
               onLoadMore?()
             }
 
@@ -88,55 +72,48 @@ struct TimelineScrollView: View {
             .id(Self.bottomSentinelID)
         }
         .scrollTargetLayout()
+        .background {
+          TimelineUserScrollDetector(
+            isUserScrolling: $isUserScrolling,
+            isNearBottom: $isNearBottom,
+            bottomThreshold: Self.bottomThreshold
+          )
+          .frame(width: 0, height: 0)
+        }
       }
       .scrollDismissesKeyboard(.interactively)
       .defaultScrollAnchor(.bottom)
       .scrollPosition(id: scrollPositionBinding, anchor: .bottom)
       .background(Color.backgroundPrimary)
-      .background {
-        TimelineUserScrollDetector(
-          isUserScrolling: $isUserScrolling,
-          isNearBottom: $isNearBottom,
-          bottomThreshold: Self.bottomThreshold
-        )
-        .frame(width: 0, height: 0)
-      }
       .task {
         guard !hasInitializedScrollPosition else { return }
         hasInitializedScrollPosition = true
         ConversationFollowDebug.log(
-          "TimelineScrollView.task initialize followMode=\(followMode.rawValue) displayedCount=\(displayed.count) isNearBottom=\(isNearBottom)"
+          "TimelineScrollView.task initialize followMode=\(localFollowState.mode.rawValue) displayedCount=\(displayed.count) isNearBottom=\(isNearBottom)"
         )
-        if followMode.isFollowing {
+        if localFollowState.mode.isFollowing {
           setPinnedScrollPosition()
         }
       }
-      .onChange(of: followMode) { _, mode in
-        ConversationFollowDebug.log(
-          "TimelineScrollView.followModeChanged newMode=\(mode.rawValue) isNearBottom=\(isNearBottom) commanded=\(commandedScrollPositionID ?? "nil") observed=\(observedScrollPositionID ?? "nil") isUserScrolling=\(isUserScrolling)"
-        )
-        guard mode.isFollowing else { return }
-        setPinnedScrollPosition()
-      }
       .onChange(of: isNearBottom) { _, isVisible in
         ConversationFollowDebug.log(
-          "TimelineScrollView.nearBottomChanged isNearBottom=\(isVisible) followMode=\(followMode.rawValue) isUserScrolling=\(isUserScrolling) commanded=\(commandedScrollPositionID ?? "nil") observed=\(observedScrollPositionID ?? "nil")"
+          "TimelineScrollView.nearBottomChanged isNearBottom=\(isVisible) followMode=\(localFollowState.mode.rawValue) isUserScrolling=\(isUserScrolling) commanded=\(commandedScrollPositionID ?? "nil") observed=\(observedScrollPositionID ?? "nil")"
         )
-        if isVisible, !followMode.isFollowing {
-          ConversationFollowDebug.log("TimelineScrollView.emitViewportEvent reachedBottom via metrics")
-          onViewportEvent(.reachedBottom)
+        if isVisible, !localFollowState.mode.isFollowing {
+          ConversationFollowDebug.log("TimelineScrollView.applyIntent reachedBottom via metrics")
+          applyIntent(.viewportEvent(.reachedBottom))
           return
         }
 
-        guard !isVisible, followMode.isFollowing, isUserScrolling else { return }
+        guard !isVisible, localFollowState.mode.isFollowing, isUserScrolling else { return }
         guard !hasDetachedFromBottomDuringCurrentGesture else { return }
-        ConversationFollowDebug.log("TimelineScrollView.emitViewportEvent leftBottomByUser via metrics")
+        ConversationFollowDebug.log("TimelineScrollView.applyIntent leftBottomByUser via metrics")
         hasDetachedFromBottomDuringCurrentGesture = true
-        onViewportEvent(.leftBottomByUser)
+        applyIntent(.viewportEvent(.leftBottomByUser))
       }
       .onChange(of: isUserScrolling) { _, scrolling in
         ConversationFollowDebug.log(
-          "TimelineScrollView.userScrollingChanged scrolling=\(scrolling) followMode=\(followMode.rawValue) isNearBottom=\(isNearBottom)"
+          "TimelineScrollView.userScrollingChanged scrolling=\(scrolling) followMode=\(localFollowState.mode.rawValue) isNearBottom=\(isNearBottom)"
         )
         if scrolling {
           hasDetachedFromBottomDuringCurrentGesture = false
@@ -144,20 +121,46 @@ struct TimelineScrollView: View {
         }
 
         guard !hasDetachedFromBottomDuringCurrentGesture else { return }
-        guard followMode.isFollowing, !isNearBottom else { return }
-        ConversationFollowDebug.log("TimelineScrollView.emitViewportEvent leftBottomByUser via scroll end")
+        guard localFollowState.mode.isFollowing, !isNearBottom else { return }
+        ConversationFollowDebug.log("TimelineScrollView.applyIntent leftBottomByUser via scroll end")
         hasDetachedFromBottomDuringCurrentGesture = true
-        onViewportEvent(.leftBottomByUser)
+        applyIntent(.viewportEvent(.leftBottomByUser))
+      }
+      .onChange(of: latestAppendEvent) { _, event in
+        guard let event else { return }
+        ConversationFollowDebug.log(
+          "TimelineScrollView.latestAppendEvent count=\(event.count) nonce=\(event.nonce) followMode=\(localFollowState.mode.rawValue) unread=\(localFollowState.unreadCount)"
+        )
+        applyIntent(.latestEntriesAppended(event.count))
       }
       .onChange(of: scrollCommand) { _, command in
         guard let command else { return }
         ConversationFollowDebug.log(
-          "TimelineScrollView.scrollCommandReceived command=\(describe(command)) followMode=\(followMode.rawValue) isNearBottom=\(isNearBottom) displayedCount=\(displayed.count) commanded=\(commandedScrollPositionID ?? "nil") observed=\(observedScrollPositionID ?? "nil")"
+          "TimelineScrollView.scrollCommandReceived command=\(describe(command)) followMode=\(localFollowState.mode.rawValue) isNearBottom=\(isNearBottom) displayedCount=\(displayed.count) commanded=\(commandedScrollPositionID ?? "nil") observed=\(observedScrollPositionID ?? "nil")"
         )
         run(command: command, with: proxy)
       }
     }
   }
+
+  // MARK: - Follow Intent Processing
+
+  private func applyIntent(_ intent: ConversationFollowIntent) {
+    let plan = ConversationFollowPlanner.apply(current: localFollowState, intent: intent)
+    localFollowState = plan.state
+    onFollowStateChanged(plan.state)
+
+    guard let action = plan.scrollAction else { return }
+    switch action {
+      case .latest:
+        setPinnedScrollPosition()
+      case .message:
+        // Message scrolling requires ScrollViewProxy — handled via scrollCommand path
+        break
+    }
+  }
+
+  // MARK: - Scroll Actions
 
   private func setPinnedScrollPosition() {
     ConversationFollowDebug.log(
@@ -186,38 +189,37 @@ struct TimelineScrollView: View {
         setPinnedScrollPosition()
       case let .message(id, _):
         scrollToMessage(id, with: proxy)
+      case .jumpToLatest:
+        applyIntent(.jumpToLatest)
+      case let .revealMessage(id, _):
+        applyIntent(.revealMessage(id))
+        scrollToMessage(id, with: proxy)
+      case .toggleFollow:
+        applyIntent(.toggleFollow)
+      case .openPendingApproval:
+        applyIntent(.openPendingApprovalPanel)
     }
   }
+
+  // MARK: - Scroll Position Binding
 
   private var scrollPositionBinding: Binding<String?> {
     Binding(
       get: {
-        if followMode.isFollowing, !isUserScrolling {
+        // All reads are local @State — no cross-frame race with parent props.
+        // When following: return the commanded position (bottom sentinel) to
+        // pin the viewport to the bottom.
+        // When detached: return nil so .scrollPosition does not fight the
+        // user's scroll offset. Without this, the .bottom anchor tries to
+        // reposition the viewport every layout pass (e.g. when new content
+        // arrives), causing visible jank.
+        if localFollowState.mode.isFollowing, !isUserScrolling {
           return commandedScrollPositionID ?? Self.bottomSentinelID
         }
-        return observedScrollPositionID
+        return nil
       },
       set: { newValue in
-        let previousObserved = observedScrollPositionID
-        if observedScrollPositionID != newValue {
-          observedScrollPositionID = newValue
-        }
-
-        if followMode.isFollowing {
-          if newValue == Self.bottomSentinelID {
-            hasDetachedFromBottomDuringCurrentGesture = false
-          }
-          return
-        }
-
-        guard observedScrollPositionID != newValue || commandedScrollPositionID != newValue else { return }
-        commandedScrollPositionID = newValue
-        if isNearBottom {
-          hasDetachedFromBottomDuringCurrentGesture = false
-        }
-        ConversationFollowDebug.log(
-          "TimelineScrollView.acceptedObservedScrollPositionWhileDetached previousObserved=\(previousObserved ?? "nil") newObserved=\(newValue ?? "nil") commanded=\(commandedScrollPositionID ?? "nil")"
-        )
+        observedScrollPositionID = newValue
       }
     )
   }
@@ -228,6 +230,14 @@ struct TimelineScrollView: View {
         "latest(nonce: \(nonce))"
       case let .message(id, nonce):
         "message(id: \(id), nonce: \(nonce))"
+      case let .jumpToLatest(nonce):
+        "jumpToLatest(nonce: \(nonce))"
+      case let .revealMessage(id, nonce):
+        "revealMessage(id: \(id), nonce: \(nonce))"
+      case let .toggleFollow(nonce):
+        "toggleFollow(nonce: \(nonce))"
+      case let .openPendingApproval(nonce):
+        "openPendingApproval(nonce: \(nonce))"
     }
   }
 }

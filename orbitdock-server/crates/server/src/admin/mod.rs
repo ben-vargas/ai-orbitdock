@@ -13,7 +13,8 @@ mod tunnel;
 pub use doctor::print_diagnostics;
 pub use ensure_path::ensure_shell_path;
 pub use hook_forward::{
-    forward_hook_event, read_transport_config as read_hook_transport_config,
+    forward_hook_event, normalize_client_server_url,
+    read_transport_config as read_hook_transport_config,
     write_transport_config as write_hook_transport_config, HookForwardType, HookTransportConfig,
 };
 pub use init::initialize_data_dir;

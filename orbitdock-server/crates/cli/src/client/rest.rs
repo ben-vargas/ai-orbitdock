@@ -1,8 +1,10 @@
+use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 
 use crate::client::config::ClientConfig;
 use crate::error::{ApiError, CliError};
+use orbitdock_protocol::{HTTP_HEADER_CLIENT_COMPATIBILITY, HTTP_HEADER_CLIENT_VERSION, SERVER_COMPATIBILITY};
 
 /// HTTP client for the OrbitDock REST API.
 pub struct RestClient {
@@ -73,6 +75,7 @@ impl RestClient {
     ) -> RestResult<T> {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.client.request(method, &url);
+        req = req.headers(client_headers());
         if let Some(ref token) = self.token {
             req = req.bearer_auth(token);
         }
@@ -117,6 +120,19 @@ impl RestClient {
     }
 }
 
+fn client_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        HTTP_HEADER_CLIENT_VERSION,
+        HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
+    );
+    headers.insert(
+        HTTP_HEADER_CLIENT_COMPATIBILITY,
+        HeaderValue::from_static(SERVER_COMPATIBILITY),
+    );
+    headers
+}
+
 impl<T> RestResult<T> {
     /// Convert to a tuple of (exit_code, value) for command handlers.
     pub fn into_result(self) -> Result<T, (i32, CliError)> {
@@ -135,5 +151,31 @@ impl<T> RestResult<T> {
                 CliError::connection(msg),
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::client_headers;
+    use orbitdock_protocol::{
+        HTTP_HEADER_CLIENT_COMPATIBILITY, HTTP_HEADER_CLIENT_VERSION, SERVER_COMPATIBILITY,
+    };
+
+    #[test]
+    fn client_headers_advertise_current_compatibility_contract() {
+        let headers = client_headers();
+
+        assert_eq!(
+            headers
+                .get(HTTP_HEADER_CLIENT_VERSION)
+                .and_then(|value| value.to_str().ok()),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(
+            headers
+                .get(HTTP_HEADER_CLIENT_COMPATIBILITY)
+                .and_then(|value| value.to_str().ok()),
+            Some(SERVER_COMPATIBILITY)
+        );
     }
 }

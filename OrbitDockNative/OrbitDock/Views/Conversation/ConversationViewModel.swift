@@ -80,6 +80,7 @@ final class ConversationViewModel {
 
   private func apply(snapshot: ConversationSnapshot) {
     let previousEntries = timeline?.entries ?? []
+    let previousStructureRevision = timeline?.structureRevision
     let nextLoadState: ConversationLoadState = if let timeline = snapshot.timeline, !timeline.entries.isEmpty {
       .ready
     } else if hasShownContent || snapshot.conversationLoaded {
@@ -87,35 +88,56 @@ final class ConversationViewModel {
     } else {
       .loading
     }
+
+    // Full skip — nothing changed at all (same revisions, same load state).
+    if let current = timeline, let incoming = snapshot.timeline,
+      current.structureRevision == incoming.structureRevision,
+      current.contentRevision == incoming.contentRevision,
+      loadState == nextLoadState
+    {
+      return
+    }
+    if timeline == nil, snapshot.timeline == nil, loadState == nextLoadState {
+      return
+    }
+
     timeline = snapshot.timeline
     if let timeline = snapshot.timeline {
+      // Always apply so content-only changes (streaming) reach the view.
       timelineViewModel.apply(presentation: timeline, viewMode: currentViewMode)
-      let appendedCount = ConversationTimelineDeltaPlanner.latestAppendedCount(
-        oldEntries: previousEntries,
-        newEntries: timeline.entries
-      )
-      if appendedCount > 0 {
-        latestAppendEvent = ConversationLatestAppendEvent(
-          count: appendedCount,
-          nonce: (latestAppendEvent?.nonce ?? 0) + 1
+
+      // Only check for appended entries on structural changes — content-only
+      // updates (streaming text) don't add rows.
+      if previousStructureRevision != timeline.structureRevision {
+        let appendedCount = ConversationTimelineDeltaPlanner.latestAppendedCount(
+          oldEntries: previousEntries,
+          newEntries: timeline.entries
+        )
+        if appendedCount > 0 {
+          latestAppendEvent = ConversationLatestAppendEvent(
+            count: appendedCount,
+            nonce: (latestAppendEvent?.nonce ?? 0) + 1
+          )
+        }
+        ConversationFollowDebug.log(
+          """
+          ConversationViewModel.applySnapshot sessionId=\(currentSessionId ?? "nil") oldCount=\(previousEntries
+            .count) newCount=\(timeline.entries
+            .count) appendedCount=\(appendedCount) loadState=\(String(
+            describing: nextLoadState
+          )) hasShownContent=\(hasShownContent)
+          """
         )
       }
-      ConversationFollowDebug.log(
-        """
-        ConversationViewModel.applySnapshot sessionId=\(currentSessionId ?? "nil") oldCount=\(previousEntries
-          .count) newCount=\(timeline.entries
-          .count) appendedCount=\(appendedCount) loadState=\(String(
-          describing: nextLoadState
-        )) hasShownContent=\(hasShownContent)
-        """
-      )
     } else {
       ConversationFollowDebug.log(
         "ConversationViewModel.applySnapshot clearedTimeline sessionId=\(currentSessionId ?? "nil") loadState=\(String(describing: nextLoadState))"
       )
       timelineViewModel.clearSession()
     }
-    loadState = nextLoadState
+    if loadState != nextLoadState {
+      loadState = nextLoadState
+    }
     forkOrigin = snapshot.forkOrigin
   }
 

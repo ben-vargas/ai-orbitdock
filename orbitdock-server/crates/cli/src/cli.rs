@@ -239,6 +239,12 @@ pub enum BinaryCommand {
         action: UsageAction,
     },
 
+    /// Server configuration
+    Server {
+        #[command(subcommand)]
+        action: ServerAction,
+    },
+
     /// Codex account management
     #[command(name = "codex")]
     CodexAccount {
@@ -296,6 +302,9 @@ pub fn binary_to_client_command(command: &BinaryCommand) -> Option<Command> {
             action: action.clone(),
         }),
         BinaryCommand::Usage { action } => Some(Command::Usage {
+            action: action.clone(),
+        }),
+        BinaryCommand::Server { action } => Some(Command::Server {
             action: action.clone(),
         }),
         BinaryCommand::CodexAccount { action } => Some(Command::Codex {
@@ -1131,6 +1140,21 @@ mod tests {
                 action: SessionAction::List { .. },
             } => {}
             other => panic!("expected session list, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn binary_cli_maps_server_command_to_client_command() {
+        let cli = BinaryCli::try_parse_from(["orbitdock", "server", "status"])
+            .expect("should parse server status");
+        let command = binary_to_client_command(cli.command.as_ref().expect("command present"))
+            .expect("server should map to client command");
+
+        match command {
+            Command::Server {
+                action: ServerAction::Status,
+            } => {}
+            other => panic!("expected server status, got {other:?}"),
         }
     }
 

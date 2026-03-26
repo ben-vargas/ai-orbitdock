@@ -11,11 +11,8 @@ struct SessionDetailConversationSection: View {
   let openFileInReview: ((String) -> Void)?
   let focusWorkerInDeck: ((String) -> Void)?
   @Binding var scrollCommand: ConversationScrollCommand?
-  let followMode: ConversationFollowMode
-  let unreadCount: Int
   let onJumpToLatest: () -> Void
-  let onViewportEvent: (ConversationViewportEvent) -> Void
-  let onLatestEntriesAppended: (_ count: Int) -> Void
+  let onFollowStateChanged: (ConversationFollowState) -> Void
 
   var body: some View {
     ConversationView(
@@ -27,11 +24,8 @@ struct SessionDetailConversationSection: View {
       currentTool: currentTool,
       chatViewMode: chatViewMode,
       scrollCommand: $scrollCommand,
-      followMode: followMode,
-      unreadCount: unreadCount,
       onJumpToLatest: onJumpToLatest,
-      onViewportEvent: onViewportEvent,
-      onLatestEntriesAppended: onLatestEntriesAppended
+      onFollowStateChanged: onFollowStateChanged
     )
     .environment(\.openFileInReview, openFileInReview)
     .environment(\.focusWorkerInDeck, focusWorkerInDeck)

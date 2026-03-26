@@ -233,6 +233,10 @@ orbitdock start --bind 0.0.0.0:4000
 # Auth token: orbitdock auth local-token
 ```
 
+`0.0.0.0:4000` is the server's bind address, not a client destination.
+On the same machine, use `http://127.0.0.1:4000`.
+From another device, use the machine's real LAN, Tailscale, tunnel, or public HTTPS address.
+
 ### Reverse Proxy (nginx / Caddy)
 
 **Caddy** (auto-TLS):
@@ -275,6 +279,9 @@ orbitdock start \
   --tls-cert /path/to/cert.pem \
   --tls-key /path/to/key.pem
 ```
+
+Clients still should not use `http://0.0.0.0:4000`.
+Use `https://127.0.0.1:4000` locally only if you explicitly trust the cert, or preferably the host/IP name the certificate was issued for.
 
 ## Security
 

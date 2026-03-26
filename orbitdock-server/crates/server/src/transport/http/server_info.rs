@@ -1,5 +1,7 @@
 use super::*;
+use crate::infrastructure::protocol_compat::compatibility_status_from_headers;
 use crate::runtime::server_info::{server_info_message, server_meta};
+use axum::http::HeaderMap;
 
 #[derive(Debug, Serialize)]
 pub struct OpenAiKeyStatusResponse {
@@ -22,9 +24,13 @@ pub struct ServerRoleResponse {
 }
 
 pub async fn get_server_meta(
+    headers: HeaderMap,
     State(state): State<Arc<SessionRegistry>>,
 ) -> Json<orbitdock_protocol::ServerMeta> {
-    Json(server_meta(&state))
+    Json(server_meta(
+        &state,
+        compatibility_status_from_headers(&headers),
+    ))
 }
 
 #[derive(Debug, Deserialize)]

@@ -47,6 +47,9 @@ Interactive `make rust-run`, `make rust-run-lan`, and `make rust-run-debug` open
 
 For LAN testing, use `make rust-run-lan`.
 
+When the server binds to `0.0.0.0:4000`, treat that as a listen address only.
+Local clients, hooks, and CLI commands should still connect to `http://127.0.0.1:4000` on the same machine, or to the machine's actual LAN/Tailscale address from another device.
+
 ## App Install Flow
 
 When the native app installs or configures a local server, the flow is:

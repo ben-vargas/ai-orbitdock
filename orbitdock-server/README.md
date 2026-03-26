@@ -85,6 +85,9 @@ Or run it as a system service so it survives reboots:
 orbitdock install-service --enable --bind 0.0.0.0:4000
 ```
 
+`0.0.0.0:4000` is a bind address for the server process.
+Local CLI commands and hooks on the same machine should still use `http://127.0.0.1:4000`, while remote devices should use the machine's real reachable address.
+
 ### Cloudflare Tunnel
 
 Zero-config HTTPS exposure with no firewall changes:
@@ -387,13 +390,13 @@ Each session maintains a monotonic `approval_version` counter that increments on
 JSON over WebSocket at `ws://127.0.0.1:4000/ws`.
 
 For the HTTP and WebSocket contract (endpoints + payloads), see `docs/API.md`.
-For the rationale behind the REST/WS split, see `docs/api-transport-split.md`.
+For the rationale behind the REST/WS split, see `../docs/data-flow.md`.
 
 WebSocket is reserved for:
 
-- subscriptions (`subscribe_list`, `subscribe_session`, `unsubscribe_session`)
+- subscriptions (`subscribe_dashboard`, `subscribe_missions`, `subscribe_session_surface`, `unsubscribe_session_surface`)
 - command/actions (create/send/approve/interrupt/etc.)
-- realtime events (`session_delta`, `message_appended`, `approval_requested`, ...)
+- realtime events (`session_delta`, `conversation_rows_changed`, `approval_requested`, ...)
 
 Read/list utility requests now live on HTTP. Legacy WS request/response variants return
 `error.code = "http_only_endpoint"`.
@@ -403,13 +406,43 @@ Read/list utility requests now live on HTTP. Legacy WS request/response variants
 The server sends a `hello` immediately on connect:
 
 ```json
-{ "type": "hello", "version": "0.1.0", "protocol_version": 1 }
+{
+  "type": "hello",
+  "hello": {
+    "server_version": "0.4.0",
+    "compatibility": {
+      "compatible": true,
+      "server_compatibility": "server_authoritative_session_v1"
+    },
+    "capabilities": [
+      "dashboard_projection_v1",
+      "missions_projection_v1",
+      "session_detail_surface_v1",
+      "session_composer_surface_v1",
+      "conversation_surface_v1"
+    ]
+  }
+}
 ```
 
-If auth is enabled, send it via `Authorization` header during the WebSocket handshake:
+The server owns the compatibility verdict. Clients should fail fast if `hello.compatibility.compatible` is `false` instead of trying to guess their way through a mismatch.
+
+If auth is enabled, send it via `Authorization` header during the WebSocket handshake. Clients should also send their version and compatibility contract:
 
 ```
 Authorization: Bearer <your-token>
+X-OrbitDock-Client-Version: 0.4.0
+X-OrbitDock-Client-Compatibility: server_authoritative_session_v1
+```
+
+HTTP responses echo the server side of that contract:
+
+```
+X-OrbitDock-Server-Version: 0.4.0
+X-OrbitDock-Server-Compatibility: server_authoritative_session_v1
+X-OrbitDock-Compatible: true|false
+X-OrbitDock-Compatibility-Reason: upgrade_app|upgrade_server|unsupported_client
+X-OrbitDock-Compatibility-Message: <human-readable guidance>
 ```
 
 ### Client → Server
@@ -417,10 +450,11 @@ Authorization: Bearer <your-token>
 **Subscriptions:**
 
 ```json
-{ "type": "subscribe_list" }
-{ "type": "subscribe_session", "session_id": "...", "since_revision": 42 }
-{ "type": "subscribe_session", "session_id": "...", "since_revision": 42, "include_snapshot": false }
-{ "type": "unsubscribe_session", "session_id": "..." }
+{ "type": "subscribe_dashboard", "since_revision": 42 }
+{ "type": "subscribe_missions", "since_revision": 8 }
+{ "type": "subscribe_session_surface", "session_id": "...", "surface": "detail", "since_revision": 42 }
+{ "type": "subscribe_session_surface", "session_id": "...", "surface": "conversation", "since_revision": 105 }
+{ "type": "unsubscribe_session_surface", "session_id": "...", "surface": "conversation" }
 ```
 
 **Session actions:**
@@ -476,15 +510,13 @@ Server broadcasts `review_comment_created` / `review_comment_updated` / `review_
 ### Server → Client
 
 ```json
-{ "type": "hello", "version": "0.1.0", "protocol_version": 1 }
-{ "type": "sessions_list", "sessions": [...] }
-{ "type": "session_snapshot", "session": {...} }
+{ "type": "hello", "hello": { "server_version": "0.4.0", "compatibility": { "compatible": true, "server_compatibility": "server_authoritative_session_v1" }, "capabilities": ["dashboard_projection_v1"] } }
+{ "type": "dashboard_invalidated", "revision": 43 }
+{ "type": "missions_invalidated", "revision": 9 }
 { "type": "session_delta", "session_id": "...", "changes": {...} }
-{ "type": "message_appended", "session_id": "...", "message": {...} }
-{ "type": "message_updated", "session_id": "...", "message_id": "...", "changes": {...} }
+{ "type": "conversation_rows_changed", "session_id": "...", "upserted": [...], "removed_row_ids": [], "total_row_count": 120 }
 { "type": "approval_requested", "session_id": "...", "request": {...} }
 { "type": "tokens_updated", "session_id": "...", "usage": {...} }
-{ "type": "session_created", "session": {...} }
 { "type": "session_ended", "session_id": "...", "reason": "..." }
 { "type": "shell_started", "session_id": "...", "request_id": "...", "command": "..." }
 { "type": "shell_output", "session_id": "...", "request_id": "...", "stdout": "...", "stderr": "...", "exit_code": 0, "duration_ms": 1234, "outcome": "completed" }

@@ -60,11 +60,18 @@ private actor RegistryAggregationWorker {
 @Observable
 @MainActor
 final class ServerRuntimeRegistry {
+  private enum BootstrapRefreshDecision: Equatable {
+    case success
+    case retry
+    case stop
+  }
+
   private let endpointSettings: ServerEndpointSettingsClient
   private let endpointsProvider: () -> [ServerEndpoint]
   private let runtimeFactory: (ServerEndpoint) -> ServerRuntime
   private let clientIdentityProvider: () -> ServerClientIdentity
   private let shouldBootstrapFromSettings: Bool
+  private let bootstrapRetryDelay: @Sendable (Int) -> Duration
   private let controlPlaneCoordinator = ServerControlPlaneCoordinator()
   private(set) var runtimesByEndpointId: [UUID: ServerRuntime] = [:]
   private(set) var connectionStatusByEndpointId: [UUID: ConnectionStatus] = [:]
@@ -106,6 +113,8 @@ final class ServerRuntimeRegistry {
   @ObservationIgnored private var statusObserverTasks: [UUID: Task<Void, Never>] = [:]
   @ObservationIgnored private var readinessObserverTasks: [UUID: Task<Void, Never>] = [:]
   @ObservationIgnored private var connectionListenerTokensByEndpointId: [UUID: ServerConnectionListenerToken] = [:]
+  @ObservationIgnored private var bootstrapRetryTasksByEndpointId: [UUID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var bootstrapRetryAttemptsByEndpointId: [UUID: Int] = [:]
   @ObservationIgnored private var suspendedForBackground = false
   @ObservationIgnored private let aggregationWorker = RegistryAggregationWorker()
   @ObservationIgnored private var aggregationRefreshTask: Task<Void, Never>?
@@ -161,6 +170,9 @@ final class ServerRuntimeRegistry {
     runtimeFactory = { ServerRuntime(endpoint: $0) }
     clientIdentityProvider = { Self.currentIdentity() }
     shouldBootstrapFromSettings = !AppRuntimeMode.isRunningTestsProcess
+    bootstrapRetryDelay = { attempt in
+      ServerRuntimeRegistry.defaultBootstrapRetryDelay(attempt)
+    }
     dashboardProjectionStore.runtimeRegistry = self
   }
 
@@ -168,7 +180,10 @@ final class ServerRuntimeRegistry {
     endpointsProvider: @escaping () -> [ServerEndpoint],
     runtimeFactory: @escaping (ServerEndpoint) -> ServerRuntime,
     endpointSettings: ServerEndpointSettingsClient? = nil,
-    shouldBootstrapFromSettings: Bool = true
+    shouldBootstrapFromSettings: Bool = true,
+    bootstrapRetryDelay: @escaping @Sendable (Int) -> Duration = { attempt in
+      ServerRuntimeRegistry.defaultBootstrapRetryDelay(attempt)
+    }
   ) {
     var readinessContinuation: AsyncStream<Void>.Continuation!
     readinessUpdates = AsyncStream { readinessContinuation = $0 }
@@ -178,6 +193,7 @@ final class ServerRuntimeRegistry {
     self.runtimeFactory = runtimeFactory
     self.clientIdentityProvider = { Self.currentIdentity() }
     self.shouldBootstrapFromSettings = shouldBootstrapFromSettings
+    self.bootstrapRetryDelay = bootstrapRetryDelay
     dashboardProjectionStore.runtimeRegistry = self
   }
 
@@ -186,7 +202,10 @@ final class ServerRuntimeRegistry {
     runtimeFactory: @escaping (ServerEndpoint) -> ServerRuntime,
     clientIdentityProvider: @escaping () -> ServerClientIdentity,
     endpointSettings: ServerEndpointSettingsClient? = nil,
-    shouldBootstrapFromSettings: Bool = true
+    shouldBootstrapFromSettings: Bool = true,
+    bootstrapRetryDelay: @escaping @Sendable (Int) -> Duration = { attempt in
+      ServerRuntimeRegistry.defaultBootstrapRetryDelay(attempt)
+    }
   ) {
     var readinessContinuation: AsyncStream<Void>.Continuation!
     readinessUpdates = AsyncStream { readinessContinuation = $0 }
@@ -196,6 +215,7 @@ final class ServerRuntimeRegistry {
     self.runtimeFactory = runtimeFactory
     self.clientIdentityProvider = clientIdentityProvider
     self.shouldBootstrapFromSettings = shouldBootstrapFromSettings
+    self.bootstrapRetryDelay = bootstrapRetryDelay
     dashboardProjectionStore.runtimeRegistry = self
   }
 
@@ -332,6 +352,7 @@ final class ServerRuntimeRegistry {
       readinessObserverTasks[id] = nil
       connectionStatusByEndpointId[id] = nil
       readinessByEndpointId[id] = nil
+      cancelBootstrapRetry(for: id)
       sessionsByEndpoint[id] = nil
       dashboardConversationsByEndpoint[id] = nil
       missionsByEndpoint[id] = nil
@@ -417,7 +438,11 @@ final class ServerRuntimeRegistry {
 
   func reconnectAllIfNeeded() {
     for runtime in runtimesByEndpointId.values {
-      runtime.reconnectIfNeeded()
+      if runtime.readiness.transportReady && !runtime.readiness.queryReady {
+        scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
+      } else {
+        runtime.reconnectIfNeeded()
+      }
     }
   }
 
@@ -427,7 +452,11 @@ final class ServerRuntimeRegistry {
       .filter(\.endpoint.isEnabled)
       .map { runtime in
         if runtime.isStarted {
-          runtime.reconnectIfNeeded()
+          if runtime.readiness.transportReady && !runtime.readiness.queryReady {
+            scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
+          } else {
+            runtime.reconnectIfNeeded()
+          }
         }
         return runtime.endpoint.id
       }
@@ -435,7 +464,11 @@ final class ServerRuntimeRegistry {
 
   func refreshAll() async {
     for runtime in runtimes where runtime.endpoint.isEnabled && runtime.isStarted {
-      runtime.reconnectIfNeeded()
+      if runtime.readiness.transportReady && !runtime.readiness.queryReady {
+        scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
+      } else {
+        runtime.reconnectIfNeeded()
+      }
     }
   }
 
@@ -443,7 +476,7 @@ final class ServerRuntimeRegistry {
     ensureInitialized()
 
     for runtime in runtimes where runtime.endpoint.isEnabled && runtime.readiness.queryReady {
-      await refreshDashboardConversations(for: runtime)
+      _ = await refreshDashboardConversations(for: runtime)
     }
   }
 
@@ -626,16 +659,17 @@ final class ServerRuntimeRegistry {
             hasReceivedInitialRootList: runtime.connection.hasReceivedInitialDashboardSnapshot
           )
           if status == .connected, !runtime.connection.hasReceivedInitialDashboardSnapshot {
-            Task { [weak self, weak runtime] in
-              guard let self, let runtime else { return }
-              await self.refreshDashboardConversations(for: runtime)
-              await self.refreshMissions(for: runtime)
-            }
+            self.scheduleSurfaceBootstrap(for: runtime, resetAttempts: true)
+          } else if status != .connected {
+            self.cancelBootstrapRetry(for: endpointId)
+            self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
           } else if runtime.connection.hasReceivedInitialDashboardSnapshot {
+            self.cancelBootstrapRetry(for: endpointId)
             self.scheduleDashboardProjectionRefresh()
           }
 
         case let .dashboardSnapshot(snapshot):
+          self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
           self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
             connectionStatus: runtime.connection.connectionStatus,
             hasReceivedInitialRootList: true
@@ -661,7 +695,7 @@ final class ServerRuntimeRegistry {
         case .dashboardInvalidated:
           Task { [weak self, weak runtime] in
             guard let self, let runtime else { return }
-            await self.refreshDashboardConversations(for: runtime)
+              _ = await self.refreshDashboardConversations(for: runtime)
           }
 
         case let .missionsSnapshot(snapshot):
@@ -677,7 +711,7 @@ final class ServerRuntimeRegistry {
         case .missionsInvalidated:
           Task { [weak self, weak runtime] in
             guard let self, let runtime else { return }
-            await self.refreshMissions(for: runtime)
+            _ = await self.refreshMissions(for: runtime)
           }
 
         case let .error(code, _, sessionId):
@@ -686,12 +720,12 @@ final class ServerRuntimeRegistry {
             case "dashboard_resync_required", "lagged", "replay_oversized":
               Task { [weak self, weak runtime] in
                 guard let self, let runtime else { return }
-                await self.refreshDashboardConversations(for: runtime)
+                _ = await self.refreshDashboardConversations(for: runtime)
               }
             case "missions_resync_required":
               Task { [weak self, weak runtime] in
                 guard let self, let runtime else { return }
-                await self.refreshMissions(for: runtime)
+                _ = await self.refreshMissions(for: runtime)
               }
             default:
               break
@@ -735,6 +769,8 @@ final class ServerRuntimeRegistry {
     }
     runtimeObservationTasks[endpointId]?.cancel()
     runtimeObservationTasks[endpointId] = nil
+    cancelBootstrapRetry(for: endpointId)
+    bootstrapRetryAttemptsByEndpointId[endpointId] = nil
   }
 
   private func setSessionsAggregationDirty() {
@@ -858,14 +894,15 @@ final class ServerRuntimeRegistry {
     }
   }
 
-  private func refreshDashboardConversations(for runtime: ServerRuntime) async {
-    guard runtime.endpoint.isEnabled else { return }
-    guard runtime.connection.connectionStatus == .connected else { return }
+  private func refreshDashboardConversations(for runtime: ServerRuntime) async -> BootstrapRefreshDecision {
+    guard runtime.endpoint.isEnabled else { return .stop }
+    guard runtime.connection.connectionStatus == .connected else { return .stop }
 
     do {
       let snapshot = try await runtime.clients.dashboard.fetchDashboardSnapshot()
       runtime.connection.applyDashboardSnapshot(snapshot)
       runtime.connection.subscribeDashboard(sinceRevision: snapshot.revision)
+      return .success
     } catch {
       netLog(
         .error,
@@ -877,18 +914,19 @@ final class ServerRuntimeRegistry {
           "error": String(describing: error),
         ]
       )
-      return
+      return shouldRetryBootstrap(after: error) ? .retry : .stop
     }
   }
 
-  private func refreshMissions(for runtime: ServerRuntime) async {
-    guard runtime.endpoint.isEnabled else { return }
-    guard runtime.connection.connectionStatus == .connected else { return }
+  private func refreshMissions(for runtime: ServerRuntime) async -> BootstrapRefreshDecision {
+    guard runtime.endpoint.isEnabled else { return .stop }
+    guard runtime.connection.connectionStatus == .connected else { return .stop }
 
     do {
       let snapshot = try await runtime.clients.missions.fetchMissionSnapshot()
       runtime.connection.applyMissionsSnapshot(snapshot)
       runtime.connection.subscribeMissions(sinceRevision: snapshot.revision)
+      return .success
     } catch {
       netLog(
         .error,
@@ -900,6 +938,78 @@ final class ServerRuntimeRegistry {
           "error": String(describing: error),
         ]
       )
+      return shouldRetryBootstrap(after: error) ? .retry : .stop
+    }
+  }
+
+  private func scheduleSurfaceBootstrap(for runtime: ServerRuntime, resetAttempts: Bool) {
+    let endpointId = runtime.endpoint.id
+    if resetAttempts {
+      cancelBootstrapRetry(for: endpointId)
+      bootstrapRetryAttemptsByEndpointId[endpointId] = 0
+    } else if bootstrapRetryTasksByEndpointId[endpointId] != nil {
+      return
+    }
+
+    bootstrapRetryTasksByEndpointId[endpointId] = Task { @MainActor [weak self, weak runtime] in
+      guard let self, let runtime else { return }
+      let endpointId = runtime.endpoint.id
+      let attempt = self.bootstrapRetryAttemptsByEndpointId[endpointId] ?? 0
+      if attempt > 0 {
+        try? await Task.sleep(for: self.bootstrapRetryDelay(attempt))
+      }
+
+      guard !Task.isCancelled else { return }
+      guard runtime.endpoint.isEnabled, runtime.connection.connectionStatus == .connected else {
+        self.bootstrapRetryTasksByEndpointId[endpointId] = nil
+        return
+      }
+
+      let dashboardDecision = await self.refreshDashboardConversations(for: runtime)
+      let missionsDecision = await self.refreshMissions(for: runtime)
+      self.bootstrapRetryTasksByEndpointId[endpointId] = nil
+
+      let shouldRetry = runtime.connection.connectionStatus == .connected
+        && (!runtime.connection.hasReceivedInitialDashboardSnapshot || missionsDecision == .retry)
+        && (dashboardDecision == .retry || missionsDecision == .retry)
+
+      guard shouldRetry else {
+        self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
+        return
+      }
+
+      self.bootstrapRetryAttemptsByEndpointId[endpointId] = attempt + 1
+      self.scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
+    }
+  }
+
+  private func cancelBootstrapRetry(for endpointId: UUID) {
+    bootstrapRetryTasksByEndpointId[endpointId]?.cancel()
+    bootstrapRetryTasksByEndpointId[endpointId] = nil
+  }
+
+  private nonisolated static func defaultBootstrapRetryDelay(_ attempt: Int) -> Duration {
+    let seconds = min(max(attempt, 1), 5)
+    return .seconds(seconds)
+  }
+
+  private func shouldRetryBootstrap(after error: Error) -> Bool {
+    switch error {
+      case is HTTPTransportError:
+        true
+      case let serverError as ServerRequestError:
+        switch serverError {
+          case .transport:
+            true
+          case let .httpStatus(status, _, _):
+            status >= 500
+          case .incompatibleServer:
+            false
+          default:
+            false
+        }
+      default:
+        false
     }
   }
 

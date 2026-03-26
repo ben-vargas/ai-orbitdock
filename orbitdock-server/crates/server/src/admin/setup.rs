@@ -89,12 +89,13 @@ fn plan_setup(mode: Mode, opts: &SetupOptions) -> SetupPlan {
         Mode::Local => "0.0.0.0:4000".parse().unwrap(),
         Mode::Remote => "0.0.0.0:4000".parse().unwrap(),
     });
+    let local_connect_url = crate::admin::normalize_client_server_url(&format!("http://{bind}"));
 
     SetupPlan {
         mode,
         bind,
         init_url: match mode {
-            Mode::Local => format!("http://{}", bind),
+            Mode::Local => local_connect_url.clone(),
             Mode::Remote => "http://127.0.0.1:4000".to_string(),
         },
         hook_url: match mode {
@@ -130,7 +131,10 @@ fn render_setup_summary(plan: &SetupPlan, auth_token_issued: bool) {
         Mode::Local => {
             println!("  Mode:    Local");
             println!("  Bind:    {}", plan.bind);
-            println!("  Health:  http://{}/health", plan.bind);
+            println!(
+                "  Health:  {}/health",
+                crate::admin::normalize_client_server_url(&format!("http://{}", plan.bind))
+            );
             println!();
             println!("  Your Claude Code sessions will auto-report to this server.");
         }
@@ -197,7 +201,7 @@ mod tests {
         );
 
         assert_eq!(plan.bind.to_string(), "0.0.0.0:4000");
-        assert_eq!(plan.init_url, "http://0.0.0.0:4000");
+        assert_eq!(plan.init_url, "http://127.0.0.1:4000");
         assert_eq!(plan.hook_url, None);
         assert!(!plan.should_issue_token);
         assert!(plan.should_install_hooks);
@@ -239,6 +243,7 @@ mod tests {
         );
 
         assert_eq!(plan.bind.to_string(), "10.0.0.5:4000");
+        assert_eq!(plan.init_url, "http://127.0.0.1:4000");
         assert_eq!(
             plan.hook_url.as_deref(),
             Some("https://dock.example.com:4000")

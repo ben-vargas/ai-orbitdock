@@ -42,6 +42,13 @@ import SwiftUI
     private weak var observedScrollView: NSScrollView?
     var bottomThreshold: CGFloat
 
+    // Track last-written values to coalesce redundant async dispatches.
+    // Binding writes are deferred to the next run loop iteration so they
+    // never fire during SwiftUI's layout pass (which triggers the
+    // "Modifying state during view update" warnings).
+    private var lastWrittenNearBottom: Bool = true
+    private var lastWrittenUserScrolling: Bool = false
+
     init(
       isUserScrolling: Binding<Bool>,
       isNearBottom: Binding<Bool>,
@@ -133,13 +140,13 @@ import SwiftUI
 
     @objc private func liveScrollStarted() {
       ConversationFollowDebug.log("TimelineUserScrollDetector.macOS liveScrollStarted")
-      isUserScrolling.wrappedValue = true
+      deferUserScrolling(true)
       refreshMetrics()
     }
 
     @objc private func liveScrollEnded() {
       ConversationFollowDebug.log("TimelineUserScrollDetector.macOS liveScrollEnded")
-      isUserScrolling.wrappedValue = false
+      deferUserScrolling(false)
       refreshMetrics()
     }
 
@@ -149,14 +156,32 @@ import SwiftUI
 
     func refreshMetrics() {
       guard let scrollView = observedScrollView, let documentView = scrollView.documentView else {
-        isNearBottom.wrappedValue = true
+        deferNearBottom(true)
         return
       }
 
       let visibleMaxY = scrollView.contentView.documentVisibleRect.maxY
       let contentMaxY = documentView.bounds.maxY
       let distanceFromBottom = max(contentMaxY - visibleMaxY, 0)
-      isNearBottom.wrappedValue = distanceFromBottom <= bottomThreshold
+      deferNearBottom(distanceFromBottom <= bottomThreshold)
+    }
+
+    private func deferNearBottom(_ value: Bool) {
+      guard lastWrittenNearBottom != value else { return }
+      lastWrittenNearBottom = value
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.isNearBottom.wrappedValue = value
+      }
+    }
+
+    private func deferUserScrolling(_ value: Bool) {
+      guard lastWrittenUserScrolling != value else { return }
+      lastWrittenUserScrolling = value
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.isUserScrolling.wrappedValue = value
+      }
     }
 
     private func findScrollView() -> NSScrollView? {
@@ -209,6 +234,10 @@ import SwiftUI
     private var contentOffsetObservation: NSKeyValueObservation?
     private var contentSizeObservation: NSKeyValueObservation?
     private var boundsObservation: NSKeyValueObservation?
+
+    // Track last-written values to coalesce redundant async dispatches.
+    private var lastWrittenNearBottom: Bool = true
+    private var lastWrittenUserScrolling: Bool = false
 
     init(
       isUserScrolling: Binding<Bool>,
@@ -264,12 +293,12 @@ import SwiftUI
       switch recognizer.state {
         case .began, .changed:
           decelerationObservation = nil
-          isUserScrolling.wrappedValue = true
+          deferUserScrolling(true)
           refreshMetrics()
 
         case .ended:
           guard let scrollView = recognizer.view as? UIScrollView else {
-            isUserScrolling.wrappedValue = false
+            deferUserScrolling(false)
             refreshMetrics()
             return
           }
@@ -279,13 +308,13 @@ import SwiftUI
               self?.refreshMetrics()
               guard !sv.isDecelerating else { return }
               self?.decelerationObservation = nil
-              self?.isUserScrolling.wrappedValue = false
+              self?.deferUserScrolling(false)
             }
           }
 
         case .cancelled, .failed:
           decelerationObservation = nil
-          isUserScrolling.wrappedValue = false
+          deferUserScrolling(false)
           refreshMetrics()
 
         default:
@@ -295,7 +324,7 @@ import SwiftUI
 
     func refreshMetrics() {
       guard let scrollView = findScrollView() else {
-        isNearBottom.wrappedValue = true
+        deferNearBottom(true)
         return
       }
 
@@ -303,7 +332,25 @@ import SwiftUI
       let visibleMaxY = scrollView.contentOffset.y + scrollView.bounds.height - insetBottom
       let contentMaxY = scrollView.contentSize.height
       let distanceFromBottom = max(contentMaxY - visibleMaxY, 0)
-      isNearBottom.wrappedValue = distanceFromBottom <= bottomThreshold
+      deferNearBottom(distanceFromBottom <= bottomThreshold)
+    }
+
+    private func deferNearBottom(_ value: Bool) {
+      guard lastWrittenNearBottom != value else { return }
+      lastWrittenNearBottom = value
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.isNearBottom.wrappedValue = value
+      }
+    }
+
+    private func deferUserScrolling(_ value: Bool) {
+      guard lastWrittenUserScrolling != value else { return }
+      lastWrittenUserScrolling = value
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.isUserScrolling.wrappedValue = value
+      }
     }
 
     private func findScrollView() -> UIScrollView? {

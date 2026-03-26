@@ -166,16 +166,65 @@ struct ServerClientsTests {
     }
   }
 
+  @Test func rejectsIncompatibleHTTPProtocolHeaders() async throws {
+    let clients = try ServerClients(
+      serverURL: #require(URL(string: "http://localhost:4000")),
+      authToken: nil,
+      dataLoader: { request in
+        Self.jsonResponse(
+          url: request.url!,
+          statusCode: 200,
+          json: #"{"sessions":[]}"#,
+          headers: [
+            "Content-Type": "application/json",
+            "X-OrbitDock-Server-Version": OrbitDockProtocol.releaseVersion,
+            "X-OrbitDock-Server-Compatibility": "legacy_contract",
+            "X-OrbitDock-Compatible": "false",
+            "X-OrbitDock-Compatibility-Reason": "upgrade_app",
+            "X-OrbitDock-Compatibility-Message": "Update OrbitDock to a build compatible with server 0.4.0.",
+          ]
+        )
+      }
+    )
+
+    do {
+      _ = try await clients.dashboard.fetchDashboardSnapshot()
+      Issue.record("Expected fetchDashboardSnapshot() to reject incompatible server compatibility headers.")
+    } catch let error as ServerRequestError {
+      guard case let .incompatibleServer(compatibilityError) = error else {
+        Issue.record("Expected an incompatible server error.")
+        return
+      }
+      #expect(
+        compatibilityError
+          == .incompatibleServer(
+            serverVersion: OrbitDockProtocol.releaseVersion,
+            serverCompatibility: "legacy_contract",
+            reason: "upgrade_app",
+            message: "Update OrbitDock to a build compatible with server 0.4.0."
+          )
+      )
+    } catch {
+      Issue.record("Expected ServerRequestError, got \(error).")
+    }
+  }
+
   private nonisolated static func jsonResponse(
     url: URL,
     statusCode: Int,
-    json: String
+    json: String,
+    headers: [String: String] = [
+      "Content-Type": "application/json",
+      "X-OrbitDock-Server-Version": OrbitDockProtocol.releaseVersion,
+      "X-OrbitDock-Server-Compatibility": OrbitDockProtocol.compatibility,
+      "X-OrbitDock-Compatible": "true",
+    ]
   ) -> (Data, URLResponse) {
     let response = HTTPURLResponse(
       url: url,
       statusCode: statusCode,
       httpVersion: nil,
-      headerFields: ["Content-Type": "application/json"]
+      headerFields: headers
     )!
     return (Data(json.utf8), response)
   }

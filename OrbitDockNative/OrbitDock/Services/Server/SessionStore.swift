@@ -33,12 +33,10 @@ struct GenerationTask<Value> {
 }
 
 struct SessionHTTPBootstrap {
-  let detail: ServerSessionDetailSnapshotPayload
-  let composer: ServerSessionComposerSnapshotPayload
   let conversation: ServerConversationBootstrap
 
-  var latestRevision: UInt64? {
-    [detail.revision, composer.revision, conversation.session.revision].compactMap { $0 }.max()
+  var sharedSurfaceRevision: UInt64? {
+    conversation.session.revision
   }
 }
 
@@ -337,12 +335,11 @@ final class SessionStore {
       "generation": generation,
     ])
     do {
-      let detailSnapshot = try await clients.sessions.fetchSessionDetail(sessionId)
-      let composerSnapshot = try await clients.sessions.fetchSessionComposer(sessionId)
-      let conversationBootstrap = try await clients.conversation.fetchConversationBootstrap(sessionId, limit: 50)
+      let conversationBootstrap = try await clients.conversation.fetchConversationBootstrap(
+        sessionId,
+        limit: 50
+      )
       let bootstrap = SessionHTTPBootstrap(
-        detail: detailSnapshot,
-        composer: composerSnapshot,
         conversation: conversationBootstrap
       )
       guard subscribedSessions.contains(sessionId), connectionGeneration == generation else {
@@ -356,15 +353,23 @@ final class SessionStore {
       }
 
       netLog(.info, cat: .conv, "HTTP bootstrap fetched", sid: sessionId, data: [
-        "detailRevision": bootstrap.detail.revision,
-        "composerRevision": bootstrap.composer.revision,
-        "conversationRevision": bootstrap.conversation.session.revision as Any,
+        "sharedRevision": bootstrap.sharedSurfaceRevision as Any,
         "rows": bootstrap.conversation.rows.count,
         "generation": generation,
       ])
 
-      handleSessionDetailSnapshot(bootstrap.detail)
-      handleSessionComposerSnapshot(bootstrap.composer)
+      let snapshotRevision = bootstrap.sharedSurfaceRevision ?? 0
+      let snapshot = ServerSessionDetailSnapshotPayload(
+        revision: snapshotRevision,
+        session: bootstrap.conversation.session
+      )
+      handleSessionDetailSnapshot(snapshot)
+      handleSessionComposerSnapshot(
+        ServerSessionComposerSnapshotPayload(
+          revision: snapshotRevision,
+          session: bootstrap.conversation.session
+        )
+      )
       handleConversationBootstrap(
         bootstrap.conversation.session,
         ServerConversationHistoryPage(
@@ -409,9 +414,9 @@ final class SessionStore {
       return
     }
 
-    let detailRevision = bootstrap?.detail.revision
-    let composerRevision = bootstrap?.composer.revision
-    let conversationRevision = bootstrap?.conversation.session.revision
+      let detailRevision = bootstrap?.sharedSurfaceRevision
+      let composerRevision = bootstrap?.sharedSurfaceRevision
+      let conversationRevision = bootstrap?.sharedSurfaceRevision
     netLog(.info, cat: .store, "WS subscribeSessionSurface", sid: sessionId, data: [
       "detailRevision": detailRevision as Any,
       "composerRevision": composerRevision as Any,

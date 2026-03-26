@@ -94,14 +94,16 @@ Connect to `/ws` for real-time events. WebSocket is used for:
 **Client messages** (JSON, sent by the client):
 
 ```json
-{"type": "subscribe_list"}
-{"type": "subscribe_session", "session_id": "od-...", "since_revision": 120, "include_snapshot": true}
-{"type": "unsubscribe_session", "session_id": "od-..."}
+{"type": "subscribe_dashboard", "since_revision": 42}
+{"type": "subscribe_missions", "since_revision": 8}
+{"type": "subscribe_session_surface", "session_id": "od-...", "surface": "detail", "since_revision": 120}
+{"type": "unsubscribe_session_surface", "session_id": "od-...", "surface": "detail"}
 ```
 
 **Server events** (JSON, pushed by the server):
 
-- `conversation_bootstrap` — full session + conversation page on subscribe
+- `hello` — compatibility handshake with `server_version`, a server-authored `compatibility` verdict, and `capabilities`
+- `dashboard_invalidated` / `missions_invalidated` — list refresh hints
 - `conversation_rows_changed` — incremental row upserts/removals
 - `session_delta` — session metadata changes (status, tokens, name)
 - `approval_requested` — tool needs user approval
@@ -113,13 +115,13 @@ Connect to `/ws` for real-time events. WebSocket is used for:
 - `skills_list` / `mcp_tools_list`
 - `review_comment_created` / `review_comment_updated` / `review_comment_deleted`
 - `worktree_created` / `worktree_removed` / `worktree_status_changed`
-- `mission_updated` / `mission_issue_updated` / `mission_orchestrator_status`
 
 ### 3.3 Transport Rules
 
 - Use REST for reads and mutations. Use WebSocket for subscriptions and real-time interaction.
 - REST mutations often produce WebSocket broadcasts so other connected clients stay in sync.
 - When in doubt, use REST. Only use WebSocket when the operation needs a persistent connection.
+- Use HTTP for bootstrap. Use WebSocket for replay and incremental updates after the client already has a revision.
 
 ## 4. Conversation Row Types
 
@@ -328,9 +330,9 @@ Clients should honor render hints when displaying rows.
 
 ### 5.1 Session List
 
-1. `GET /api/sessions` to load initial list.
-2. Send `{"type": "subscribe_list"}` over WebSocket.
-3. React to `session_created`, `session_ended`, `session_delta` events to keep the list current.
+1. `GET /api/dashboard` to load the initial dashboard snapshot.
+2. Send `{"type": "subscribe_dashboard", "since_revision": <snapshot.revision>}` over WebSocket.
+3. React to `dashboard_invalidated` by refetching `GET /api/dashboard`.
 
 Each session summary includes:
 
@@ -349,11 +351,12 @@ Each session summary includes:
 
 ### 5.2 Session Conversation View
 
-1. `GET /api/sessions/{id}/conversation?limit=50` for the initial bootstrap (session state + newest rows).
-2. Send `{"type": "subscribe_session", "session_id": "od-...", "include_snapshot": false}` (skip snapshot since you already have it from REST).
-3. Handle `conversation_rows_changed` events — upsert rows by ID, remove rows in `removed_row_ids`, order by `sequence`.
-4. For infinite scroll backward: `GET /api/sessions/{id}/messages?before_sequence=71&limit=50`.
-5. Handle `session_delta` events for status, token, and name changes.
+1. `GET /api/sessions/{id}/conversation?limit=50` for the initial bootstrap (shared session state + newest rows).
+2. Apply the returned `session` to any rendered detail/composer state and use `session.revision` as the replay token.
+3. Send `{"type": "subscribe_session_surface", "session_id": "od-...", "surface": "conversation", "since_revision": <session.revision>}`.
+4. Handle `conversation_rows_changed` events — upsert rows by ID, remove rows in `removed_row_ids`, order by `sequence`.
+5. For infinite scroll backward: `GET /api/sessions/{id}/messages?before_sequence=71&limit=50`.
+6. Handle `session_delta` events for status, token, and name changes.
 
 **Streaming**: When `is_streaming` is `true` on an assistant row, expect content updates via `conversation_rows_changed` with the same row ID but updated content.
 
@@ -600,14 +603,14 @@ Clients should reconnect on disconnect and re-subscribe to active sessions. Use 
 
 ```json
 {
-  "type": "subscribe_session",
+  "type": "subscribe_session_surface",
   "session_id": "od-...",
-  "since_revision": 120,
-  "include_snapshot": false
+  "surface": "conversation",
+  "since_revision": 120
 }
 ```
 
-If the server cannot replay from the requested revision, it sends a full snapshot instead.
+If the server cannot replay from the requested revision, the client should refetch the matching HTTP surface.
 
 ## 7. Server Info and Auth
 
