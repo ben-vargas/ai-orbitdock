@@ -25,7 +25,7 @@ ogDescription: A native app to run, review, and orchestrate AI coding agents. On
 
       <!-- Content -->
       <div class="hero-content">
-        <h1>Mission control for<br><span class="gradient">AI coding agents</span></h1>
+        <h1>Mission control for <span class="gradient">AI coding agents</span></h1>
         <p class="hero-sub">
           On your phone. On a VM. On a Pi in the closet. A native app to orchestrate, review, and steer your fleet of AI coding agents, wherever they run.
         </p>
@@ -35,43 +35,9 @@ ogDescription: A native app to run, review, and orchestrate AI coding agents. On
         </div>
       </div>
 
-      <!-- Status beacons -->
-      <div class="status-bar">
-        <div class="beacon working">
-          <span class="beacon-dot"></span> Working
-        </div>
-        <div class="beacon permission">
-          <span class="beacon-dot"></span> Permission
-        </div>
-        <div class="beacon question">
-          <span class="beacon-dot"></span> Question
-        </div>
-        <div class="beacon reply">
-          <span class="beacon-dot"></span> Reply
-        </div>
-        <div class="beacon ended">
-          <span class="beacon-dot"></span> Ended
-        </div>
-      </div>
-
       <!-- Hero app screenshot -->
       <div class="hero-screenshot reveal">
-        <div class="app-frame">
-          <div class="app-frame-bar">
-            <span class="frame-dot" style="background:#F26673"></span>
-            <span class="frame-dot" style="background:#F2BF4D"></span>
-            <span class="frame-dot" style="background:#59D18C"></span>
-            <span class="frame-bar-title">OrbitDock</span>
-          </div>
-          <div class="app-frame-content">
-            <!-- Replace this placeholder with: <img src="screenshots/macos-dashboard.png" alt="OrbitDock macOS dashboard"> -->
-            <div class="screenshot-placeholder">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-              <span class="ph-label">macOS app screenshot</span>
-              <span class="ph-size">1440 &times; 900</span>
-            </div>
-          </div>
-        </div>
+        <img src="macos-orbitdock.png" alt="OrbitDock macOS dashboard showing active AI agent sessions across multiple projects" class="hero-screenshot-img">
       </div>
     </section>
 
@@ -120,40 +86,50 @@ ogDescription: A native app to run, review, and orchestrate AI coding agents. On
           </div>
         </div>
 
-        <div class="hud-panel hud-purple bento-card">
-          <h3>Code review canvas</h3>
-          <p>Inline diffs with syntax highlighting. Leave a comment and the agent incorporates your feedback on the next turn.</p>
-          <div class="mini-diff">
-            <div class="diff-file">src/auth/session.ts</div>
-            <div class="diff-lines">
-              <div class="diff-line removed"><span class="diff-prefix">-</span><span class="code">  const timeout = setTimeout(retry, 5000);</span></div>
-              <div class="diff-line added"><span class="diff-prefix">+</span><span class="code">  const result = await retry({ limit: 3 });</span></div>
-              <div class="diff-line context"><span class="diff-prefix">&nbsp;</span><span class="code">  return result.session;</span></div>
+        <div class="hud-panel hud-green bento-card">
+          <h3>Every machine, one view</h3>
+          <p>Your laptop, a VPS, a Raspberry Pi in the closet. Connect them all. Sessions merge into a single dashboard.</p>
+          <div class="mock-servers">
+            <div class="mock-server-row">
+              <span class="server-status online"></span>
+              <span class="server-name">macbook-pro</span>
+              <span class="server-detail">3 sessions &middot; local</span>
             </div>
-            <div class="diff-comment-inline">
-              <span class="author">You</span> Use exponential backoff here instead of fixed retry
+            <div class="mock-server-row">
+              <span class="server-status online"></span>
+              <span class="server-name">dev-vps</span>
+              <span class="server-detail">2 sessions &middot; ssh tunnel</span>
+            </div>
+            <div class="mock-server-row">
+              <span class="server-status online"></span>
+              <span class="server-name">pi-closet</span>
+              <span class="server-detail">1 session &middot; tailscale</span>
             </div>
           </div>
         </div>
 
         <div class="hud-panel hud-orange bento-card">
-          <h3>Approval triage</h3>
-          <p>Tool calls classified by risk level. Approve or deny with a keyboard shortcut on Mac, a tap on your phone.</p>
-          <div class="mock-approval">
-            <div class="approval-header">
-              <span>Tool call from</span>
-              <span style="color:var(--model-sonnet)">Sonnet</span>
-            </div>
-            <div class="approval-tool">
-              <span class="approval-tool-icon">&#9889;</span>
-              <span class="approval-tool-cmd">bash: npm run test -- --coverage</span>
-            </div>
-            <div class="approval-risk">
-              <span class="risk-badge normal">Normal</span>
-              <div class="approval-keys">
-                <span class="key-hint approve"><kbd>y</kbd> approve</span>
-                <span class="key-hint deny"><kbd>n</kbd> deny</span>
+          <h3>Autopilot with a cockpit</h3>
+          <p>Agents work your backlog autonomously &mdash; dispatching, retrying, opening PRs. But you're never locked out. Jump into any session and steer it like a conversation.</p>
+          <div class="mock-mission">
+            <div class="mission-stats">
+              <div class="mission-stat">
+                <span class="mission-stat-value" style="color:var(--status-working)">3</span>
+                <span class="mission-stat-label">Running</span>
               </div>
+              <div class="mission-stat">
+                <span class="mission-stat-value" style="color:var(--text-tertiary)">5</span>
+                <span class="mission-stat-label">Queued</span>
+              </div>
+              <div class="mission-stat">
+                <span class="mission-stat-value" style="color:var(--feedback-positive)">12</span>
+                <span class="mission-stat-label">Done</span>
+              </div>
+            </div>
+            <div class="mission-agent">
+              <span class="session-dot active" style="background:var(--status-working);box-shadow:0 0 8px var(--status-working)"></span>
+              <span class="mission-agent-name">fix-auth-redirect</span>
+              <span class="mission-steer">jump in &rarr;</span>
             </div>
           </div>
         </div>
@@ -303,31 +279,10 @@ ogDescription: A native app to run, review, and orchestrate AI coding agents. On
           </div>
         </div>
         <div class="app-showcase-devices">
-          <div class="app-frame mac-mini">
-            <div class="app-frame-bar">
-              <span class="frame-dot" style="background:#F26673"></span>
-              <span class="frame-dot" style="background:#F2BF4D"></span>
-              <span class="frame-dot" style="background:#59D18C"></span>
-              <span class="frame-bar-title">OrbitDock</span>
-            </div>
-            <div class="app-frame-content">
-              <!-- Replace with: <img src="screenshots/macos-review.png" alt="Code review in OrbitDock macOS"> -->
-              <div class="screenshot-placeholder">
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-                <span class="ph-label">macOS screenshot</span>
-                <span class="ph-size">1440 &times; 900</span>
-              </div>
-            </div>
-          </div>
+          <img src="macos-orbitdock-1.png" alt="OrbitDock macOS session detail showing a conversation with an AI coding agent" class="showcase-mac-screenshot">
           <div class="phone-frame">
-            <div class="phone-notch"></div>
             <div class="phone-screen">
-              <!-- Replace with: <img src="screenshots/ios-dashboard.png" alt="OrbitDock iOS dashboard"> -->
-              <div class="screenshot-placeholder">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 18h.01"/></svg>
-                <span class="ph-label">iOS screenshot</span>
-                <span class="ph-size">390 &times; 844</span>
-              </div>
+              <img src="ios-orbitdock.png" alt="OrbitDock iOS session detail showing an active AI agent working on code">
             </div>
           </div>
         </div>

@@ -327,6 +327,20 @@ final class ServerRuntimeRegistry {
     )
   }
 
+  func injectDemoConnectionStatus(for endpointId: UUID) {
+    connectionStatusByEndpointId[endpointId] = .connected
+    readinessByEndpointId[endpointId] = ServerRuntimeReadiness(
+      transportReady: true,
+      controlPlaneReady: true,
+      queryReady: true
+    )
+  }
+
+  func clearDemoConnectionStatus(for endpointId: UUID) {
+    connectionStatusByEndpointId[endpointId] = nil
+    readinessByEndpointId[endpointId] = nil
+  }
+
   func waitForAnyQueryReadyRuntime() async {
     guard hasEnabledRuntimes, !hasAnyQueryReadyRuntime else { return }
     let updates = readinessUpdates

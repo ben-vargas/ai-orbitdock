@@ -5,6 +5,7 @@ import Observation
 @Observable
 final class DashboardProjectionStore {
   @ObservationIgnored weak var runtimeRegistry: ServerRuntimeRegistry?
+  @ObservationIgnored var isDemoOverrideActive = false
   var rootSessions: [RootSessionNode] = []
   var dashboardConversations: [DashboardConversationRecord] = []
   var hasMultipleEndpoints = false
@@ -13,6 +14,7 @@ final class DashboardProjectionStore {
   var refreshIdentity = "dashboard-unbound"
 
   func apply(_ snapshot: DashboardProjectionSnapshot) {
+    guard !isDemoOverrideActive else { return }
     rootSessions = snapshot.rootSessions
     dashboardConversations = snapshot.dashboardConversations
     hasMultipleEndpoints = snapshot.hasMultipleEndpoints
@@ -21,8 +23,22 @@ final class DashboardProjectionStore {
     refreshIdentity = snapshot.refreshIdentity
   }
 
+  func applyDemo(_ snapshot: DashboardProjectionSnapshot) {
+    isDemoOverrideActive = true
+    rootSessions = snapshot.rootSessions
+    dashboardConversations = snapshot.dashboardConversations
+    hasMultipleEndpoints = snapshot.hasMultipleEndpoints
+    counts = snapshot.counts
+    directCount = snapshot.directCount
+    refreshIdentity = snapshot.refreshIdentity
+  }
+
+  func clearDemoOverride() {
+    isDemoOverrideActive = false
+  }
+
   func refreshDashboardData() async {
-    guard let runtimeRegistry else { return }
+    guard !isDemoOverrideActive, let runtimeRegistry else { return }
     await runtimeRegistry.refreshDashboardConversations()
   }
 }

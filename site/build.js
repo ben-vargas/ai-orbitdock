@@ -101,6 +101,15 @@ function build() {
     }
   }
 
+  // Copy public/ (images, etc.)
+  let publicDir = path.join(__dirname, 'public');
+  if (fs.existsSync(publicDir)) {
+    for (let file of fs.readdirSync(publicDir)) {
+      fs.copyFileSync(path.join(publicDir, file), path.join(DIST, file));
+      console.log(`  ${file}`);
+    }
+  }
+
   console.log('\nDone.');
 }
 

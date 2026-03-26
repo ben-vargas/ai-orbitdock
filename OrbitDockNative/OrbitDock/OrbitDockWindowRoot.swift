@@ -72,13 +72,6 @@ struct OrbitDockWindowRoot: View {
     }
     .preferredColorScheme(.dark)
     .toolbar(.hidden)
-    .overlay(alignment: .topTrailing) {
-      if appRuntime.isDemoModeEnabled {
-        demoModeBanner
-          .padding(.top, 18)
-          .padding(.trailing, 18)
-      }
-    }
     .onAppear {
       syncDemoSeed()
 
@@ -166,33 +159,6 @@ struct OrbitDockWindowRoot: View {
 
   // MARK: - Quick Switcher Overlay
 
-  private var demoModeBanner: some View {
-    HStack(spacing: Spacing.sm) {
-      Image(systemName: "sparkles.rectangle.stack")
-        .font(.system(size: IconScale.sm, weight: .semibold))
-      Text("Demo Data")
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-      Button("Exit") {
-        appRuntime.exitDemoMode()
-        router.goToDashboard(source: .unspecified)
-      }
-      .buttonStyle(.plain)
-      .font(.system(size: TypeScale.caption, weight: .semibold))
-      .foregroundStyle(Color.textPrimary)
-    }
-    .foregroundStyle(Color.textPrimary)
-    .padding(.horizontal, Spacing.md)
-    .padding(.vertical, Spacing.sm)
-    .background(
-      Color.backgroundSecondary,
-      in: Capsule(style: .continuous)
-    )
-    .overlay(
-      Capsule(style: .continuous)
-        .stroke(Color.panelBorder, lineWidth: 1)
-    )
-  }
-
   private var quickSwitcherOverlay: some View {
     ZStack {
       Color.black.opacity(0.5)
@@ -252,10 +218,21 @@ struct OrbitDockWindowRoot: View {
 
   private func syncDemoSeed() {
     if appRuntime.isDemoModeEnabled {
-      appStore.seed(records: appRuntime.demoExperience.rootSessions)
-      appStore.seedDashboardConversations(appRuntime.demoExperience.dashboardConversations)
+      let demo = appRuntime.demoExperience
+      appStore.seed(records: demo.rootSessions)
+      appStore.seedDashboardConversations(demo.dashboardConversations)
+
+      // Push demo data into the projection store so DashboardViewModel sees it.
+      // applyDemo blocks real registry updates until clearDemoOverride is called.
+      let snapshot = DashboardProjectionBuilder.build(
+        rootSessions: demo.rootSessions,
+        dashboardConversations: demo.dashboardConversations,
+        refreshIdentity: "demo-\(UUID().uuidString.prefix(8))"
+      )
+      appStore.dashboardProjectionStore.applyDemo(snapshot)
       return
     }
+    appStore.dashboardProjectionStore.clearDemoOverride()
     appStore.clearPreviewSeed()
   }
 }

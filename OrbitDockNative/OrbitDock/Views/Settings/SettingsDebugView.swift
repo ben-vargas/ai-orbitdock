@@ -5,6 +5,7 @@ struct DebugSettingsView: View {
     @Environment(\.serverManager) private var serverManager
   #endif
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @Environment(OrbitDockAppRuntime.self) private var appRuntime
   @State private var showEndpointSettings = false
 
   private var activeConnectionStatus: ConnectionStatus {
@@ -138,6 +139,33 @@ struct DebugSettingsView: View {
                   .foregroundStyle(Color.textTertiary)
               }
             #endif
+          }
+        }
+
+        SettingsSection(title: "DEMO MODE", icon: "sparkles.rectangle.stack") {
+          HStack {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+              Text("Explore with sample data")
+                .font(.system(size: TypeScale.body))
+              Text("Read-only demo with seeded sessions and dashboard data.")
+                .font(.system(size: TypeScale.meta))
+                .foregroundStyle(Color.textTertiary)
+            }
+
+            Spacer()
+
+            if appRuntime.isDemoModeEnabled {
+              Button("Exit Demo") {
+                appRuntime.exitDemoMode()
+              }
+              .buttonStyle(.bordered)
+            } else {
+              Button("Enter Demo") {
+                appRuntime.enterDemoMode()
+              }
+              .buttonStyle(.borderedProminent)
+              .tint(Color.accent)
+            }
           }
         }
       }
