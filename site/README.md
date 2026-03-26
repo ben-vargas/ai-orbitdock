@@ -15,6 +15,13 @@ npm run site:dev
 node site/build.js --serve --port 8080
 ```
 
+If you are working from inside `site/`, you can use the local package scripts too:
+
+```bash
+npm run build
+npm run dev
+```
+
 ## How it works
 
 Each page is a content-only HTML file with frontmatter. The build script injects that content into a shared layout, resolves partials (nav, footer), and copies static assets to `site/dist/`.
@@ -58,6 +65,23 @@ active: about
 ```
 
 Run `npm run site:build` and it appears at `site/dist/your-page.html`.
+
+## Cloudflare Pages
+
+Recommended setup for this repo:
+
+- Root directory: `site`
+- Build command: `npm run build`
+- Build output directory: `dist`
+
+That setup keeps the Pages project focused on the marketing site instead of the repo root.
+It also avoids the root-level `dist/` directory, which is used for release artifacts and is not the website.
+
+If you prefer to keep the Pages project rooted at the repo root instead, use:
+
+- Root directory: `(repo root)`
+- Build command: `node site/build.js`
+- Build output directory: `site/dist`
 
 ## Frontmatter fields
 
