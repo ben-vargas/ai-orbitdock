@@ -18,11 +18,11 @@ struct ComposerImageAttachmentOptimizerTests {
 
     #expect(optimized != nil)
 
-    let dimensions = ComposerImageAttachmentOptimizer.imagePixelDimensions(from: optimized!.data)
+    let dimensions = try ComposerImageAttachmentOptimizer.imagePixelDimensions(from: #require(optimized?.data))
     let longEdge = max(dimensions.width ?? 0, dimensions.height ?? 0)
 
     #expect(longEdge <= ComposerImageAttachmentPolicy.recommendedMaxLongEdgePixels)
-    #expect(optimized!.data.count <= ComposerImageAttachmentPolicy.maxSingleImageBytes)
+    #expect(try #require(optimized?.data.count) <= ComposerImageAttachmentPolicy.maxSingleImageBytes)
   }
 
   @Test func remoteTransportBudgetPrefersSmallerEncodingBeforeHardLimit() throws {
@@ -37,8 +37,8 @@ struct ComposerImageAttachmentOptimizerTests {
     )
 
     #expect(optimized != nil)
-    #expect(optimized!.data.count <= ComposerImageAttachmentPolicy.preferredRemoteSingleImageBytes)
-    #expect(optimized!.data.count < pngData.count)
+    #expect(try #require(optimized?.data.count) <= ComposerImageAttachmentPolicy.preferredRemoteSingleImageBytes)
+    #expect(try #require(optimized?.data.count) < pngData.count)
   }
 
   private func makeStripedPNG(width: Int, height: Int) throws -> Data {
@@ -69,8 +69,8 @@ struct ComposerImageAttachmentOptimizerTests {
     let bytesPerRow = width * bytesPerPixel
     var buffer = [UInt8](repeating: 0, count: bytesPerRow * height)
 
-    for y in 0..<height {
-      for x in 0..<width {
+    for y in 0 ..< height {
+      for x in 0 ..< width {
         let offset = y * bytesPerRow + x * bytesPerPixel
         let rgba = pixel(x, y)
         buffer[offset] = rgba.0

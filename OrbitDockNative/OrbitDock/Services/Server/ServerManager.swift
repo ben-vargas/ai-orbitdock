@@ -560,7 +560,10 @@ enum ServerInstallStateResolver {
           do {
             _ = try await runCLI(installedBinaryPath, arguments: ["install-service", "--enable"])
           } catch {
-            logger.error("Failed to restore previous local server service after upgrade error: \(error.localizedDescription)")
+            logger
+              .error(
+                "Failed to restore previous local server service after upgrade error: \(error.localizedDescription)"
+              )
           }
         }
 

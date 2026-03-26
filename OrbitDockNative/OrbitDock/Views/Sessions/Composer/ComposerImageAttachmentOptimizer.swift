@@ -62,8 +62,8 @@ enum ComposerImageAttachmentOptimizer {
     let targetLongEdge = recommendedLongEdge(for: metadata, policy: policy)
     let shouldNormalize =
       imageData.count > policy.preferredMaxBytes
-      || imageData.count > policy.hardMaxBytes
-      || metadata.longEdgePixels > targetLongEdge
+        || imageData.count > policy.hardMaxBytes
+        || metadata.longEdgePixels > targetLongEdge
 
     guard shouldNormalize else {
       return Result(data: imageData, mimeType: mimeType)
@@ -185,22 +185,20 @@ enum ComposerImageAttachmentOptimizer {
     let satisfiesPreferredBudget = candidate.data.count <= policy.preferredMaxBytes
     let satisfiesDimensionBudget = candidate.longEdgePixels <= targetLongEdge
 
-    let nextPreferred: Candidate?
-    if satisfiesPreferredBudget && satisfiesDimensionBudget {
+    let nextPreferred: Candidate? = if satisfiesPreferredBudget, satisfiesDimensionBudget {
       if let preferredCandidate, candidate.data.count >= preferredCandidate.data.count {
-        nextPreferred = preferredCandidate
+        preferredCandidate
       } else {
-        nextPreferred = candidate
+        candidate
       }
     } else {
-      nextPreferred = preferredCandidate
+      preferredCandidate
     }
 
-    let nextFallback: Candidate?
-    if let fallbackCandidate, candidate.data.count >= fallbackCandidate.data.count {
-      nextFallback = fallbackCandidate
+    let nextFallback: Candidate? = if let fallbackCandidate, candidate.data.count >= fallbackCandidate.data.count {
+      fallbackCandidate
     } else {
-      nextFallback = candidate
+      candidate
     }
 
     return (nextPreferred, nextFallback)

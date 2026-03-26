@@ -239,9 +239,9 @@ struct ServerEndpointStore {
 
   private static func hostComponent(from hostPort: String) -> String {
     if hostPort.hasPrefix("["),
-      let closingBracket = hostPort.firstIndex(of: "]")
+       let closingBracket = hostPort.firstIndex(of: "]")
     {
-      return String(hostPort[hostPort.index(after: hostPort.startIndex)..<closingBracket])
+      return String(hostPort[hostPort.index(after: hostPort.startIndex) ..< closingBracket])
     }
 
     return hostPort.split(separator: ":", maxSplits: 1).first.map(String.init) ?? hostPort

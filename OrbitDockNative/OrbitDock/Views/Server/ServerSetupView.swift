@@ -82,7 +82,6 @@ struct ServerSetupView: View {
         connectionForm
           .frame(maxWidth: 420)
 
-
         #if os(macOS)
           installSection
             .frame(maxWidth: 420)
@@ -338,7 +337,6 @@ struct ServerSetupView: View {
       .fill(Color.accent.opacity(OpacityTier.light))
       .frame(height: 1)
   }
-
 
   // MARK: - macOS Install Section
 
