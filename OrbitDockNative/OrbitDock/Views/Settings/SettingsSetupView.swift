@@ -1,18 +1,18 @@
 import SwiftUI
 
 struct SetupSettingsView: View {
-  @Environment(SessionStore.self) private var serverState
+  let serverState: SessionStore
   @State private var model = SetupSettingsModel()
 
   var body: some View {
     ScrollView {
       VStack(spacing: Spacing.xl) {
         ClaudeHooksSetupPane(model: model)
-        CodexAccountSetupPane()
+        CodexAccountSetupPane(serverState: serverState)
       }
       .padding(Spacing.xl)
     }
-    .task {
+    .task(id: serverState.endpointId) {
       model.refreshHooksConfiguration()
       serverState.refreshCodexAccount()
     }

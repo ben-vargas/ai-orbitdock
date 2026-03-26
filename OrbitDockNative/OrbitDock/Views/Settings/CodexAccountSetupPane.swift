@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct CodexAccountSetupPane: View {
-  @Environment(SessionStore.self) private var serverState
+  let serverState: SessionStore
 
   var body: some View {
     SettingsSection(title: "CODEX CLI", icon: "sparkles") {

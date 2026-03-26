@@ -154,6 +154,7 @@ struct DashboardStatusBar: View {
     }
     .sheet(isPresented: $showAppSettings) {
       SettingsView(showsCloseButton: true)
+        .environment(runtimeRegistry.activeSessionStore)
     }
   }
 

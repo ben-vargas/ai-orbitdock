@@ -287,7 +287,7 @@ struct SettingsView: View {
               GeneralSettingsView()
             #endif
           case .integrations:
-            SetupSettingsView()
+            SetupSettingsView(serverState: runtimeRegistry.activeSessionStore)
           case .missionControl:
             MissionControlDefaultsView()
           case .servers:
@@ -339,7 +339,7 @@ struct SettingsView: View {
               GeneralSettingsView()
             #endif
           case .integrations:
-            SetupSettingsView()
+            SetupSettingsView(serverState: runtimeRegistry.activeSessionStore)
           case .missionControl:
             MissionControlDefaultsView()
           case .servers:
