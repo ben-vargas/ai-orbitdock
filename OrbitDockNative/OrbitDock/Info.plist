@@ -25,6 +25,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>OrbitDock connects to servers on your local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>OrbitDock uses your microphone for local dictation.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

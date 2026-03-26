@@ -477,9 +477,12 @@ struct ServerSetupView: View {
     connectionError = nil
     isConnecting = true
 
-    // Check if this is a local-managed host (127.0.0.1 / localhost)
-    let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    let isLocal = trimmedHost == "127.0.0.1" || trimmedHost == "localhost" || trimmedHost == "::1"
+    let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+    #if os(macOS)
+      let isLocal = ServerSetupViewPlanner.isLoopbackHost(trimmedHost)
+    #else
+      let isLocal = false
+    #endif
 
     let result: Result<[ServerEndpoint], ServerSetupConnectError> = if isLocal {
       ServerSetupViewPlanner.buildLocalEndpoint(

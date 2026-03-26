@@ -394,6 +394,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "OrbitDock needs to control iTerm2 to focus your terminal sessions.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "OrbitDock connects to servers on your local network.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OrbitDock uses your microphone for local dictation.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OrbitDock uses speech recognition to transcribe local dictation on your device.";
@@ -408,7 +409,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.4.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.stubbornmule-software.OrbitDock-iOS";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.stubbornmule-software.OrbitDock-iOS.dev";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -436,6 +437,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "OrbitDock needs to control iTerm2 to focus your terminal sessions.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "OrbitDock connects to servers on your local network.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OrbitDock uses your microphone for local dictation.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OrbitDock uses speech recognition to transcribe local dictation on your device.";
@@ -666,7 +668,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 0.4.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.stubbornmule-software.OrbitDock";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.stubbornmule-software.OrbitDock.dev";
 				PRODUCT_NAME = OrbitDock;
 				REGISTER_APP_GROUPS = YES;
 				SPARKLE_FEED_URL = "https://github.com/Robdel12/OrbitDock/releases/latest/download/appcast.xml";

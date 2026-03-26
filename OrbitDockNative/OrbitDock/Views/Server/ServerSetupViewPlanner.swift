@@ -4,6 +4,7 @@ enum ServerSetupConnectError: Error, Equatable {
   case missingHost
   case invalidHost
   case missingToken
+  case loopbackNotReachableFromIOS
 
   var message: String {
     switch self {
@@ -13,6 +14,8 @@ enum ServerSetupConnectError: Error, Equatable {
         "Enter a valid host (e.g. 10.0.0.5:4000 or https://host.example)."
       case .missingToken:
         "Auth token is required. Run `orbitdock auth local-token` to get yours."
+      case .loopbackNotReachableFromIOS:
+        "Use your Mac's LAN IP address on iPhone and iPad. 127.0.0.1 and localhost point to the device itself."
     }
   }
 }
@@ -37,6 +40,12 @@ enum ServerSetupViewPlanner {
     guard !trimmedHost.isEmpty else {
       return .failure(.missingHost)
     }
+
+    #if os(iOS)
+      if isLoopbackHost(trimmedHost) {
+        return .failure(.loopbackNotReachableFromIOS)
+      }
+    #endif
 
     guard let url = buildURL(trimmedHost) else {
       return .failure(.invalidHost)
@@ -114,9 +123,14 @@ enum ServerSetupViewPlanner {
 
   private static func endpointName(for host: String) -> String {
     let lowered = host.lowercased()
-    if lowered == "127.0.0.1" || lowered == "localhost" || lowered == "::1" {
+    if isLoopbackHost(lowered) {
       return "Local Server"
     }
     return "Remote Server"
+  }
+
+  static func isLoopbackHost(_ host: String) -> Bool {
+    let lowered = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return lowered == "127.0.0.1" || lowered == "localhost" || lowered == "::1"
   }
 }
