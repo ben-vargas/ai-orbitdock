@@ -100,7 +100,7 @@ struct MissionOverviewTab: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: Spacing.xl) {
+    VStack(alignment: .leading, spacing: isCompact ? Spacing.lg : Spacing.xl) {
       // Setup flows + banners
       MissionSetupFlow(
         mission: mission,
@@ -361,9 +361,11 @@ struct MissionOverviewTab: View {
             )
         }
 
-        Text(subtitle)
-          .font(.system(size: TypeScale.micro))
-          .foregroundStyle(Color.textTertiary)
+        if !isCompact {
+          Text(subtitle)
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.textTertiary)
+        }
       }
 
       VStack(spacing: 1) {

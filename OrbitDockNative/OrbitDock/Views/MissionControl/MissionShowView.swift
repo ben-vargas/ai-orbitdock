@@ -130,7 +130,7 @@ struct MissionShowView: View {
 
     return VStack(spacing: 0) {
       ScrollView {
-        VStack(alignment: .leading, spacing: Spacing.xl) {
+        VStack(alignment: .leading, spacing: isCompact ? Spacing.lg : Spacing.xl) {
           missionHeader(mission)
           missionSectionPicker(for: missionRef, selectedTab: selectedTab)
 
@@ -194,7 +194,7 @@ struct MissionShowView: View {
               )
           }
         }
-        .padding(Spacing.section)
+        .padding(isCompact ? Spacing.lg : Spacing.section)
       }
     }
   }
@@ -220,11 +220,44 @@ struct MissionShowView: View {
   }
 
   private func compactSectionNavigator(for missionRef: MissionRef, selectedTab: MissionTab) -> some View {
-    VStack(spacing: Spacing.sm) {
+    HStack(spacing: 1) {
       ForEach(MissionTab.allCases, id: \.self) { tab in
-        missionSectionButton(tab, missionRef: missionRef, isSelected: selectedTab == tab)
+        let isSelected = selectedTab == tab
+        Button {
+          withAnimation(Motion.standard) {
+            router.selectMissionTab(tab, for: missionRef)
+          }
+        } label: {
+          VStack(spacing: Spacing.xxs) {
+            HStack(spacing: Spacing.xs) {
+              Image(systemName: tab.icon)
+                .font(.system(size: 10, weight: .semibold))
+              Text(tab.title)
+                .font(.system(size: TypeScale.caption, weight: .semibold))
+              if let badgeValue = missionSectionBadgeValue(for: tab) {
+                Text(badgeValue)
+                  .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+                  .foregroundStyle(isSelected ? Color.accent : Color.textQuaternary)
+              }
+            }
+          }
+          .foregroundStyle(isSelected ? Color.accent : Color.textTertiary)
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, Spacing.sm)
+          .background(
+            isSelected
+              ? Color.accent.opacity(OpacityTier.subtle)
+              : Color.backgroundSecondary
+          )
+        }
+        .buttonStyle(.plain)
       }
     }
+    .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .stroke(Color.surfaceBorder.opacity(OpacityTier.medium), lineWidth: 1)
+    )
   }
 
   private func missionSectionButton(
@@ -348,9 +381,11 @@ struct MissionShowView: View {
         .frame(width: 36, height: 36)
 
         VStack(alignment: .leading, spacing: Spacing.xs) {
-          Text(mission.name)
-            .font(.system(size: isCompact ? TypeScale.large : TypeScale.headline, weight: .bold))
-            .foregroundStyle(Color.textPrimary)
+          if !isCompact {
+            Text(mission.name)
+              .font(.system(size: TypeScale.headline, weight: .bold))
+              .foregroundStyle(Color.textPrimary)
+          }
 
           let tagLayout = isCompact
             ? AnyLayout(WrappingFlowLayout(spacing: Spacing.xs))

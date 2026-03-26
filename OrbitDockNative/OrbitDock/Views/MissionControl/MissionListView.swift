@@ -6,6 +6,18 @@ struct MissionListView: View {
   @Environment(AppRouter.self) private var router
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
+
+  private var isCompact: Bool {
+    #if os(iOS)
+      horizontalSizeClass == .compact
+    #else
+      false
+    #endif
+  }
+
   var body: some View {
     Group {
       if viewModel.isLoading {
@@ -119,7 +131,7 @@ struct MissionListView: View {
           .buttonStyle(.plain)
         }
       }
-      .padding(Spacing.section)
+      .padding(isCompact ? Spacing.lg : Spacing.section)
     }
   }
 
@@ -128,6 +140,18 @@ struct MissionListView: View {
 private struct MissionOverviewHeader: View {
   let missions: [AggregatedMissionSummary]
   let onNewMission: () -> Void
+
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
+
+  private var isCompact: Bool {
+    #if os(iOS)
+      horizontalSizeClass == .compact
+    #else
+      false
+    #endif
+  }
 
   private var activeCount: Int {
     missions.filter { $0.mission.enabled && !$0.mission.paused }.count
@@ -155,57 +179,15 @@ private struct MissionOverviewHeader: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.lg) {
-      HStack(alignment: .top, spacing: Spacing.lg) {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-          Text("AUTONOMOUS ORCHESTRATION")
-            .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
-
-          HStack(spacing: Spacing.sm) {
-            Text("Mission Control")
-              .font(.system(size: TypeScale.headline, weight: .bold, design: .rounded))
-              .foregroundStyle(Color.textPrimary)
-
-            Text("\(missions.count)")
-              .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
-              .foregroundStyle(Color.textTertiary)
-              .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, Spacing.xxs)
-              .background(Color.backgroundTertiary, in: Capsule())
-          }
-
-          Text(
-            "A cleaner flight deck for every repository mission, with status that stays stable as live updates stream in."
-          )
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
-          .frame(maxWidth: 560, alignment: .leading)
-        }
-
-        Spacer(minLength: Spacing.md)
-
-        Button(action: onNewMission) {
-          Label("New Mission", systemImage: "plus")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.accent)
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .background(
-              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(Color.accent.opacity(OpacityTier.light))
-            )
-            .overlay(
-              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .stroke(Color.accent.opacity(OpacityTier.medium), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
+      if isCompact {
+        compactHeaderContent
+      } else {
+        desktopHeaderContent
       }
 
       metricsGrid
     }
-    .padding(Spacing.lg)
+    .padding(isCompact ? Spacing.md : Spacing.lg)
     .background(
       RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
         .fill(Color.backgroundSecondary)
@@ -215,6 +197,85 @@ private struct MissionOverviewHeader: View {
         .stroke(Color.surfaceBorder, lineWidth: 1)
     )
     .shadow(color: Color.accent.opacity(0.05), radius: 18, y: 6)
+  }
+
+  private var compactHeaderContent: some View {
+    HStack(alignment: .center, spacing: Spacing.sm) {
+      Text("Mission Control")
+        .font(.system(size: TypeScale.large, weight: .bold, design: .rounded))
+        .foregroundStyle(Color.textPrimary)
+
+      Text("\(missions.count)")
+        .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xxs)
+        .background(Color.backgroundTertiary, in: Capsule())
+
+      Spacer()
+
+      Button(action: onNewMission) {
+        Image(systemName: "plus")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(Color.accent)
+          .frame(width: 30, height: 30)
+          .background(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .fill(Color.accent.opacity(OpacityTier.light))
+          )
+      }
+      .buttonStyle(.plain)
+    }
+  }
+
+  private var desktopHeaderContent: some View {
+    HStack(alignment: .top, spacing: Spacing.lg) {
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        Text("AUTONOMOUS ORCHESTRATION")
+          .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.textQuaternary)
+
+        HStack(spacing: Spacing.sm) {
+          Text("Mission Control")
+            .font(.system(size: TypeScale.headline, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.textPrimary)
+
+          Text("\(missions.count)")
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.textTertiary)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xxs)
+            .background(Color.backgroundTertiary, in: Capsule())
+        }
+
+        Text(
+          "A cleaner flight deck for every repository mission, with status that stays stable as live updates stream in."
+        )
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: 560, alignment: .leading)
+      }
+
+      Spacer(minLength: Spacing.md)
+
+      Button(action: onNewMission) {
+        Label("New Mission", systemImage: "plus")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.accent)
+          .padding(.horizontal, Spacing.md)
+          .padding(.vertical, Spacing.sm)
+          .background(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .fill(Color.accent.opacity(OpacityTier.light))
+          )
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .stroke(Color.accent.opacity(OpacityTier.medium), lineWidth: 1)
+          )
+      }
+      .buttonStyle(.plain)
+    }
   }
 
   private var metricsGrid: some View {
@@ -321,9 +382,21 @@ private struct MissionRowView: View {
   let onRefresh: () async -> Void
   let onApplyList: (MissionsListResponse) -> Void
 
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
+
   @State private var isHovering = false
   @State private var showDeleteConfirmation = false
   @State private var actionError: String?
+
+  private var isCompact: Bool {
+    #if os(iOS)
+      horizontalSizeClass == .compact
+    #else
+      false
+    #endif
+  }
 
   private var statusColor: Color {
     if mission.paused { return Color.feedbackCaution }
@@ -351,39 +424,10 @@ private struct MissionRowView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
-      HStack(alignment: .top, spacing: Spacing.md) {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-            Text(mission.repoName)
-              .font(.system(size: TypeScale.large, weight: .semibold, design: .rounded))
-              .foregroundStyle(Color.textPrimary)
-
-            if mission.repoName.localizedCaseInsensitiveCompare(mission.name) != .orderedSame {
-              Text(mission.name)
-                .font(.system(size: TypeScale.caption, weight: .medium))
-                .foregroundStyle(Color.textTertiary)
-                .lineLimit(1)
-            }
-          }
-
-          Text(mission.repoRoot)
-            .font(.system(size: TypeScale.micro, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
-            .lineLimit(1)
-            .truncationMode(.middle)
-        }
-
-        Spacer(minLength: Spacing.md)
-
-        HStack(spacing: Spacing.sm) {
-          statusBadge
-          MissionSignalPill(
-            label: mission.flightStatus,
-            icon: "antenna.radiowaves.left.and.right",
-            tint: mission.flightStatusColor
-          )
-          missionActions
-        }
+      if isCompact {
+        compactHeader
+      } else {
+        desktopHeader
       }
 
       ViewThatFits(in: .horizontal) {
@@ -404,8 +448,8 @@ private struct MissionRowView: View {
         }
       }
     }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.lg_)
+    .padding(.horizontal, isCompact ? Spacing.md : Spacing.lg)
+    .padding(.vertical, isCompact ? Spacing.md : Spacing.lg_)
     .background(
       RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
         .fill(isHovering ? Color.surfaceHover : Color.backgroundSecondary)
@@ -426,9 +470,91 @@ private struct MissionRowView: View {
     }
   }
 
+  // MARK: - Compact Header
+
+  private var compactHeader: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack(alignment: .center, spacing: Spacing.sm) {
+        Text(mission.repoName)
+          .font(.system(size: TypeScale.large, weight: .semibold, design: .rounded))
+          .foregroundStyle(Color.textPrimary)
+          .lineLimit(1)
+
+        if mission.repoName.localizedCaseInsensitiveCompare(mission.name) != .orderedSame {
+          Text(mission.name)
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+        }
+
+        Spacer(minLength: Spacing.sm)
+
+        missionActions
+      }
+
+      HStack(spacing: Spacing.sm_) {
+        statusBadge
+        MissionSignalPill(
+          label: mission.flightStatus,
+          icon: "antenna.radiowaves.left.and.right",
+          tint: mission.flightStatusColor
+        )
+      }
+
+      Text(mission.repoRoot)
+        .font(.system(size: TypeScale.micro, design: .monospaced))
+        .foregroundStyle(Color.textQuaternary)
+        .lineLimit(1)
+        .truncationMode(.middle)
+    }
+  }
+
+  // MARK: - Desktop Header
+
+  private var desktopHeader: some View {
+    HStack(alignment: .top, spacing: Spacing.md) {
+      VStack(alignment: .leading, spacing: Spacing.xs) {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+          Text(mission.repoName)
+            .font(.system(size: TypeScale.large, weight: .semibold, design: .rounded))
+            .foregroundStyle(Color.textPrimary)
+
+          if mission.repoName.localizedCaseInsensitiveCompare(mission.name) != .orderedSame {
+            Text(mission.name)
+              .font(.system(size: TypeScale.caption, weight: .medium))
+              .foregroundStyle(Color.textTertiary)
+              .lineLimit(1)
+          }
+        }
+
+        Text(mission.repoRoot)
+          .font(.system(size: TypeScale.micro, design: .monospaced))
+          .foregroundStyle(Color.textQuaternary)
+          .lineLimit(1)
+          .truncationMode(.middle)
+      }
+
+      Spacer(minLength: Spacing.md)
+
+      HStack(spacing: Spacing.sm) {
+        statusBadge
+        MissionSignalPill(
+          label: mission.flightStatus,
+          icon: "antenna.radiowaves.left.and.right",
+          tint: mission.flightStatusColor
+        )
+        missionActions
+      }
+    }
+  }
+
   private var missionDetailsColumn: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
-      HStack(spacing: Spacing.sm_) {
+      let chipLayout = isCompact
+        ? AnyLayout(WrappingFlowLayout(spacing: Spacing.xs))
+        : AnyLayout(HStackLayout(spacing: Spacing.sm_))
+
+      chipLayout {
         if let endpointName {
           MissionMetaChip(label: endpointName, icon: "server.rack", tint: .textTertiary, fill: Color.backgroundTertiary)
         }
