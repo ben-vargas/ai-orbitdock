@@ -9,8 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use crossterm::event::{
-    DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent, EventStream, KeyCode,
-    KeyEvent, KeyEventKind, KeyModifiers,
+    Event as CrosstermEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -22,6 +21,8 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::prelude::{Alignment, Color, Line, Modifier, Span, Style};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
+#[cfg(unix)]
+use tokio::signal::unix::{signal, Signal, SignalKind};
 use tokio::sync::mpsc;
 
 use orbitdock_server::{ServerLogEvent, ServerRunOptions, StderrLogMode};
@@ -47,6 +48,9 @@ pub async fn run_server_with_dev_console(
 
     let mut input = EventStream::new();
     let mut state = DevConsoleState::new(bind_addr);
+    #[cfg(unix)]
+    let mut job_control = JobControlSignals::new()?;
+    let mut terminal_suspend_state = TerminalSuspendState::default();
 
     let server_future = orbitdock_server::run_server(options);
     tokio::pin!(server_future);
@@ -54,6 +58,65 @@ pub async fn run_server_with_dev_console(
     loop {
         terminal.draw(|frame| draw(frame, &mut state))?;
 
+        #[cfg(unix)]
+        tokio::select! {
+            server_result = &mut server_future => {
+                return server_result;
+            }
+            maybe_event = rx.recv() => {
+                if let Some(event) = maybe_event {
+                    state.push_event(event);
+                } else {
+                    break;
+                }
+            }
+            maybe_input = input.next() => {
+                match maybe_input.transpose()? {
+                    Some(CrosstermEvent::Key(key)) if key.kind == KeyEventKind::Press => {
+                        match handle_key_event(&mut state, key) {
+                            ConsoleAction::Continue => {}
+                            ConsoleAction::Quit => break,
+                            ConsoleAction::OpenPager => {
+                                state.status_message = Some(match open_selected_event_in_pager(&state, &mut terminal) {
+                                    Ok(()) => "Opened selected event in pager".to_string(),
+                                    Err(error) => format!("Pager open failed: {error}"),
+                                });
+                            }
+                        }
+                    }
+                    Some(CrosstermEvent::Resize(_, _)) => {}
+                    Some(_) => {}
+                    None => break,
+                }
+            }
+            _ = job_control.sigtstp.recv() => {
+                suspend_for_job_control_signal(
+                    &mut terminal,
+                    &mut terminal_suspend_state,
+                    libc::SIGTSTP,
+                )?;
+            }
+            _ = job_control.sigttin.recv() => {
+                suspend_for_job_control_signal(
+                    &mut terminal,
+                    &mut terminal_suspend_state,
+                    libc::SIGTTIN,
+                )?;
+            }
+            _ = job_control.sigttou.recv() => {
+                suspend_for_job_control_signal(
+                    &mut terminal,
+                    &mut terminal_suspend_state,
+                    libc::SIGTTOU,
+                )?;
+            }
+            _ = job_control.sigcont.recv(), if terminal_suspend_state.is_suspended() => {
+                terminal.resume()?;
+                terminal_suspend_state.mark_resumed();
+            }
+        }
+
+        #[cfg(not(unix))]
         tokio::select! {
             server_result = &mut server_future => {
                 return server_result;
@@ -87,6 +150,62 @@ pub async fn run_server_with_dev_console(
         }
     }
 
+    Ok(())
+}
+
+#[derive(Debug, Default)]
+struct TerminalSuspendState {
+    suspended_for_signal: bool,
+}
+
+impl TerminalSuspendState {
+    fn is_suspended(&self) -> bool {
+        self.suspended_for_signal
+    }
+
+    fn mark_suspended(&mut self) -> bool {
+        let should_suspend = !self.suspended_for_signal;
+        self.suspended_for_signal = true;
+        should_suspend
+    }
+
+    fn mark_resumed(&mut self) {
+        self.suspended_for_signal = false;
+    }
+}
+
+#[cfg(unix)]
+struct JobControlSignals {
+    sigtstp: Signal,
+    sigcont: Signal,
+    sigttin: Signal,
+    sigttou: Signal,
+}
+
+#[cfg(unix)]
+impl JobControlSignals {
+    fn new() -> anyhow::Result<Self> {
+        Ok(Self {
+            sigtstp: signal(SignalKind::from_raw(libc::SIGTSTP)).context("listen for SIGTSTP")?,
+            sigcont: signal(SignalKind::from_raw(libc::SIGCONT)).context("listen for SIGCONT")?,
+            sigttin: signal(SignalKind::from_raw(libc::SIGTTIN)).context("listen for SIGTTIN")?,
+            sigttou: signal(SignalKind::from_raw(libc::SIGTTOU)).context("listen for SIGTTOU")?,
+        })
+    }
+}
+
+#[cfg(unix)]
+fn suspend_for_job_control_signal(
+    terminal: &mut TerminalSession,
+    suspend_state: &mut TerminalSuspendState,
+    signal: i32,
+) -> anyhow::Result<()> {
+    if suspend_state.mark_suspended() {
+        terminal.suspend()?;
+    }
+
+    signal_hook::low_level::emulate_default_handler(signal)
+        .with_context(|| format!("emulate default handler for signal {signal}"))?;
     Ok(())
 }
 
@@ -980,8 +1099,7 @@ impl TerminalSession {
     fn enter() -> anyhow::Result<Self> {
         enable_raw_mode().context("enable raw mode")?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
-            .context("enter alternate screen")?;
+        execute!(stdout, EnterAlternateScreen).context("enter alternate screen")?;
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend).context("create terminal")?;
         Ok(Self { terminal })
@@ -997,12 +1115,8 @@ impl TerminalSession {
 
     fn suspend(&mut self) -> anyhow::Result<()> {
         disable_raw_mode().context("disable raw mode for pager")?;
-        execute!(
-            self.terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )
-        .context("leave alternate screen for pager")?;
+        execute!(self.terminal.backend_mut(), LeaveAlternateScreen)
+            .context("leave alternate screen for pager")?;
         self.terminal
             .show_cursor()
             .context("show cursor before opening pager")?;
@@ -1011,12 +1125,8 @@ impl TerminalSession {
 
     fn resume(&mut self) -> anyhow::Result<()> {
         enable_raw_mode().context("re-enable raw mode after pager")?;
-        execute!(
-            self.terminal.backend_mut(),
-            EnterAlternateScreen,
-            EnableMouseCapture
-        )
-        .context("re-enter alternate screen after pager")?;
+        execute!(self.terminal.backend_mut(), EnterAlternateScreen)
+            .context("re-enter alternate screen after pager")?;
         self.terminal
             .clear()
             .context("clear terminal after pager")?;
@@ -1027,11 +1137,7 @@ impl TerminalSession {
 impl Drop for TerminalSession {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        let _ = execute!(
-            self.terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        );
+        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
         let _ = self.terminal.show_cursor();
     }
 }
@@ -1088,5 +1194,19 @@ mod tests {
         let mut event = sample_event("orbitdock_server::app");
         event.component = Some("hook_handler".to_string());
         assert_eq!(classify_category(&event), Category::Claude);
+    }
+
+    #[test]
+    fn terminal_suspend_state_only_requests_one_suspend_until_resume() {
+        let mut state = TerminalSuspendState::default();
+
+        assert!(state.mark_suspended());
+        assert!(state.is_suspended());
+        assert!(!state.mark_suspended());
+
+        state.mark_resumed();
+
+        assert!(!state.is_suspended());
+        assert!(state.mark_suspended());
     }
 }
