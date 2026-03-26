@@ -220,6 +220,7 @@ struct ServerEndpointStore {
 
     let clean = hostPort.split(separator: "/").first.map(String.init) ?? hostPort
     guard !clean.isEmpty else { return nil }
+    guard !isUnspecifiedBindAddress(clean) else { return nil }
 
     if forceSecure {
       // TLS — use wss://, no default port (443 is implicit)
@@ -229,6 +230,21 @@ struct ServerEndpointStore {
       let withPort = clean.contains(":") ? clean : "\(clean):\(defaultPort)"
       return URL(string: "ws://\(withPort)/ws")
     }
+  }
+
+  private static func isUnspecifiedBindAddress(_ hostPort: String) -> Bool {
+    let host = hostComponent(from: hostPort).lowercased()
+    return host == "0.0.0.0" || host == "::"
+  }
+
+  private static func hostComponent(from hostPort: String) -> String {
+    if hostPort.hasPrefix("["),
+      let closingBracket = hostPort.firstIndex(of: "]")
+    {
+      return String(hostPort[hostPort.index(after: hostPort.startIndex)..<closingBracket])
+    }
+
+    return hostPort.split(separator: ":", maxSplits: 1).first.map(String.init) ?? hostPort
   }
 
   static func hostInput(from url: URL, defaultPort: Int) -> String? {

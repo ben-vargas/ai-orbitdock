@@ -96,6 +96,14 @@ struct ServerEndpointStoreTests {
     #expect(withPath == URL(string: "ws://10.0.0.9:4010/ws"))
   }
 
+  @Test func buildURLRejectsBindAddresses() {
+    let ipv4Bind = ServerEndpointStore.buildURL(fromHostInput: "0.0.0.0:4000", defaultPort: 4_000)
+    let ipv6Bind = ServerEndpointStore.buildURL(fromHostInput: "http://[::]:4000", defaultPort: 4_000)
+
+    #expect(ipv4Bind == nil)
+    #expect(ipv6Bind == nil)
+  }
+
   @Test func hostInputOmitsDefaultPort() throws {
     let defaultPortURL = try #require(URL(string: "ws://10.0.0.8:4000/ws"))
     let customPortURL = try #require(URL(string: "ws://10.0.0.8:4111/ws"))
