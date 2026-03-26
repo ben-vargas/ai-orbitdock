@@ -91,7 +91,7 @@ jobs:
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: codex-pr-review-prompt.md
-          model: gpt-5.4
+          model: gpt-5.4-mini
           effort: high
           sandbox: read-only
 
