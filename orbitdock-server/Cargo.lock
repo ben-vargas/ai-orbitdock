@@ -5235,6 +5235,7 @@ name = "orbitdock"
 version = "0.5.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "clap_complete",
  "comfy-table",

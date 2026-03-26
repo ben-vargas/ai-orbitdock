@@ -36,6 +36,50 @@ struct DiscoverWorktreesRequest {
     repo_path: String,
 }
 
+#[derive(Debug, Serialize)]
+struct WorktreeListSummary {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repo_root: Option<String>,
+    count: usize,
+    active_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct WorktreeListJsonResponse {
+    kind: &'static str,
+    summary: WorktreeListSummary,
+    worktrees: Vec<WorktreeSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct WorktreeActionJsonResponse {
+    ok: bool,
+    action: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worktree_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worktree: Option<WorktreeSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worktrees: Option<Vec<WorktreeSummary>>,
+}
+
+fn build_worktree_list_json_response(resp: WorktreesListResponse) -> WorktreeListJsonResponse {
+    let active_count = resp
+        .worktrees
+        .iter()
+        .filter(|worktree| worktree.status.as_str() == "active")
+        .count();
+    WorktreeListJsonResponse {
+        kind: "worktree_list",
+        summary: WorktreeListSummary {
+            repo_root: resp.repo_root,
+            count: resp.worktrees.len(),
+            active_count,
+        },
+        worktrees: resp.worktrees,
+    }
+}
+
 pub async fn run(action: &WorktreeAction, rest: &RestClient, output: &Output) -> i32 {
     match action {
         WorktreeAction::List { repo } => list(rest, output, repo.as_deref()).await,
@@ -71,10 +115,11 @@ async fn list(rest: &RestClient, output: &Output, repo: Option<&str>) -> i32 {
     match rest.get::<WorktreesListResponse>(&path).await.into_result() {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&build_worktree_list_json_response(resp));
             } else if resp.worktrees.is_empty() {
                 println!("No worktrees found.");
             } else {
+                println!("Worktrees ({}):", resp.worktrees.len());
                 for w in &resp.worktrees {
                     let status = w.status.as_str();
                     println!(
@@ -111,11 +156,17 @@ async fn create(
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&WorktreeActionJsonResponse {
+                    ok: true,
+                    action: "created",
+                    worktree_id: Some(resp.worktree.id.clone()),
+                    worktree: Some(resp.worktree),
+                    worktrees: None,
+                });
             } else {
                 println!(
-                    "Created worktree: {} at {}",
-                    resp.worktree.branch, resp.worktree.worktree_path
+                    "Created worktree {} at {} [{}]",
+                    resp.worktree.branch, resp.worktree.worktree_path, resp.worktree.id
                 );
             }
             EXIT_SUCCESS
@@ -138,11 +189,22 @@ async fn discover(rest: &RestClient, output: &Output, repo: &str) -> i32 {
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&WorktreeActionJsonResponse {
+                    ok: true,
+                    action: "discovered",
+                    worktree_id: None,
+                    worktree: None,
+                    worktrees: Some(resp.worktrees),
+                });
             } else {
                 println!("Discovered {} worktree(s):", resp.worktrees.len());
                 for w in &resp.worktrees {
-                    println!("  {} - {}", w.branch, w.worktree_path);
+                    println!(
+                        "  {} - {} [{}]",
+                        w.branch,
+                        w.worktree_path,
+                        w.status.as_str()
+                    );
                 }
             }
             EXIT_SUCCESS
@@ -186,7 +248,13 @@ async fn remove(
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&WorktreeActionJsonResponse {
+                    ok: resp.ok,
+                    action: "removed",
+                    worktree_id: Some(resp.worktree_id),
+                    worktree: None,
+                    worktrees: None,
+                });
             } else if resp.ok {
                 println!("Worktree {} removed.", worktree_id);
             }

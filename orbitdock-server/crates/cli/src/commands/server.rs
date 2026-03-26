@@ -16,6 +16,20 @@ struct SetServerRoleRequest {
     is_primary: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct ServerStatusJsonResponse {
+    kind: &'static str,
+    health: HealthResponse,
+}
+
+#[derive(Debug, Serialize)]
+struct ServerRoleJsonResponse {
+    ok: bool,
+    action: &'static str,
+    is_primary: bool,
+    role: &'static str,
+}
+
 pub async fn run(action: &ServerAction, rest: &RestClient, output: &Output) -> i32 {
     match action {
         ServerAction::Status => status(rest, output).await,
@@ -36,7 +50,10 @@ async fn status(rest: &RestClient, output: &Output) -> i32 {
     match rest.get::<HealthResponse>("/health").await.into_result() {
         Ok(health) => {
             if output.json {
-                output.print_json(&health);
+                output.print_json_pretty(&ServerStatusJsonResponse {
+                    kind: "server_status",
+                    health,
+                });
             } else {
                 let version = health.version.as_deref().unwrap_or("unknown");
                 let style = console::Style::new().green().bold();
@@ -65,7 +82,17 @@ async fn set_role(rest: &RestClient, output: &Output, is_primary: bool) -> i32 {
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                let role = if resp.is_primary {
+                    "primary"
+                } else {
+                    "secondary"
+                };
+                output.print_json_pretty(&ServerRoleJsonResponse {
+                    ok: true,
+                    action: "server_role_set",
+                    is_primary: resp.is_primary,
+                    role,
+                });
             } else {
                 let role = if resp.is_primary {
                     "primary"

@@ -22,6 +22,68 @@ struct AcceptedResponse {
     accepted: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct McpToolsSummary {
+    session_id: String,
+    server_count: usize,
+    tool_count: usize,
+    resource_count: usize,
+    resource_template_count: usize,
+    auth_server_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct McpToolsJsonResponse {
+    kind: &'static str,
+    summary: McpToolsSummary,
+    tools: McpToolsResponse,
+}
+
+#[derive(Debug, Serialize)]
+struct McpRefreshJsonResponse {
+    ok: bool,
+    action: &'static str,
+    session_id: String,
+    accepted: bool,
+}
+
+fn auth_status_str(status: &McpAuthStatus) -> &'static str {
+    match status {
+        McpAuthStatus::Unsupported => "unsupported",
+        McpAuthStatus::NotLoggedIn => "not_logged_in",
+        McpAuthStatus::BearerToken => "bearer_token",
+        McpAuthStatus::OAuth => "oauth",
+    }
+}
+
+fn build_mcp_tools_json_response(resp: McpToolsResponse) -> McpToolsJsonResponse {
+    let server_count = resp
+        .tools
+        .keys()
+        .chain(resp.resources.keys())
+        .chain(resp.resource_templates.keys())
+        .chain(resp.auth_statuses.keys())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let resource_count = resp.resources.values().map(Vec::len).sum();
+    let resource_template_count = resp.resource_templates.values().map(Vec::len).sum();
+    let tool_count = resp.tools.len();
+    let auth_server_count = resp.auth_statuses.len();
+
+    McpToolsJsonResponse {
+        kind: "mcp_tools",
+        summary: McpToolsSummary {
+            session_id: resp.session_id.clone(),
+            server_count,
+            tool_count,
+            resource_count,
+            resource_template_count,
+            auth_server_count,
+        },
+        tools: resp,
+    }
+}
+
 pub async fn run(action: &McpAction, rest: &RestClient, output: &Output) -> i32 {
     match action {
         McpAction::Tools { session_id } => tools(rest, output, session_id).await,
@@ -34,18 +96,45 @@ async fn tools(rest: &RestClient, output: &Output, session_id: &str) -> i32 {
     match rest.get::<McpToolsResponse>(&path).await.into_result() {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&build_mcp_tools_json_response(resp));
             } else {
-                println!("MCP Tools ({} servers):", resp.tools.len());
+                let server_count = resp
+                    .tools
+                    .keys()
+                    .chain(resp.resources.keys())
+                    .chain(resp.resource_templates.keys())
+                    .chain(resp.auth_statuses.keys())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len();
+                let resource_count: usize = resp.resources.values().map(Vec::len).sum();
+                let template_count: usize = resp.resource_templates.values().map(Vec::len).sum();
+                println!(
+                    "MCP Tools for {session_id}: {server_count} server(s), {} tool(s), {resource_count} resource(s), {template_count} template(s)",
+                    resp.tools.len()
+                );
                 for (key, tool) in &resp.tools {
                     let desc = tool.description.as_deref().unwrap_or("no description");
                     println!("  {key}: {} — {desc}", tool.name);
+                }
+                if !resp.auth_statuses.is_empty() {
+                    println!("\nAuth:");
+                    for (server, status) in &resp.auth_statuses {
+                        println!("  [{server}] {}", auth_status_str(status));
+                    }
                 }
                 if !resp.resources.is_empty() {
                     println!("\nResources:");
                     for (server, resources) in &resp.resources {
                         for r in resources {
                             println!("  [{server}] {} ({})", r.name, r.uri);
+                        }
+                    }
+                }
+                if !resp.resource_templates.is_empty() {
+                    println!("\nResource templates:");
+                    for (server, templates) in &resp.resource_templates {
+                        for template in templates {
+                            println!("  [{server}] {} ({})", template.name, template.uri_template);
                         }
                     }
                 }
@@ -69,9 +158,14 @@ async fn refresh(rest: &RestClient, output: &Output, session_id: &str) -> i32 {
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&McpRefreshJsonResponse {
+                    ok: resp.accepted,
+                    action: "refresh_requested",
+                    session_id: session_id.to_string(),
+                    accepted: resp.accepted,
+                });
             } else {
-                println!("MCP servers refresh requested.");
+                println!("MCP server refresh requested for session {session_id}.");
             }
             EXIT_SUCCESS
         }

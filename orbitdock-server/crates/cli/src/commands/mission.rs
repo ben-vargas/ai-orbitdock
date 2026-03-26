@@ -37,6 +37,46 @@ struct OkResponse {
     ok: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct MissionActionJsonResponse {
+    ok: bool,
+    action: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mission_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct MissionListJsonResponse {
+    kind: &'static str,
+    count: usize,
+    missions: Vec<MissionSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct MissionDetailJsonEnvelope {
+    kind: &'static str,
+    mission: MissionSummary,
+    issue_count: usize,
+    issues: Vec<orbitdock_protocol::MissionIssueItem>,
+}
+
+fn provider_str(provider: &orbitdock_protocol::Provider) -> &'static str {
+    match provider {
+        orbitdock_protocol::Provider::Claude => "claude",
+        orbitdock_protocol::Provider::Codex => "codex",
+    }
+}
+
+fn mission_state(summary: &MissionSummary) -> &'static str {
+    if !summary.enabled {
+        "disabled"
+    } else if summary.paused {
+        "paused"
+    } else {
+        "active"
+    }
+}
+
 pub async fn run(action: &MissionAction, rest: &RestClient, output: &Output) -> i32 {
     match action {
         MissionAction::Enable {
@@ -88,10 +128,11 @@ async fn enable(
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&resp);
             } else {
                 println!("Mission enabled: {} ({})", resp.id, resp.repo_root);
-                println!("  Provider: {:?}", resp.provider);
+                println!("  Name:     {}", resp.name);
+                println!("  Provider: {}", provider_str(&resp.provider));
                 println!("  Tracker:  {}", resp.tracker_kind);
             }
             EXIT_SUCCESS
@@ -111,24 +152,22 @@ async fn list(rest: &RestClient, output: &Output) -> i32 {
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&MissionListJsonResponse {
+                    kind: "mission_list",
+                    count: resp.missions.len(),
+                    missions: resp.missions,
+                });
             } else if resp.missions.is_empty() {
                 println!("No missions configured.");
             } else {
+                println!("Missions ({}):", resp.missions.len());
                 for m in &resp.missions {
-                    let state = if !m.enabled {
-                        "disabled"
-                    } else if m.paused {
-                        "paused"
-                    } else {
-                        "active"
-                    };
                     println!(
-                        "  {} [{}] {} ({:?}) — active:{} queued:{} done:{} failed:{}",
+                        "  {} [{}] {} ({}) — active:{} queued:{} done:{} failed:{}",
                         m.id,
-                        state,
+                        mission_state(m),
                         m.repo_root,
-                        m.provider,
+                        provider_str(&m.provider),
                         m.active_count,
                         m.queued_count,
                         m.completed_count,
@@ -153,19 +192,18 @@ async fn status(rest: &RestClient, output: &Output, mission_id: &str) -> i32 {
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&MissionDetailJsonEnvelope {
+                    kind: "mission_status",
+                    mission: resp.summary,
+                    issue_count: resp.issues.len(),
+                    issues: resp.issues,
+                });
             } else {
                 let m = &resp.summary;
-                let state = if !m.enabled {
-                    "disabled"
-                } else if m.paused {
-                    "paused"
-                } else {
-                    "active"
-                };
-                println!("Mission {} [{}]", m.id, state);
+                println!("Mission {} [{}]", m.id, mission_state(m));
+                println!("  Name:     {}", m.name);
                 println!("  Repo:     {}", m.repo_root);
-                println!("  Provider: {:?}", m.provider);
+                println!("  Provider: {}", provider_str(&m.provider));
                 println!("  Tracker:  {}", m.tracker_kind);
                 println!(
                     "  Issues:   {} active, {} queued, {} completed, {} failed",
@@ -208,7 +246,11 @@ async fn pause(rest: &RestClient, output: &Output, mission_id: &str) -> i32 {
     {
         Ok(_) => {
             if output.json {
-                output.print_json(&serde_json::json!({ "ok": true, "action": "paused" }));
+                output.print_json_pretty(&MissionActionJsonResponse {
+                    ok: true,
+                    action: "paused",
+                    mission_id: Some(mission_id.to_string()),
+                });
             } else {
                 println!("Mission {mission_id} paused.");
             }
@@ -233,7 +275,11 @@ async fn resume(rest: &RestClient, output: &Output, mission_id: &str) -> i32 {
     {
         Ok(_) => {
             if output.json {
-                output.print_json(&serde_json::json!({ "ok": true, "action": "resumed" }));
+                output.print_json_pretty(&MissionActionJsonResponse {
+                    ok: true,
+                    action: "resumed",
+                    mission_id: Some(mission_id.to_string()),
+                });
             } else {
                 println!("Mission {mission_id} resumed.");
             }
@@ -254,7 +300,11 @@ async fn disable(rest: &RestClient, output: &Output, mission_id: &str) -> i32 {
     {
         Ok(_) => {
             if output.json {
-                output.print_json(&serde_json::json!({ "ok": true, "action": "disabled" }));
+                output.print_json_pretty(&MissionActionJsonResponse {
+                    ok: true,
+                    action: "disabled",
+                    mission_id: Some(mission_id.to_string()),
+                });
             } else {
                 println!("Mission {mission_id} disabled and removed.");
             }
@@ -296,7 +346,12 @@ async fn dispatch(
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&MissionDetailJsonEnvelope {
+                    kind: "mission_dispatch",
+                    mission: resp.summary,
+                    issue_count: resp.issues.len(),
+                    issues: resp.issues,
+                });
             } else {
                 println!("Dispatched {issue_identifier} to mission {mission_id}");
                 println!(

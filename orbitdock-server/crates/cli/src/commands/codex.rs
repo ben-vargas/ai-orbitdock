@@ -22,6 +22,31 @@ struct CodexLogoutResponse {
     status: CodexAccountStatus,
 }
 
+#[derive(Debug, Serialize)]
+struct CodexAccountJsonResponse {
+    kind: &'static str,
+    logged_in: bool,
+    login_in_progress: bool,
+    status: CodexAccountStatus,
+}
+
+#[derive(Debug, Serialize)]
+struct CodexLoginJsonResponse {
+    ok: bool,
+    action: &'static str,
+    login_id: String,
+    auth_url: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CodexLogoutJsonResponse {
+    ok: bool,
+    action: &'static str,
+    logged_in: bool,
+    login_in_progress: bool,
+    status: CodexAccountStatus,
+}
+
 pub async fn run(action: &CodexAction, rest: &RestClient, output: &Output) -> i32 {
     match action {
         CodexAction::Account => account(rest, output).await,
@@ -38,7 +63,12 @@ async fn account(rest: &RestClient, output: &Output) -> i32 {
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&CodexAccountJsonResponse {
+                    kind: "codex_account",
+                    logged_in: resp.status.account.is_some(),
+                    login_in_progress: resp.status.login_in_progress,
+                    status: resp.status,
+                });
             } else {
                 let bold = console::Style::new().bold();
                 let logged_in = resp.status.account.is_some();
@@ -86,7 +116,12 @@ async fn login(rest: &RestClient, output: &Output) -> i32 {
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&CodexLoginJsonResponse {
+                    ok: true,
+                    action: "codex_login_start",
+                    login_id: resp.login_id,
+                    auth_url: resp.auth_url,
+                });
             } else {
                 println!("Login started. Open this URL to authenticate:");
                 println!("  {}", resp.auth_url);
@@ -110,7 +145,13 @@ async fn logout(rest: &RestClient, output: &Output) -> i32 {
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&CodexLogoutJsonResponse {
+                    ok: true,
+                    action: "codex_logout",
+                    logged_in: resp.status.account.is_some(),
+                    login_in_progress: resp.status.login_in_progress,
+                    status: resp.status,
+                });
             } else {
                 println!("Logged out.");
             }

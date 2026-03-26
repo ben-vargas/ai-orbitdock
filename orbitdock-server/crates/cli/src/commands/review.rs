@@ -41,6 +41,37 @@ struct UpdateReviewCommentRequest {
     status: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct ReviewCommentsJsonResponse {
+    kind: &'static str,
+    session_id: String,
+    count: usize,
+    comments: Vec<ReviewComment>,
+}
+
+#[derive(Debug, Serialize)]
+struct ReviewCommentActionJsonResponse {
+    ok: bool,
+    action: &'static str,
+    comment_id: String,
+}
+
+fn review_tag_label(tag: &orbitdock_protocol::ReviewCommentTag) -> &'static str {
+    match tag {
+        orbitdock_protocol::ReviewCommentTag::Clarity => "clarity",
+        orbitdock_protocol::ReviewCommentTag::Scope => "scope",
+        orbitdock_protocol::ReviewCommentTag::Risk => "risk",
+        orbitdock_protocol::ReviewCommentTag::Nit => "nit",
+    }
+}
+
+fn review_status_label(status: &orbitdock_protocol::ReviewCommentStatus) -> &'static str {
+    match status {
+        orbitdock_protocol::ReviewCommentStatus::Open => "open",
+        orbitdock_protocol::ReviewCommentStatus::Resolved => "resolved",
+    }
+}
+
 pub async fn run(action: &ReviewAction, rest: &RestClient, output: &Output) -> i32 {
     match action {
         ReviewAction::List { session_id, turn } => {
@@ -101,19 +132,35 @@ async fn list(rest: &RestClient, output: &Output, session_id: &str, turn: Option
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&ReviewCommentsJsonResponse {
+                    kind: "review_comments",
+                    session_id: resp.session_id,
+                    count: resp.comments.len(),
+                    comments: resp.comments,
+                });
             } else if resp.comments.is_empty() {
                 println!("No review comments.");
             } else {
+                println!("Review comments ({}):", resp.comments.len());
                 for c in &resp.comments {
                     let tag = c
                         .tag
                         .as_ref()
-                        .map(|t| format!("[{t:?}] "))
+                        .map(|t| format!("[{}] ", review_tag_label(t)))
+                        .unwrap_or_default();
+                    let line_end = c
+                        .line_end
+                        .map(|line_end| format!("-L{line_end}"))
                         .unwrap_or_default();
                     println!(
-                        "  {} {}{}:L{} — {}",
-                        c.id, tag, c.file_path, c.line_start, c.body
+                        "  {} [{}] {}{}:L{}{} — {}",
+                        c.id,
+                        review_status_label(&c.status),
+                        tag,
+                        c.file_path,
+                        c.line_start,
+                        line_end,
+                        c.body
                     );
                 }
             }
@@ -170,7 +217,11 @@ async fn create(args: CreateReviewArgs<'_>) -> i32 {
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&ReviewCommentActionJsonResponse {
+                    ok: resp.ok,
+                    action: "created",
+                    comment_id: resp.comment_id,
+                });
             } else {
                 println!("Created review comment: {}", resp.comment_id);
             }
@@ -208,7 +259,11 @@ async fn update(
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&ReviewCommentActionJsonResponse {
+                    ok: resp.ok,
+                    action: "updated",
+                    comment_id: resp.comment_id,
+                });
             } else {
                 println!("Updated review comment: {}", resp.comment_id);
             }
@@ -230,7 +285,11 @@ async fn delete(rest: &RestClient, output: &Output, comment_id: &str) -> i32 {
     {
         Ok(resp) => {
             if output.json {
-                output.print_json(&resp);
+                output.print_json_pretty(&ReviewCommentActionJsonResponse {
+                    ok: resp.ok,
+                    action: "deleted",
+                    comment_id: resp.comment_id,
+                });
             } else {
                 println!("Deleted review comment: {}", resp.comment_id);
             }
