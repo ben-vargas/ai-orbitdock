@@ -126,6 +126,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID || secrets.MACOS_DEVELOPMENT_TEAM || secrets.APPLE_TEAM_ID }}
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: ./scripts/archive-macos-app-release.sh
 
       - name: Prepare nightly changelog context
@@ -256,8 +258,8 @@ jobs:
 
       - name: Package darwin server assets
         env:
-          CARGO_PROFILE_RELEASE_LTO: thin
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: make rust-release-darwin
 
       - name: Upload darwin server assets
@@ -306,8 +308,8 @@ jobs:
 
       - name: Package linux x86_64 server assets
         env:
-          CARGO_PROFILE_RELEASE_LTO: thin
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: make rust-release-linux-x86_64
 
       - name: Upload linux x86_64 server assets
