@@ -14,6 +14,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY orbitdock-server ./orbitdock-server
+COPY orbitdock-web/dist ./orbitdock-web/dist
+
 WORKDIR /workspace/orbitdock-server
 
 RUN rustup target add "${RUST_TARGET}"

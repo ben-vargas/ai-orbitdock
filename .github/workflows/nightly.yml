@@ -74,6 +74,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "orbitdock-server -> ../.cache/rust/target"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -233,6 +238,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "orbitdock-server -> ../.cache/rust/target"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -245,6 +255,9 @@ jobs:
         run: npm ci
 
       - name: Package darwin server assets
+        env:
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
         run: make rust-release-darwin
 
       - name: Upload darwin server assets
@@ -270,6 +283,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "orbitdock-server -> ../.cache/rust/target"
+
       - name: Install native Linux build dependencies
         run: |
           sudo apt-get update
@@ -287,6 +305,9 @@ jobs:
         run: npm ci
 
       - name: Package linux x86_64 server assets
+        env:
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
         run: make rust-release-linux-x86_64
 
       - name: Upload linux x86_64 server assets
@@ -302,7 +323,7 @@ jobs:
     name: Build Nightly Server (linux aarch64)
     needs: metadata
     if: github.event_name != 'workflow_dispatch' || inputs.build_server_assets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
 
     steps:
@@ -311,6 +332,16 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "orbitdock-server -> ../.cache/rust/target"
+
+      - name: Install native Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libcap-dev
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -322,9 +353,6 @@ jobs:
       - name: Install web dependencies
         working-directory: orbitdock-web
         run: npm ci
-
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
 
       - name: Package linux aarch64 server assets
         run: make rust-release-linux-aarch64
