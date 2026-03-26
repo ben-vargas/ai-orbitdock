@@ -466,6 +466,13 @@ impl CodexConnector {
 
 pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOption>, ConnectorError>
 {
+    discover_models_for_context(None, None).await
+}
+
+pub async fn discover_models_for_context(
+    cwd: Option<&str>,
+    model_provider: Option<&str>,
+) -> Result<Vec<orbitdock_protocol::CodexModelOption>, ConnectorError> {
     let codex_home = find_codex_home()
         .map_err(|e| ConnectorError::ProviderError(format!("Failed to find codex home: {}", e)))?;
     let auth_manager = Arc::new(AuthManager::new(
@@ -473,21 +480,27 @@ pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOptio
         true,
         ORBITDOCK_CODEX_AUTH_STORE_MODE,
     ));
-    let base_config = Config::load_with_cli_overrides(Vec::new())
-        .await
-        .or_else(|err| {
-            warn!(
-                "Failed to load config for model discovery: {}. Falling back to defaults.",
-                err
-            );
-            Config::load_default_with_cli_overrides(Vec::new())
-        })
-        .map_err(|e| {
-            ConnectorError::ProviderError(format!(
-                "Failed to load config for model discovery: {}",
-                e
-            ))
-        })?;
+    let harness_overrides = ConfigOverrides {
+        cwd: cwd.map(std::path::PathBuf::from),
+        model_provider: model_provider.map(str::to_string),
+        ..Default::default()
+    };
+    let base_config =
+        Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), harness_overrides)
+            .await
+            .or_else(|err| {
+                warn!(
+                    "Failed to load config for model discovery: {}. Falling back to defaults.",
+                    err
+                );
+                Config::load_default_with_cli_overrides(Vec::new())
+            })
+            .map_err(|e| {
+                ConnectorError::ProviderError(format!(
+                    "Failed to load config for model discovery: {}",
+                    e
+                ))
+            })?;
     let thread_manager = Arc::new(ThreadManager::new(
         &base_config,
         auth_manager,

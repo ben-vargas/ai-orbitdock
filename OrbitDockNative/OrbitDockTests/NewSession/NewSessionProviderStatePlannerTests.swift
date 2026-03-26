@@ -90,4 +90,25 @@ struct NewSessionProviderStatePlannerTests {
       ) == "gpt-5-codex-mini"
     )
   }
+
+  @Test func codexModelSelectionKeepsFreeformCustomModelIDs() {
+    let models = [
+      ServerCodexModelOption(
+        id: "default",
+        model: "gpt-5.4",
+        displayName: "GPT-5.4",
+        description: "Default",
+        isDefault: true,
+        supportedReasoningEfforts: []
+      ),
+    ]
+
+    #expect(
+      NewSessionProviderStatePlanner.syncCodexModelSelection(
+        currentModel: "qwen/qwen3-coder-next",
+        shouldPreferDefaultModel: true,
+        models: models
+      ) == "qwen/qwen3-coder-next"
+    )
+  }
 }

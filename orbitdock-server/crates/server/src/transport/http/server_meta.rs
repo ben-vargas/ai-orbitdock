@@ -1,11 +1,15 @@
 use std::sync::Arc;
 
-use axum::{extract::State, http::StatusCode, Json};
-use orbitdock_connector_codex::discover_models;
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    Json,
+};
+use orbitdock_connector_codex::{discover_models, discover_models_for_context};
 use orbitdock_protocol::{
     ClaudeModelOption, ClaudeUsageSnapshot, CodexModelOption, CodexUsageSnapshot, UsageErrorInfo,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::runtime::session_registry::SessionRegistry;
 use crate::support::usage_errors::not_control_plane_endpoint_error;
@@ -32,6 +36,14 @@ pub struct CodexModelsResponse {
 #[derive(Debug, Serialize)]
 pub struct ClaudeModelsResponse {
     pub models: Vec<ClaudeModelOption>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct CodexModelsQuery {
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub model_provider: Option<String>,
 }
 
 pub async fn fetch_codex_usage(
@@ -70,8 +82,16 @@ pub async fn fetch_claude_usage(
     Json(ClaudeUsageResponse { usage, error_info })
 }
 
-pub async fn list_codex_models() -> ApiResult<CodexModelsResponse> {
-    match discover_models().await {
+pub async fn list_codex_models(
+    Query(query): Query<CodexModelsQuery>,
+) -> ApiResult<CodexModelsResponse> {
+    let result = if query.cwd.is_some() || query.model_provider.is_some() {
+        discover_models_for_context(query.cwd.as_deref(), query.model_provider.as_deref()).await
+    } else {
+        discover_models().await
+    };
+
+    match result {
         Ok(models) => Ok(Json(CodexModelsResponse { models })),
         Err(err) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,

@@ -27,7 +27,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::debug;
 
-pub use self::config::discover_models;
+pub use self::config::{discover_models, discover_models_for_context};
 use self::runtime::EventLoopState;
 use orbitdock_connector_core::ConnectorEvent;
 
@@ -80,6 +80,7 @@ impl CodexConnector {
             output_buffers,
             delta_buffers,
             streaming_message,
+            raw_tool_calls,
             msg_counter,
             env_tracker,
             reasoning_tracker,
@@ -387,7 +388,13 @@ impl CodexConnector {
             }
 
             EventMsg::RawResponseItem(e) => {
-                event_mapping::streaming::handle_raw_response_item(&event.id, e, msg_counter)
+                event_mapping::streaming::handle_raw_response_item(
+                    &event.id,
+                    e,
+                    msg_counter,
+                    raw_tool_calls,
+                )
+                .await
             }
 
             EventMsg::ListSkillsResponse(e) => {

@@ -82,6 +82,10 @@ enum NewSessionProviderStatePlanner {
       return currentModel
     }
 
+    if shouldPreferDefaultModel, !currentModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return currentModel
+    }
+
     guard shouldPreferDefaultModel else {
       return ""
     }

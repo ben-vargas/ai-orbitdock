@@ -29,7 +29,11 @@ struct NewSessionConfigurationCard: View {
   let onManageCodexConfig: (() -> Void)?
 
   private var currentCodexModelOption: ServerCodexModelOption? {
-    codexModels.first(where: { $0.model == codexModel }) ?? codexModels.first(where: \.isDefault) ?? codexModels.first
+    let normalizedModel = codexModel.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !normalizedModel.isEmpty {
+      return codexModels.first(where: { $0.model == normalizedModel })
+    }
+    return codexModels.first(where: \.isDefault) ?? codexModels.first
   }
 
   private var availableCodexCollaborationModes: [CodexCollaborationMode] {
@@ -74,6 +78,14 @@ struct NewSessionConfigurationCard: View {
     providerOptions.first(where: { $0.id == codexModelProvider })
   }
 
+  private var codexModelDisplayName: String {
+    if let option = currentCodexModelOption {
+      return option.displayName
+    }
+    let normalizedModel = codexModel.trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalizedModel.isEmpty ? "Choose model" : normalizedModel
+  }
+
   private var usesCustomCodexConfig: Bool {
     codexConfigMode == .custom
   }
@@ -107,7 +119,7 @@ struct NewSessionConfigurationCard: View {
       case .profile:
         selectedProfileSummary?.model ?? "From selected profile"
       case .custom:
-        currentCodexModelOption?.displayName ?? "Choose model"
+        codexModelDisplayName
     }
   }
 
@@ -529,18 +541,25 @@ struct NewSessionConfigurationCard: View {
       Text(selectedProfileSummary?.model ?? "From selected profile")
         .font(.system(size: TypeScale.caption, weight: .semibold))
         .foregroundStyle(Color.textTertiary)
-    } else if !codexModel.isEmpty {
-      Picker("Model", selection: $codexModel) {
-        ForEach(codexModels.filter { !$0.model.isEmpty }, id: \.id) { model in
-          Text(model.displayName).tag(model.model)
+    } else {
+      VStack(alignment: .trailing, spacing: Spacing.xs) {
+        TextField("qwen/qwen3-coder-next", text: $codexModel)
+          .textFieldStyle(.roundedBorder)
+          .font(.system(size: TypeScale.body, design: .monospaced))
+          .frame(maxWidth: 240)
+
+        if !codexModels.isEmpty {
+          Picker("Suggested model", selection: $codexModel) {
+            Text("Suggested models").tag("")
+            ForEach(codexModels.filter { !$0.model.isEmpty }, id: \.id) { model in
+              Text(model.displayName).tag(model.model)
+            }
+          }
+          .pickerStyle(.menu)
+          .labelsHidden()
+          .fixedSize()
         }
       }
-      .pickerStyle(.menu)
-      .labelsHidden()
-      .fixedSize()
-    } else {
-      ProgressView()
-        .controlSize(.small)
     }
   }
 
@@ -721,19 +740,23 @@ struct NewSessionConfigurationCard: View {
             icon: "cpu",
             tint: Color.accent
           ) {
-            if !codexModel.isEmpty {
-              Picker("Model", selection: $codexModel) {
-                ForEach(codexModels.filter { !$0.model.isEmpty }, id: \.id) { model in
-                  Text(model.displayName).tag(model.model)
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+              TextField("qwen/qwen3-coder-next", text: $codexModel)
+                .textFieldStyle(.roundedBorder)
+
+              if !codexModels.isEmpty {
+                Picker("Suggested model", selection: $codexModel) {
+                  Text("Suggested models").tag("")
+                  ForEach(codexModels.filter { !$0.model.isEmpty }, id: \.id) { model in
+                    Text(model.displayName).tag(model.model)
+                  }
                 }
+                .pickerStyle(.menu)
               }
-              .pickerStyle(.menu)
-            } else {
-              ProgressView()
-                .controlSize(.small)
             }
           } description: {
-            Text(currentCodexModelOption?.displayName ?? "Choose the model Codex should launch for this session.")
+            Text(currentCodexModelOption?
+              .description ?? "Enter any Codex model ID, or pick one of the discovered suggestions.")
           }
         }
 
@@ -761,19 +784,23 @@ struct NewSessionConfigurationCard: View {
             icon: "cpu",
             tint: Color.accent
           ) {
-            if !codexModel.isEmpty {
-              Picker("Model", selection: $codexModel) {
-                ForEach(codexModels.filter { !$0.model.isEmpty }, id: \.id) { model in
-                  Text(model.displayName).tag(model.model)
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+              TextField("qwen/qwen3-coder-next", text: $codexModel)
+                .textFieldStyle(.roundedBorder)
+
+              if !codexModels.isEmpty {
+                Picker("Suggested model", selection: $codexModel) {
+                  Text("Suggested models").tag("")
+                  ForEach(codexModels.filter { !$0.model.isEmpty }, id: \.id) { model in
+                    Text(model.displayName).tag(model.model)
+                  }
                 }
+                .pickerStyle(.menu)
               }
-              .pickerStyle(.menu)
-            } else {
-              ProgressView()
-                .controlSize(.small)
             }
           } description: {
-            Text(currentCodexModelOption?.displayName ?? "Choose the model Codex should launch for this session.")
+            Text(currentCodexModelOption?
+              .description ?? "Enter any Codex model ID, or pick one of the discovered suggestions.")
           }
         }
       }

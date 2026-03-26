@@ -1,6 +1,6 @@
 use crate::runtime::{
     apply_delta_thinking, finalized_thinking_row_entry, row_entry, thinking_row_entry,
-    ReasoningEventTracker, StreamingMessage, STREAM_THROTTLE_MS,
+    RawToolCallContext, ReasoningEventTracker, StreamingMessage, STREAM_THROTTLE_MS,
 };
 use crate::timeline::{render_review_output, review_request_summary};
 use crate::workers::iso_now;
@@ -15,8 +15,8 @@ use codex_protocol::protocol::{
 };
 use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::{
-    compute_tool_display, ConversationRow, ConversationRowEntry, MessageRowContent,
-    ToolDisplayInput, ToolRow,
+    classify_tool_name, compute_tool_display, ConversationRow, ConversationRowEntry,
+    MessageRowContent, ToolDisplayInput, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
@@ -53,6 +53,25 @@ fn with_display(mut row: ToolRow) -> ToolRow {
         result_output: result_str.as_deref(),
     }));
     row
+}
+
+fn raw_tool_output_text(output: &codex_protocol::models::FunctionCallOutputPayload) -> String {
+    output
+        .body
+        .to_text()
+        .or_else(|| serde_json::to_string(output).ok())
+        .unwrap_or_default()
+}
+
+fn should_surface_raw_function_tool(kind: ToolKind) -> bool {
+    matches!(
+        kind,
+        ToolKind::Read | ToolKind::Glob | ToolKind::Grep | ToolKind::ToolSearch
+    )
+}
+
+fn normalize_function_arguments(arguments: &str) -> serde_json::Value {
+    serde_json::from_str(arguments).unwrap_or_else(|_| json!({ "raw": arguments }))
 }
 
 pub(crate) async fn handle_agent_message_content_delta(
@@ -474,12 +493,176 @@ pub(crate) async fn handle_item_completed(
     }
 }
 
-pub(crate) fn handle_raw_response_item(
+pub(crate) async fn handle_raw_response_item(
     event_id: &str,
     event: RawResponseItemEvent,
     msg_counter: &AtomicU64,
+    raw_tool_calls: &Arc<tokio::sync::Mutex<HashMap<String, RawToolCallContext>>>,
 ) -> Vec<ConnectorEvent> {
     match event.item {
+        ResponseItem::FunctionCall {
+            name,
+            arguments,
+            call_id,
+            ..
+        } => {
+            let (family, kind) = classify_tool_name(&name);
+            if !should_surface_raw_function_tool(kind) {
+                return vec![];
+            }
+
+            let invocation = normalize_function_arguments(&arguments);
+            let started_at = iso_now();
+            let row = ToolRow {
+                id: call_id.clone(),
+                provider: Provider::Codex,
+                family,
+                kind,
+                status: ToolStatus::Running,
+                title: name.clone(),
+                subtitle: None,
+                summary: None,
+                preview: None,
+                started_at: Some(started_at.clone()),
+                ended_at: None,
+                duration_ms: None,
+                grouping_key: None,
+                invocation,
+                result: None,
+                render_hints: Default::default(),
+                tool_display: None,
+            };
+
+            raw_tool_calls.lock().await.insert(
+                call_id.clone(),
+                RawToolCallContext {
+                    title: name,
+                    family,
+                    kind,
+                    invocation: row.invocation.clone(),
+                    started_at,
+                },
+            );
+
+            vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(row))]
+        }
+        ResponseItem::FunctionCallOutput { call_id, output } => {
+            let Some(context) = raw_tool_calls.lock().await.remove(&call_id) else {
+                return vec![];
+            };
+
+            let output_text = raw_tool_output_text(&output);
+            let row = ToolRow {
+                id: call_id.clone(),
+                provider: Provider::Codex,
+                family: context.family,
+                kind: context.kind,
+                status: ToolStatus::Completed,
+                title: context.title.clone(),
+                subtitle: None,
+                summary: None,
+                preview: None,
+                started_at: Some(context.started_at),
+                ended_at: Some(iso_now()),
+                duration_ms: None,
+                grouping_key: None,
+                invocation: context.invocation,
+                result: Some(json!({
+                    "tool_name": context.title,
+                    "output": output_text,
+                })),
+                render_hints: Default::default(),
+                tool_display: None,
+            };
+
+            vec![ConnectorEvent::ConversationRowUpdated {
+                row_id: call_id,
+                entry: tool_row_entry(row),
+            }]
+        }
+        ResponseItem::ToolSearchCall {
+            call_id: Some(call_id),
+            arguments,
+            ..
+        } => {
+            let title = "ToolSearch".to_string();
+            let family = ToolFamily::Search;
+            let kind = ToolKind::ToolSearch;
+            let started_at = iso_now();
+            let row = ToolRow {
+                id: call_id.clone(),
+                provider: Provider::Codex,
+                family,
+                kind,
+                status: ToolStatus::Running,
+                title: title.clone(),
+                subtitle: None,
+                summary: None,
+                preview: None,
+                started_at: Some(started_at.clone()),
+                ended_at: None,
+                duration_ms: None,
+                grouping_key: None,
+                invocation: arguments.clone(),
+                result: None,
+                render_hints: Default::default(),
+                tool_display: None,
+            };
+
+            raw_tool_calls.lock().await.insert(
+                call_id.clone(),
+                RawToolCallContext {
+                    title,
+                    family,
+                    kind,
+                    invocation: arguments,
+                    started_at,
+                },
+            );
+
+            vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(row))]
+        }
+        ResponseItem::ToolSearchOutput {
+            call_id: Some(call_id),
+            tools,
+            ..
+        } => {
+            let Some(context) = raw_tool_calls.lock().await.remove(&call_id) else {
+                return vec![];
+            };
+
+            let output_text = serde_json::to_string_pretty(&tools)
+                .or_else(|_| serde_json::to_string(&tools))
+                .unwrap_or_default();
+
+            let row = ToolRow {
+                id: call_id.clone(),
+                provider: Provider::Codex,
+                family: context.family,
+                kind: context.kind,
+                status: ToolStatus::Completed,
+                title: context.title.clone(),
+                subtitle: None,
+                summary: None,
+                preview: None,
+                started_at: Some(context.started_at),
+                ended_at: Some(iso_now()),
+                duration_ms: None,
+                grouping_key: None,
+                invocation: context.invocation,
+                result: Some(json!({
+                    "tool_name": context.title,
+                    "output": output_text,
+                })),
+                render_hints: Default::default(),
+                tool_display: None,
+            };
+
+            vec![ConnectorEvent::ConversationRowUpdated {
+                row_id: call_id,
+                entry: tool_row_entry(row),
+            }]
+        }
         ResponseItem::Other => {
             let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
             let entry = row_entry(ConversationRow::Assistant(MessageRowContent {

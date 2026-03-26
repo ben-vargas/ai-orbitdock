@@ -6,6 +6,7 @@ use orbitdock_connector_core::{ConnectorError, ConnectorEvent};
 use orbitdock_protocol::conversation_contracts::{
     ConversationRow, ConversationRowEntry, MessageRowContent,
 };
+use orbitdock_protocol::domain_events::{ToolFamily, ToolKind};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
@@ -18,12 +19,21 @@ pub(super) struct EventLoopState {
     pub(super) output_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     pub(super) delta_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     pub(super) streaming_message: Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
+    pub(super) raw_tool_calls: Arc<tokio::sync::Mutex<HashMap<String, RawToolCallContext>>>,
     pub(super) msg_counter: Arc<AtomicU64>,
     pub(super) env_tracker: Arc<tokio::sync::Mutex<EnvironmentTracker>>,
     pub(super) reasoning_tracker: Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
     pub(super) current_model: Arc<tokio::sync::Mutex<Option<String>>>,
     pub(super) current_reasoning_effort: Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
     pub(super) patch_contexts: Arc<tokio::sync::Mutex<HashMap<String, serde_json::Value>>>,
+}
+
+pub(super) struct RawToolCallContext {
+    pub(super) title: String,
+    pub(super) family: ToolFamily,
+    pub(super) kind: ToolKind,
+    pub(super) invocation: serde_json::Value,
+    pub(super) started_at: String,
 }
 
 /// Tracks an in-progress assistant message being streamed via deltas
@@ -142,6 +152,9 @@ impl CodexConnector {
             output_buffers: Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new())),
             delta_buffers: Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new())),
             streaming_message: Arc::new(tokio::sync::Mutex::new(Option::<StreamingMessage>::None)),
+            raw_tool_calls: Arc::new(tokio::sync::Mutex::new(
+                HashMap::<String, RawToolCallContext>::new(),
+            )),
             msg_counter: Arc::new(AtomicU64::new(0)),
             env_tracker: Arc::new(tokio::sync::Mutex::new(EnvironmentTracker {
                 cwd: None,

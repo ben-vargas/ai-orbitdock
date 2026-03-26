@@ -3,7 +3,7 @@ use super::config::{
     model_rejects_reasoning_summary, parse_personality, parse_reasoning_summary,
     parse_service_tier_override, reasoning_summary_for_model, should_disable_reasoning_summary,
 };
-use super::event_mapping::{guardian, messages};
+use super::event_mapping::{guardian, messages, streaming};
 use super::runtime::StreamingMessage;
 use super::timeline::{
     hook_completed_text, hook_output_text, hook_run_is_error, hook_started_text,
@@ -12,15 +12,18 @@ use super::timeline::{
 use super::workers::{build_authoritative_codex_subagent, build_inflight_codex_subagent};
 use super::workers::{build_codex_subagent_for_status, build_running_codex_subagent};
 use codex_protocol::config_types::{ModeKind, ReasoningSummary, ServiceTier};
+use codex_protocol::models::{FunctionCallOutputPayload, ResponseItem};
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{
     AgentStatus, CodexErrorInfo, HookEventName, HookExecutionMode, HookHandlerType,
     HookOutputEntry, HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope,
-    RealtimeHandoffRequested, RealtimeTranscriptEntry, StreamErrorEvent,
+    RawResponseItemEvent, RealtimeHandoffRequested, RealtimeTranscriptEntry, StreamErrorEvent,
 };
 use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::ConversationRow;
+use orbitdock_protocol::domain_events::{ToolKind, ToolStatus};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 #[test]
@@ -215,6 +218,134 @@ fn hook_helpers_emit_readable_timeline_text() {
         Some("Cleared temporary state\nRemoved stale files")
     );
     assert!(!hook_run_is_error(run.status));
+}
+
+#[tokio::test]
+async fn raw_response_function_call_surfaces_read_tool_rows() {
+    let raw_tool_calls = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+    let msg_counter = AtomicU64::new(0);
+
+    let created = streaming::handle_raw_response_item(
+        "event-1",
+        RawResponseItemEvent {
+            item: ResponseItem::FunctionCall {
+                id: None,
+                name: "Read".to_string(),
+                namespace: None,
+                arguments: r#"{"file_path":"/tmp/example.rs"}"#.to_string(),
+                call_id: "call-read-1".to_string(),
+            },
+        },
+        &msg_counter,
+        &raw_tool_calls,
+    )
+    .await;
+
+    assert_eq!(created.len(), 1);
+    let ConnectorEvent::ConversationRowCreated(entry) = &created[0] else {
+        panic!("expected tool row create event");
+    };
+    let ConversationRow::Tool(tool) = &entry.row else {
+        panic!("expected tool row");
+    };
+    assert_eq!(tool.id, "call-read-1");
+    assert_eq!(tool.kind, ToolKind::Read);
+    assert_eq!(tool.status, ToolStatus::Running);
+    assert_eq!(
+        tool.invocation
+            .get("file_path")
+            .and_then(|value| value.as_str()),
+        Some("/tmp/example.rs")
+    );
+
+    let updated = streaming::handle_raw_response_item(
+        "event-2",
+        RawResponseItemEvent {
+            item: ResponseItem::FunctionCallOutput {
+                call_id: "call-read-1".to_string(),
+                output: FunctionCallOutputPayload::from_text("file contents".to_string()),
+            },
+        },
+        &msg_counter,
+        &raw_tool_calls,
+    )
+    .await;
+
+    assert_eq!(updated.len(), 1);
+    let ConnectorEvent::ConversationRowUpdated { row_id, entry } = &updated[0] else {
+        panic!("expected tool row update event");
+    };
+    assert_eq!(row_id, "call-read-1");
+    let ConversationRow::Tool(tool) = &entry.row else {
+        panic!("expected tool row");
+    };
+    assert_eq!(tool.kind, ToolKind::Read);
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(
+        tool.result
+            .as_ref()
+            .and_then(|value| value.get("output"))
+            .and_then(|value| value.as_str()),
+        Some("file contents")
+    );
+}
+
+#[tokio::test]
+async fn raw_response_tool_search_surfaces_tool_search_rows() {
+    let raw_tool_calls = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+    let msg_counter = AtomicU64::new(0);
+
+    let created = streaming::handle_raw_response_item(
+        "event-1",
+        RawResponseItemEvent {
+            item: ResponseItem::ToolSearchCall {
+                id: None,
+                call_id: Some("call-tool-search-1".to_string()),
+                status: Some("in_progress".to_string()),
+                execution: "lookup".to_string(),
+                arguments: serde_json::json!({ "query": "search notes" }),
+            },
+        },
+        &msg_counter,
+        &raw_tool_calls,
+    )
+    .await;
+
+    assert_eq!(created.len(), 1);
+    let ConnectorEvent::ConversationRowCreated(entry) = &created[0] else {
+        panic!("expected tool row create event");
+    };
+    let ConversationRow::Tool(tool) = &entry.row else {
+        panic!("expected tool row");
+    };
+    assert_eq!(tool.kind, ToolKind::ToolSearch);
+    assert_eq!(tool.status, ToolStatus::Running);
+
+    let updated = streaming::handle_raw_response_item(
+        "event-2",
+        RawResponseItemEvent {
+            item: ResponseItem::ToolSearchOutput {
+                call_id: Some("call-tool-search-1".to_string()),
+                status: "completed".to_string(),
+                execution: "lookup".to_string(),
+                tools: vec![serde_json::json!({ "name": "search_query" })],
+            },
+        },
+        &msg_counter,
+        &raw_tool_calls,
+    )
+    .await;
+
+    assert_eq!(updated.len(), 1);
+    let ConnectorEvent::ConversationRowUpdated { row_id, entry } = &updated[0] else {
+        panic!("expected tool row update event");
+    };
+    assert_eq!(row_id, "call-tool-search-1");
+    let ConversationRow::Tool(tool) = &entry.row else {
+        panic!("expected tool row");
+    };
+    assert_eq!(tool.kind, ToolKind::ToolSearch);
+    assert_eq!(tool.status, ToolStatus::Completed);
 }
 
 #[test]

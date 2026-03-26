@@ -29,6 +29,8 @@ struct NewSessionSheet: View {
   @State private var codexConfigCatalogError: String?
   @State private var codexConfigCatalogLoading = false
   @State private var codexConfigCatalogRequestID = 0
+  @State private var codexScopedModels: [ServerCodexModelOption]?
+  @State private var codexScopedModelsRequestID = 0
 
   @MainActor
   init(
@@ -83,7 +85,7 @@ struct NewSessionSheet: View {
   }
 
   private var codexModels: [ServerCodexModelOption] {
-    endpointAppState.codexModels
+    codexScopedModels ?? endpointAppState.codexModels
   }
 
   private var resolvedClaudeModel: String? {
@@ -185,6 +187,7 @@ struct NewSessionSheet: View {
           },
           onDidChange: {
             refreshCodexConfigCatalogIfNeeded(force: true)
+            refreshScopedCodexModelsIfNeeded(force: true)
           }
         )
       }
@@ -200,6 +203,7 @@ struct NewSessionSheet: View {
         )
       )
       refreshCodexConfigCatalogIfNeeded()
+      refreshScopedCodexModelsIfNeeded()
     }
     .onChange(of: model.selectedPath) { _, newPath in
       applyLifecyclePlan(
@@ -209,6 +213,7 @@ struct NewSessionSheet: View {
         )
       )
       refreshCodexConfigCatalogIfNeeded()
+      refreshScopedCodexModelsIfNeeded()
     }
     .onChange(of: model.selectedEndpointId) { _, newEndpointId in
       applyLifecyclePlan(
@@ -222,10 +227,18 @@ struct NewSessionSheet: View {
         )
       )
       refreshCodexConfigCatalogIfNeeded()
+      refreshScopedCodexModelsIfNeeded()
     }
     .onChange(of: model.provider) { _, _ in
       applyLifecyclePlan(NewSessionLifecyclePlanner.providerChanged(current: lifecycleState))
       refreshCodexConfigCatalogIfNeeded()
+      refreshScopedCodexModelsIfNeeded()
+    }
+    .onChange(of: model.codexConfigMode) { _, _ in
+      refreshScopedCodexModelsIfNeeded()
+    }
+    .onChange(of: model.codexModelProvider) { _, _ in
+      refreshScopedCodexModelsIfNeeded()
     }
     // Claude model sync
     .onChange(of: claudeModels.count) { _, _ in
@@ -582,6 +595,57 @@ struct NewSessionSheet: View {
           codexConfigCatalog = nil
           codexConfigCatalogError = error.localizedDescription
           codexConfigCatalogLoading = false
+        }
+      }
+    }
+  }
+
+  private var scopedCodexModelProvider: String? {
+    guard model.provider == .codex, model.codexConfigMode == .custom else { return nil }
+    let provider = model.codexModelProvider.trimmingCharacters(in: .whitespacesAndNewlines)
+    return provider.isEmpty ? nil : provider
+  }
+
+  private func refreshScopedCodexModelsIfNeeded(force _: Bool = false) {
+    guard model.provider == .codex else {
+      codexScopedModels = nil
+      return
+    }
+
+    guard model.codexConfigMode == .custom else {
+      codexScopedModels = nil
+      return
+    }
+
+    let cwd = model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !cwd.isEmpty else {
+      codexScopedModels = nil
+      return
+    }
+
+    let modelProvider = scopedCodexModelProvider
+    codexScopedModelsRequestID += 1
+    let requestID = codexScopedModelsRequestID
+
+    Task {
+      do {
+        let models = try await endpointAppState.clients.usage.listCodexModels(
+          cwd: cwd,
+          modelProvider: modelProvider
+        )
+        await MainActor.run {
+          guard requestID == codexScopedModelsRequestID,
+                model.provider == .codex,
+                model.codexConfigMode == .custom,
+                model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines) == cwd,
+                scopedCodexModelProvider == modelProvider
+          else { return }
+          codexScopedModels = models
+        }
+      } catch {
+        await MainActor.run {
+          guard requestID == codexScopedModelsRequestID else { return }
+          codexScopedModels = nil
         }
       }
     }

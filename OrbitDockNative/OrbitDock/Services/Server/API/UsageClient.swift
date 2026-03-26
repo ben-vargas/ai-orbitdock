@@ -45,9 +45,19 @@ struct UsageClient: Sendable {
     try await http.get("/api/usage/claude")
   }
 
-  func listCodexModels() async throws -> [ServerCodexModelOption] {
+  func listCodexModels(
+    cwd: String? = nil,
+    modelProvider: String? = nil
+  ) async throws -> [ServerCodexModelOption] {
     struct Response: Decodable { let models: [ServerCodexModelOption] }
-    let response: Response = try await http.get("/api/models/codex")
+    var query: [URLQueryItem] = []
+    if let cwd, !cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      query.append(URLQueryItem(name: "cwd", value: cwd))
+    }
+    if let modelProvider, !modelProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      query.append(URLQueryItem(name: "model_provider", value: modelProvider))
+    }
+    let response: Response = try await http.get("/api/models/codex", query: query)
     return response.models
   }
 
