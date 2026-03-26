@@ -99,6 +99,20 @@ pub async fn ws_handler(
     State(state): State<Arc<SessionRegistry>>,
 ) -> impl IntoResponse {
     let compatibility = compatibility_status_from_headers(&headers);
+    info!(
+        component = "websocket",
+        event = "ws.upgrade.request",
+        client_version = ?headers
+            .get(orbitdock_protocol::HTTP_HEADER_CLIENT_VERSION)
+            .and_then(|value| value.to_str().ok()),
+        client_compatibility = ?headers
+            .get(orbitdock_protocol::HTTP_HEADER_CLIENT_COMPATIBILITY)
+            .and_then(|value| value.to_str().ok()),
+        has_authorization = headers.contains_key("authorization"),
+        compatible = compatibility.compatible,
+        reason = ?compatibility.reason,
+        "Received WebSocket upgrade request"
+    );
     ws.on_upgrade(move |socket| handle_socket(socket, state, compatibility))
 }
 

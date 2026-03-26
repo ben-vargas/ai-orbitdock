@@ -8,6 +8,7 @@ use orbitdock_protocol::{
     HTTP_HEADER_COMPATIBILITY_MESSAGE, HTTP_HEADER_COMPATIBILITY_REASON, HTTP_HEADER_COMPATIBLE,
     HTTP_HEADER_SERVER_COMPATIBILITY, HTTP_HEADER_SERVER_VERSION, SERVER_COMPATIBILITY,
 };
+use tracing::{info, warn};
 
 use crate::VERSION;
 
@@ -75,8 +76,45 @@ fn attach_headers(response: &mut Response<Body>, compatibility: &CompatibilitySt
 }
 
 pub(crate) async fn compatibility_middleware(req: Request<Body>, next: Next) -> Response<Body> {
+    let path = req.uri().path().to_string();
+
+    // Only enforce the compatibility gate on protocol endpoints (WebSocket + API).
+    // Health, metrics, and web UI assets are not protocol clients.
+    let is_protocol_route = path == "/ws" || path.starts_with("/api/");
+    if !is_protocol_route {
+        return next.run(req).await;
+    }
+
     let compatibility = compatibility_status_for_request(&req);
+    if path == "/ws" {
+        info!(
+            component = "protocol_compat",
+            event = "protocol_compat.request",
+            path = %path,
+            client_version = ?header_value(req.headers(), HTTP_HEADER_CLIENT_VERSION),
+            client_compatibility = ?header_value(req.headers(), HTTP_HEADER_CLIENT_COMPATIBILITY),
+            has_authorization = req.headers().contains_key("authorization"),
+            has_token_query = req.uri().query().map(|query| query.contains("token=")).unwrap_or(false),
+            compatible = compatibility.compatible,
+            reason = ?compatibility.reason,
+            "Checked client compatibility headers"
+        );
+    }
     if !compatibility.compatible {
+        if path == "/ws" {
+            warn!(
+                component = "protocol_compat",
+                event = "protocol_compat.rejected",
+                path = %path,
+                client_version = ?header_value(req.headers(), HTTP_HEADER_CLIENT_VERSION),
+                client_compatibility = ?header_value(req.headers(), HTTP_HEADER_CLIENT_COMPATIBILITY),
+                has_authorization = req.headers().contains_key("authorization"),
+                has_token_query = req.uri().query().map(|query| query.contains("token=")).unwrap_or(false),
+                reason = ?compatibility.reason,
+                message = ?compatibility.message,
+                "Rejected incompatible client request"
+            );
+        }
         let mut response = Response::builder()
             .status(StatusCode::UPGRADE_REQUIRED)
             .header("content-type", "application/json")
