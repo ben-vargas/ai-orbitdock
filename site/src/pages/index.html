@@ -1,52 +1,9 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OrbitDock - Mission Control for AI Agents</title>
-  <meta name="description" content="A native macOS and iOS app to run, review, and orchestrate AI coding agents across all your machines. Open source and self-hosted.">
-  <meta name="theme-color" content="#0C0B0F">
-  <meta property="og:title" content="OrbitDock - Mission Control for AI Agents">
-  <meta property="og:description" content="A native app to run, review, and orchestrate AI coding agents. On your Mac, your phone, or anywhere.">
-  <meta property="og:type" content="website">
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-
-  <!-- ======== Fixed background layers ======== -->
-  <div class="star-field" aria-hidden="true"></div>
-  <div class="nebula" aria-hidden="true"></div>
-  <div class="coord-grid" aria-hidden="true"></div>
-  <div class="grain" aria-hidden="true"></div>
-
-  <!-- ======== Page content ======== -->
-  <div class="page-content">
-
-    <!-- Nav -->
-    <nav class="site-nav">
-      <div class="nav-inner">
-        <a href="/" class="nav-brand">
-          <svg viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="15" cy="15" r="13" stroke="#54AEE5" stroke-width="1" opacity="0.3"/>
-            <circle cx="15" cy="15" r="4.5" fill="#54AEE5"/>
-            <circle cx="15" cy="15" r="4.5" fill="#54AEE5" opacity="0.4" style="filter:blur(4px)"/>
-            <ellipse cx="15" cy="15" rx="13" ry="5.5" stroke="#54AEE5" stroke-width="0.75" opacity="0.2" transform="rotate(-22 15 15)"/>
-            <ellipse cx="15" cy="15" rx="13" ry="5.5" stroke="#B373F2" stroke-width="0.75" opacity="0.15" transform="rotate(22 15 15)"/>
-          </svg>
-          OrbitDock
-        </a>
-        <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Toggle navigation">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-        </button>
-        <ul class="nav-links">
-          <li><a href="/#features">Features</a></li>
-          <li><a href="/about.html">About</a></li>
-          <li><a href="/support.html">Support</a></li>
-          <li><a href="https://github.com/Robdel12/OrbitDock" target="_blank" rel="noopener">GitHub</a></li>
-          <li><a href="https://testflight.apple.com/join/w4jThqxE" class="nav-cta">Get the Beta</a></li>
-        </ul>
-      </div>
-    </nav>
+---
+title: OrbitDock - Mission Control for AI Agents
+description: Run, review, and orchestrate AI coding agents from anywhere. A native macOS and iOS app. Open source and self-hosted.
+ogTitle: OrbitDock - Mission Control for AI Agents
+ogDescription: A native app to run, review, and orchestrate AI coding agents. On your Mac, your phone, or anywhere.
+---
 
     <!-- ======== HERO ======== -->
     <section class="hero">
@@ -268,7 +225,7 @@
             <svg width="22" height="22" viewBox="0 0 20 20" fill="none"><path d="M10 2L18 6V14L10 18L2 14V6L10 2Z" stroke="currentColor" stroke-width="1.5"/><path d="M10 10V18M10 10L18 6M10 10L2 6" stroke="currentColor" stroke-width="1.5"/></svg>
           </div>
           <h3>Multi-provider</h3>
-          <p>Claude Code and Codex in the same app. Pick the right model for the job. Rate limits tracked per provider so you always know your headroom.</p>
+          <p>Claude Code, Codex, and any OpenAI-compatible API. Run OpenRouter, Qwen, or your own backend alongside Anthropic. Rate limits tracked per provider.</p>
         </div>
 
         <div class="hud-panel hud-purple feature-card">
@@ -424,82 +381,3 @@
         <a href="https://github.com/Robdel12/OrbitDock" class="btn btn-secondary">Star on GitHub</a>
       </div>
     </section>
-
-    <!-- Footer -->
-    <footer class="site-footer">
-      <div class="footer-inner">
-        <span class="footer-brand">&copy; 2026 <a href="https://stubbornmule.software/" target="_blank" rel="noopener">Stubborn Mule Software</a></span>
-        <ul class="footer-links">
-          <li><a href="/about.html">About</a></li>
-          <li><a href="/support.html">Support</a></li>
-          <li><a href="/privacy.html">Privacy</a></li>
-          <li><a href="/terms.html">Terms</a></li>
-          <li><a href="https://github.com/Robdel12/OrbitDock" target="_blank" rel="noopener">GitHub</a></li>
-        </ul>
-      </div>
-    </footer>
-
-  </div><!-- .page-content -->
-
-  <!-- ======== Scripts ======== -->
-  <script>
-    // -- Star field generator --
-    // Uses seeded PRNG for consistent positions across loads
-    (function() {
-      let seed = 42;
-      function rand() {
-        seed = (seed * 16807) % 2147483647;
-        return (seed - 1) / 2147483646;
-      }
-
-      let field = document.querySelector('.star-field');
-      let layers = [
-        { count: 260, size: 1, minO: 0.15, maxO: 0.45, className: 'star-layer-1' },
-        { count: 120, size: 1.5, minO: 0.25, maxO: 0.6, className: 'star-layer-2' },
-        { count: 35, size: 2, minO: 0.5, maxO: 0.9, className: 'star-layer-3', glow: true },
-      ];
-
-      layers.forEach(function(layer) {
-        let shadows = [];
-        for (let i = 0; i < layer.count; i++) {
-          let x = Math.floor(rand() * 2400);
-          let y = Math.floor(rand() * 2400);
-          let opacity = (layer.minO + rand() * (layer.maxO - layer.minO)).toFixed(2);
-
-          if (layer.glow) {
-            // Slight color tint on bright stars
-            let tints = ['200,220,255', '180,200,255', '220,200,255', '200,240,255'];
-            let tint = tints[Math.floor(rand() * tints.length)];
-            shadows.push(x + 'px ' + y + 'px 1px rgba(' + tint + ',' + opacity + ')');
-          } else {
-            shadows.push(x + 'px ' + y + 'px 0 rgba(255,255,255,' + opacity + ')');
-          }
-        }
-
-        let el = document.createElement('div');
-        el.className = 'star-layer ' + layer.className;
-        el.style.width = layer.size + 'px';
-        el.style.height = layer.size + 'px';
-        el.style.boxShadow = shadows.join(',');
-        field.appendChild(el);
-      });
-    })();
-
-    // -- Scroll reveal --
-    (function() {
-      let els = document.querySelectorAll('.reveal, .reveal-stagger');
-      let observer = new IntersectionObserver(function(entries) {
-        entries.forEach(function(entry) {
-          if (entry.isIntersecting) {
-            entry.target.classList.add('visible');
-            observer.unobserve(entry.target);
-          }
-        });
-      }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
-
-      els.forEach(function(el) { observer.observe(el); });
-    })();
-  </script>
-
-</body>
-</html>

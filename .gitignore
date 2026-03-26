@@ -1,5 +1,6 @@
 .test-workstreams/
 .DS_Store
+site/dist/
 .orbitdock-worktrees/
 *.db
 *.db-wal
