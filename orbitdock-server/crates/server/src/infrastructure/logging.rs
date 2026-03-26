@@ -14,6 +14,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 const DEFAULT_FILTER: &str = "info,tower_http=warn,hyper=warn";
+const QUIET_TARGET_DIRECTIVES: &[(&str, &str)] = &[("codex_otel.trace_safe", "warn")];
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum StderrLogMode {
@@ -63,11 +64,13 @@ pub fn init_logging(options: &ServerLoggingOptions) -> anyhow::Result<LoggingHan
             .open(&log_path)?;
     }
 
-    let filter = std::env::var("ORBITDOCK_SERVER_LOG_FILTER")
-        .ok()
-        .and_then(|value| EnvFilter::try_new(value).ok())
-        .or_else(|| EnvFilter::try_from_default_env().ok())
-        .unwrap_or_else(|| EnvFilter::new(DEFAULT_FILTER));
+    let resolved_filter = resolve_filter_directives(
+        std::env::var("ORBITDOCK_SERVER_LOG_FILTER")
+            .ok()
+            .or_else(|| std::env::var("RUST_LOG").ok()),
+    );
+    let filter = EnvFilter::try_new(&resolved_filter)
+        .unwrap_or_else(|_| EnvFilter::new(apply_quiet_target_directives(DEFAULT_FILTER)));
 
     let file_appender = tracing_appender::rolling::never(&log_dir, "server.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
@@ -75,11 +78,8 @@ pub fn init_logging(options: &ServerLoggingOptions) -> anyhow::Result<LoggingHan
 
     let (stderr_layer, stderr_guard) = match options.stderr_mode {
         StderrLogMode::Compact => {
-            let stderr_filter = std::env::var("ORBITDOCK_SERVER_LOG_FILTER")
-                .ok()
-                .and_then(|value| EnvFilter::try_new(value).ok())
-                .or_else(|| EnvFilter::try_from_default_env().ok())
-                .unwrap_or_else(|| EnvFilter::new(DEFAULT_FILTER));
+            let stderr_filter = EnvFilter::try_new(&resolved_filter)
+                .unwrap_or_else(|_| EnvFilter::new(apply_quiet_target_directives(DEFAULT_FILTER)));
             let (stderr_writer, stderr_guard) = tracing_appender::non_blocking(std::io::stderr());
             let stderr_layer = fmt::layer()
                 .with_writer(stderr_writer)
@@ -137,15 +137,48 @@ pub fn init_logging(options: &ServerLoggingOptions) -> anyhow::Result<LoggingHan
         event = "logging.initialized",
         log_path = %log_path.display(),
         format = %format,
-        filter = %std::env::var("ORBITDOCK_SERVER_LOG_FILTER")
-            .or_else(|_| std::env::var("RUST_LOG"))
-            .unwrap_or_else(|_| DEFAULT_FILTER.to_string()),
+        filter = %resolved_filter,
     );
 
     Ok(LoggingHandle {
         run_id,
         guard,
         _stderr_guard: stderr_guard,
+    })
+}
+
+fn resolve_filter_directives(raw_filter: Option<String>) -> String {
+    let base_filter = raw_filter.unwrap_or_else(|| DEFAULT_FILTER.to_string());
+    apply_quiet_target_directives(&base_filter)
+}
+
+fn apply_quiet_target_directives(base_filter: &str) -> String {
+    let mut resolved = base_filter.trim().to_string();
+
+    for (target, level) in QUIET_TARGET_DIRECTIVES {
+        if has_target_override(&resolved, target) {
+            continue;
+        }
+
+        if !resolved.is_empty() {
+            resolved.push(',');
+        }
+        resolved.push_str(target);
+        resolved.push('=');
+        resolved.push_str(level);
+    }
+
+    resolved
+}
+
+fn has_target_override(filter: &str, target: &str) -> bool {
+    filter.split(',').map(str::trim).any(|directive| {
+        let Some((name, _value)) = directive.split_once('=') else {
+            return false;
+        };
+
+        let name = name.trim();
+        name == target || name.starts_with(&format!("{target}."))
     })
 }
 
@@ -322,5 +355,37 @@ mod tests {
             event.fields.get("duration_ms"),
             Some(&JsonValue::Number(12_u64.into()))
         );
+    }
+
+    #[test]
+    fn resolve_filter_directives_adds_trace_safe_suppression_by_default() {
+        let resolved = resolve_filter_directives(None);
+
+        assert!(resolved.contains("info"));
+        assert!(resolved.contains("codex_otel.trace_safe=warn"));
+    }
+
+    #[test]
+    fn resolve_filter_directives_adds_trace_safe_suppression_to_custom_filter() {
+        let resolved = resolve_filter_directives(Some("debug".to_string()));
+
+        assert_eq!(resolved, "debug,codex_otel.trace_safe=warn");
+    }
+
+    #[test]
+    fn resolve_filter_directives_preserves_explicit_trace_safe_override() {
+        let resolved =
+            resolve_filter_directives(Some("debug,codex_otel.trace_safe=info".to_string()));
+
+        assert_eq!(resolved, "debug,codex_otel.trace_safe=info");
+    }
+
+    #[test]
+    fn resolve_filter_directives_preserves_nested_trace_safe_override() {
+        let resolved = resolve_filter_directives(Some(
+            "debug,codex_otel.trace_safe.summary=trace".to_string(),
+        ));
+
+        assert_eq!(resolved, "debug,codex_otel.trace_safe.summary=trace");
     }
 }

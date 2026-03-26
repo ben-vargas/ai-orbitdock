@@ -788,6 +788,13 @@ pub fn transition(
                 }
                 *existing = entry.clone();
             } else {
+                tracing::warn!(
+                    component = "transition",
+                    event = "transition.row_updated_missing_row",
+                    session_id = %sid,
+                    row_id = %row_id,
+                    "RowUpdated arrived before the row existed in transition state; upserting it"
+                );
                 entry.session_id = sid.clone();
                 entry.sequence = state.rows.last().map(|row| row.sequence + 1).unwrap_or(0);
                 state.rows.push(entry.clone());
