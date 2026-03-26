@@ -4,7 +4,9 @@ use serde::de::DeserializeOwned;
 
 use crate::client::config::ClientConfig;
 use crate::error::{ApiError, CliError};
-use orbitdock_protocol::{HTTP_HEADER_CLIENT_COMPATIBILITY, HTTP_HEADER_CLIENT_VERSION, SERVER_COMPATIBILITY};
+use orbitdock_protocol::{
+    HTTP_HEADER_CLIENT_COMPATIBILITY, HTTP_HEADER_CLIENT_VERSION, SERVER_COMPATIBILITY,
+};
 
 /// HTTP client for the OrbitDock REST API.
 pub struct RestClient {

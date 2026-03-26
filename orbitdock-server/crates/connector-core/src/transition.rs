@@ -780,19 +780,6 @@ pub fn transition(
         }
 
         Input::RowUpdated { row_id, mut entry } => {
-            let found = state
-                .rows
-                .iter()
-                .any(|existing| existing.id() == row_id.as_str());
-            tracing::info!(
-                component = "transition",
-                event = "transition.row_updated",
-                session_id = %sid,
-                row_id = %row_id,
-                row_found_in_state = found,
-                "Processing RowUpdated input"
-            );
-
             // Replace the existing row in state if found, otherwise upsert it into
             // the retained window so out-of-order provider updates do not vanish.
             if let Some(existing) = state.rows.iter_mut().find(|e| e.id() == row_id.as_str()) {
