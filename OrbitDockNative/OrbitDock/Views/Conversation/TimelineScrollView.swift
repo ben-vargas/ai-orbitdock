@@ -88,33 +88,22 @@ struct TimelineScrollView: View {
       .task {
         guard !hasInitializedScrollPosition else { return }
         hasInitializedScrollPosition = true
-        ConversationFollowDebug.log(
-          "TimelineScrollView.task initialize followMode=\(localFollowState.mode.rawValue) displayedCount=\(displayed.count) isNearBottom=\(isNearBottom)"
-        )
         if localFollowState.mode.isFollowing {
           setPinnedScrollPosition()
         }
       }
       .onChange(of: isNearBottom) { _, isVisible in
-        ConversationFollowDebug.log(
-          "TimelineScrollView.nearBottomChanged isNearBottom=\(isVisible) followMode=\(localFollowState.mode.rawValue) isUserScrolling=\(isUserScrolling) commanded=\(commandedScrollPositionID ?? "nil") observed=\(observedScrollPositionID ?? "nil")"
-        )
         if isVisible, !localFollowState.mode.isFollowing {
-          ConversationFollowDebug.log("TimelineScrollView.applyIntent reachedBottom via metrics")
           applyIntent(.viewportEvent(.reachedBottom))
           return
         }
 
         guard !isVisible, localFollowState.mode.isFollowing, isUserScrolling else { return }
         guard !hasDetachedFromBottomDuringCurrentGesture else { return }
-        ConversationFollowDebug.log("TimelineScrollView.applyIntent leftBottomByUser via metrics")
         hasDetachedFromBottomDuringCurrentGesture = true
         applyIntent(.viewportEvent(.leftBottomByUser))
       }
       .onChange(of: isUserScrolling) { _, scrolling in
-        ConversationFollowDebug.log(
-          "TimelineScrollView.userScrollingChanged scrolling=\(scrolling) followMode=\(localFollowState.mode.rawValue) isNearBottom=\(isNearBottom)"
-        )
         if scrolling {
           hasDetachedFromBottomDuringCurrentGesture = false
           return
@@ -122,22 +111,15 @@ struct TimelineScrollView: View {
 
         guard !hasDetachedFromBottomDuringCurrentGesture else { return }
         guard localFollowState.mode.isFollowing, !isNearBottom else { return }
-        ConversationFollowDebug.log("TimelineScrollView.applyIntent leftBottomByUser via scroll end")
         hasDetachedFromBottomDuringCurrentGesture = true
         applyIntent(.viewportEvent(.leftBottomByUser))
       }
       .onChange(of: latestAppendEvent) { _, event in
         guard let event else { return }
-        ConversationFollowDebug.log(
-          "TimelineScrollView.latestAppendEvent count=\(event.count) nonce=\(event.nonce) followMode=\(localFollowState.mode.rawValue) unread=\(localFollowState.unreadCount)"
-        )
         applyIntent(.latestEntriesAppended(event.count))
       }
       .onChange(of: scrollCommand) { _, command in
         guard let command else { return }
-        ConversationFollowDebug.log(
-          "TimelineScrollView.scrollCommandReceived command=\(describe(command)) followMode=\(localFollowState.mode.rawValue) isNearBottom=\(isNearBottom) displayedCount=\(displayed.count) commanded=\(commandedScrollPositionID ?? "nil") observed=\(observedScrollPositionID ?? "nil")"
-        )
         run(command: command, with: proxy)
       }
     }
@@ -163,9 +145,6 @@ struct TimelineScrollView: View {
   // MARK: - Scroll Actions
 
   private func setPinnedScrollPosition() {
-    ConversationFollowDebug.log(
-      "TimelineScrollView.setPinnedScrollPosition oldCommanded=\(commandedScrollPositionID ?? "nil") oldObserved=\(observedScrollPositionID ?? "nil") target=\(Self.bottomSentinelID)"
-    )
     var transaction = Transaction()
     transaction.animation = nil
     withTransaction(transaction) {
@@ -174,7 +153,6 @@ struct TimelineScrollView: View {
   }
 
   private func scrollToMessage(_ messageID: String, with proxy: ScrollViewProxy) {
-    ConversationFollowDebug.log("TimelineScrollView.scrollToMessage messageID=\(messageID)")
     var transaction = Transaction()
     transaction.animation = Motion.standard
     withTransaction(transaction) {
@@ -183,7 +161,6 @@ struct TimelineScrollView: View {
   }
 
   private func run(command: ConversationScrollCommand, with proxy: ScrollViewProxy) {
-    ConversationFollowDebug.log("TimelineScrollView.run command=\(describe(command))")
     switch command {
       case .latest:
         setPinnedScrollPosition()
@@ -224,22 +201,6 @@ struct TimelineScrollView: View {
     )
   }
 
-  private func describe(_ command: ConversationScrollCommand) -> String {
-    switch command {
-      case let .latest(nonce):
-        "latest(nonce: \(nonce))"
-      case let .message(id, nonce):
-        "message(id: \(id), nonce: \(nonce))"
-      case let .jumpToLatest(nonce):
-        "jumpToLatest(nonce: \(nonce))"
-      case let .revealMessage(id, nonce):
-        "revealMessage(id: \(id), nonce: \(nonce))"
-      case let .toggleFollow(nonce):
-        "toggleFollow(nonce: \(nonce))"
-      case let .openPendingApproval(nonce):
-        "openPendingApproval(nonce: \(nonce))"
-    }
-  }
 }
 
 private struct TimelineRowHost: View {

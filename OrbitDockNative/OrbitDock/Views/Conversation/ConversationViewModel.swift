@@ -19,9 +19,6 @@ final class ConversationViewModel {
   private let pageSize = 50
 
   func bind(sessionId: String?, sessionStore: SessionStore, viewMode: ChatViewMode) {
-    ConversationFollowDebug.log(
-      "ConversationViewModel.bind sessionId=\(sessionId ?? "nil") endpointId=\(sessionStore.endpointId.uuidString) viewMode=\(String(describing: viewMode))"
-    )
     currentSessionId = sessionId
     currentSessionStore = sessionStore
     currentViewMode = viewMode
@@ -31,16 +28,12 @@ final class ConversationViewModel {
   }
 
   func handleTimelineViewModeChange(_ viewMode: ChatViewMode) {
-    ConversationFollowDebug.log(
-      "ConversationViewModel.handleTimelineViewModeChange old=\(String(describing: currentViewMode)) new=\(String(describing: viewMode))"
-    )
     currentViewMode = viewMode
     guard let timeline else { return }
     timelineViewModel.apply(presentation: timeline, viewMode: viewMode)
   }
 
   func handleLoadStateChange(_ newState: ConversationLoadState) {
-    ConversationFollowDebug.log("ConversationViewModel.handleLoadStateChange newState=\(String(describing: newState))")
     if newState == .ready {
       hasShownContent = true
     }
@@ -48,9 +41,6 @@ final class ConversationViewModel {
 
   func loadOlderMessages() {
     guard let currentSessionId else { return }
-    ConversationFollowDebug.log(
-      "ConversationViewModel.loadOlderMessages sessionId=\(currentSessionId) limit=\(pageSize)"
-    )
     currentSessionStore.loadOlderMessages(sessionId: currentSessionId, limit: pageSize)
   }
 
@@ -119,20 +109,8 @@ final class ConversationViewModel {
             nonce: (latestAppendEvent?.nonce ?? 0) + 1
           )
         }
-        ConversationFollowDebug.log(
-          """
-          ConversationViewModel.applySnapshot sessionId=\(currentSessionId ?? "nil") oldCount=\(previousEntries
-            .count) newCount=\(timeline.entries
-            .count) appendedCount=\(appendedCount) loadState=\(String(
-            describing: nextLoadState
-          )) hasShownContent=\(hasShownContent)
-          """
-        )
       }
     } else {
-      ConversationFollowDebug.log(
-        "ConversationViewModel.applySnapshot clearedTimeline sessionId=\(currentSessionId ?? "nil") loadState=\(String(describing: nextLoadState))"
-      )
       timelineViewModel.clearSession()
     }
     if loadState != nextLoadState {

@@ -71,19 +71,14 @@ struct ConversationView: View {
       }
     }
     .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId ?? "")") {
-      ConversationFollowDebug.log(
-        "ConversationView.task bind sessionId=\(sessionId ?? "nil") endpointId=\(sessionStore.endpointId.uuidString) followMode=\(localFollowState.mode.rawValue) unread=\(localFollowState.unreadCount)"
-      )
       localFollowState = .initial
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore, viewMode: chatViewMode)
     }
     .animation(Motion.fade, value: viewModel.loadState == .loading)
     .onChange(of: viewModel.loadState) { _, newState in
-      ConversationFollowDebug.log("ConversationView.loadStateChanged newState=\(String(describing: newState))")
       viewModel.handleLoadStateChange(newState)
     }
     .onChange(of: chatViewMode) { _, newMode in
-      ConversationFollowDebug.log("ConversationView.chatViewModeChanged newMode=\(String(describing: newMode))")
       viewModel.handleTimelineViewModeChange(newMode)
     }
   }

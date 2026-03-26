@@ -87,9 +87,6 @@ import SwiftUI
       }
 
       guard let scrollView = findScrollView() else {
-        if observedScrollView != nil {
-          ConversationFollowDebug.log("TimelineUserScrollDetector.macOS detached scrollView")
-        }
         teardownObservers()
         return
       }
@@ -132,20 +129,15 @@ import SwiftUI
         )
       }
 
-      ConversationFollowDebug.log(
-        "TimelineUserScrollDetector.macOS attached scrollView documentHeight=\(scrollView.documentView?.bounds.height ?? 0)"
-      )
       refreshMetrics()
     }
 
     @objc private func liveScrollStarted() {
-      ConversationFollowDebug.log("TimelineUserScrollDetector.macOS liveScrollStarted")
       deferUserScrolling(true)
       refreshMetrics()
     }
 
     @objc private func liveScrollEnded() {
-      ConversationFollowDebug.log("TimelineUserScrollDetector.macOS liveScrollEnded")
       deferUserScrolling(false)
       refreshMetrics()
     }

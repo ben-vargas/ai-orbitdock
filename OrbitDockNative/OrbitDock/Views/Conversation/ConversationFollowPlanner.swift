@@ -97,13 +97,6 @@ enum ConversationFollowPlanner {
           scrollAction: .latest
         )
     }
-    ConversationFollowDebug.log(
-      """
-      ConversationFollowPlanner.apply intent=\(describe(intent)) oldMode=\(current.mode.rawValue) oldUnread=\(current
-        .unreadCount) newMode=\(plan.state.mode.rawValue) newUnread=\(plan.state
-        .unreadCount) scrollAction=\(describe(plan.scrollAction))
-      """
-    )
     return plan
   }
 
@@ -181,39 +174,4 @@ enum ConversationFollowPlanner {
     )
   }
 
-  private static func describe(_ intent: ConversationFollowIntent) -> String {
-    switch intent {
-      case let .viewportEvent(event):
-        "viewportEvent(\(describe(event)))"
-      case let .latestEntriesAppended(count):
-        "latestEntriesAppended(\(count))"
-      case .jumpToLatest:
-        "jumpToLatest"
-      case .toggleFollow:
-        "toggleFollow"
-      case let .revealMessage(messageID):
-        "revealMessage(\(messageID))"
-      case .openPendingApprovalPanel:
-        "openPendingApprovalPanel"
-    }
-  }
-
-  private static func describe(_ action: ConversationScrollAction?) -> String {
-    guard let action else { return "nil" }
-    return switch action {
-      case .latest:
-        "latest"
-      case let .message(messageID):
-        "message(\(messageID))"
-    }
-  }
-
-  private static func describe(_ event: ConversationViewportEvent) -> String {
-    switch event {
-      case .reachedBottom:
-        "reachedBottom"
-      case .leftBottomByUser:
-        "leftBottomByUser"
-    }
-  }
 }

@@ -173,33 +173,20 @@ final class SessionDetailViewModel {
   // MARK: - Follow State (mirrored from TimelineScrollView)
 
   func handleConversationFollowStateChanged(_ state: ConversationFollowState) {
-    let previous = conversationFollowState
     conversationFollowState = state
-    ConversationFollowDebug.log(
-      "SessionDetailViewModel.handleConversationFollowStateChanged sessionId=\(sessionId) oldMode=\(previous.mode.rawValue) oldUnread=\(previous.unreadCount) newMode=\(state.mode.rawValue) newUnread=\(state.unreadCount)"
-    )
   }
 
   func jumpConversationToLatest() {
-    ConversationFollowDebug.log(
-      "SessionDetailViewModel.jumpConversationToLatest mode=\(followMode.rawValue) unread=\(unreadCount)"
-    )
     conversationScrollCommandNonce += 1
     conversationScrollCommand = .jumpToLatest(nonce: conversationScrollCommandNonce)
   }
 
   func toggleConversationFollowMode() {
-    ConversationFollowDebug.log(
-      "SessionDetailViewModel.toggleConversationFollowMode mode=\(followMode.rawValue) unread=\(unreadCount)"
-    )
     conversationScrollCommandNonce += 1
     conversationScrollCommand = .toggleFollow(nonce: conversationScrollCommandNonce)
   }
 
   func openPendingApprovalPanel() {
-    ConversationFollowDebug.log(
-      "SessionDetailViewModel.openPendingApprovalPanel mode=\(followMode.rawValue) unread=\(unreadCount)"
-    )
     withAnimation(Motion.standard) {
       pendingApprovalPanelOpenSignal += 1
     }
@@ -238,9 +225,6 @@ final class SessionDetailViewModel {
   }
 
   func revealWorkerConversationEvent(_ messageId: String) {
-    ConversationFollowDebug.log(
-      "SessionDetailViewModel.revealWorkerConversationEvent messageId=\(messageId) mode=\(followMode.rawValue) unread=\(unreadCount) layout=\(String(describing: layoutConfig))"
-    )
     if layoutConfig == .reviewOnly {
       layoutConfig = .split
     }

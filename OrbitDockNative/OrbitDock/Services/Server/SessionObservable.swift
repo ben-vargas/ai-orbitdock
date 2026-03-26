@@ -400,10 +400,7 @@ final class SessionObservable {
     oldestSequence: UInt64?,
     isBootstrap: Bool = false
   ) {
-    let normalizedRows = normalizedRowBatch(
-      rows,
-      context: isBootstrap ? "conversation-page-bootstrap" : "conversation-page"
-    )
+    let normalizedRows = normalizedRowBatch(rows)
     var structureChanged = false
 
     if isBootstrap {
@@ -431,7 +428,7 @@ final class SessionObservable {
     upserted: [ServerConversationRowEntry],
     removedIds: [String]
   ) {
-    let normalizedUpserted = normalizedRowBatch(upserted, context: "rows-changed")
+    let normalizedUpserted = normalizedRowBatch(upserted)
     var structureChanged = false
 
     if !removedIds.isEmpty {
@@ -570,8 +567,7 @@ final class SessionObservable {
   }
 
   private func normalizedRowBatch(
-    _ rows: [ServerConversationRowEntry],
-    context: String
+    _ rows: [ServerConversationRowEntry]
   ) -> [ServerConversationRowEntry] {
     guard rows.count > 1 else { return rows }
 
@@ -590,10 +586,6 @@ final class SessionObservable {
     guard !duplicateIDs.isEmpty else { return rows }
 
     let normalized = order.compactMap { dedupedByID[$0] }
-    let duplicateSummary = duplicateIDs.sorted().joined(separator: ", ")
-    ConversationFollowDebug.log(
-      "SessionObservable.normalizedRowBatch context=\(context) sessionId=\(id) droppedDuplicates=\(rows.count - normalized.count) duplicateIDs=[\(duplicateSummary)]"
-    )
     return normalized
   }
 }

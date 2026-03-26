@@ -68,7 +68,7 @@ enum TimelineDataSource {
 
         displayedEntries.append(makeActivityGroupEntry(
           spec: spec,
-          rawEntriesByID: TimelineDataSource.entryDictionary(toolBuffer.map(\.entry), context: "tool-buffer")
+          rawEntriesByID: TimelineDataSource.entryDictionary(toolBuffer.map(\.entry))
         ))
         groupSpecsByIndex[groupIndex] = spec
 
@@ -115,7 +115,7 @@ enum TimelineDataSource {
       guard !changedEntries.isEmpty else { return displayedEntries }
 
       var updatedEntries = displayedEntries
-      let changedEntriesByID = TimelineDataSource.entryDictionary(changedEntries, context: "changed-entries")
+      let changedEntriesByID = TimelineDataSource.entryDictionary(changedEntries)
       var dirtyGroupIndices: Set<Int> = []
 
       for changedEntry in changedEntries {
@@ -158,7 +158,7 @@ enum TimelineDataSource {
     rawEntriesByID: [String: ServerConversationRowEntry],
     fallbackEntries: [ServerConversationRowEntry] = []
   ) -> ServerConversationRowEntry {
-    let fallbackEntriesByID = entryDictionary(fallbackEntries, context: "fallback-entries")
+    let fallbackEntriesByID = entryDictionary(fallbackEntries)
     let archivedTools = spec.archivedToolIDs.compactMap { rowID in
       toolRow(for: rowID, primary: rawEntriesByID, fallback: fallbackEntriesByID)
     }
@@ -205,44 +205,19 @@ enum TimelineDataSource {
 
   private static func displayIndexByRowID(_ entries: [ServerConversationRowEntry]) -> [String: Int] {
     var indexByID: [String: Int] = [:]
-    var duplicateIDs: Set<String> = []
-
     for (index, entry) in entries.enumerated() {
-      if indexByID.updateValue(index, forKey: entry.id) != nil {
-        duplicateIDs.insert(entry.id)
-      }
+      indexByID[entry.id] = index
     }
-
-    if !duplicateIDs.isEmpty {
-      let duplicateSummary = duplicateIDs.sorted().joined(separator: ", ")
-      ConversationFollowDebug.log(
-        "TimelineDataSource.displayIndexByRowID droppedDuplicateIndexes duplicateIDs=[\(duplicateSummary)]"
-      )
-    }
-
     return indexByID
   }
 
   private static func entryDictionary(
-    _ entries: [ServerConversationRowEntry],
-    context: String
+    _ entries: [ServerConversationRowEntry]
   ) -> [String: ServerConversationRowEntry] {
     var entriesByID: [String: ServerConversationRowEntry] = [:]
-    var duplicateIDs: Set<String> = []
-
     for entry in entries {
-      if entriesByID.updateValue(entry, forKey: entry.id) != nil {
-        duplicateIDs.insert(entry.id)
-      }
+      entriesByID[entry.id] = entry
     }
-
-    if !duplicateIDs.isEmpty {
-      let duplicateSummary = duplicateIDs.sorted().joined(separator: ", ")
-      ConversationFollowDebug.log(
-        "TimelineDataSource.entryDictionary context=\(context) duplicateIDs=[\(duplicateSummary)]"
-      )
-    }
-
     return entriesByID
   }
 }
