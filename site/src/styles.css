@@ -2118,6 +2118,213 @@ img { max-width: 100%; height: auto; }
 }
 
 /* ============================================================
+   GitHub Count Badge — inline star/fork count on buttons
+   ============================================================ */
+
+.gh-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  background: rgba(255,255,255,0.08);
+  border-radius: 10px;
+  margin-left: 2px;
+}
+
+/* ============================================================
+   Contributor Avatars — row of circular GitHub avatars
+   ============================================================ */
+
+.contributor-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-3xl);
+}
+
+.contributor-avatars {
+  display: flex;
+  align-items: center;
+}
+
+.contributor-avatars a {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid var(--bg-primary);
+  margin-left: -6px;
+  transition: transform 0.15s ease, z-index 0s;
+  position: relative;
+}
+
+.contributor-avatars a:first-child {
+  margin-left: 0;
+}
+
+.contributor-avatars a:hover {
+  transform: translateY(-2px);
+  z-index: 1;
+}
+
+.contributor-avatars img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.contributor-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-quaternary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ============================================================
+   Changelog Page
+   ============================================================ */
+
+.changelog-list {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 var(--space-lg) 80px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+@media (min-width: 769px) {
+  .changelog-list {
+    padding: 0 var(--space-xl) 100px;
+  }
+}
+
+.release-card {
+  padding: var(--space-2xl);
+}
+
+.release-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.release-tag {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 3px 10px;
+  background: rgba(84,174,229,0.1);
+  border: 1px solid rgba(84,174,229,0.2);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.release-tag:hover {
+  background: rgba(84,174,229,0.18);
+  color: var(--accent-glow);
+}
+
+.release-pre {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  background: rgba(242,191,77,0.1);
+  border: 1px solid rgba(242,191,77,0.2);
+  border-radius: var(--radius-sm);
+  color: var(--feedback-caution);
+}
+
+.release-date {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-quaternary);
+  margin-left: auto;
+}
+
+.release-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: var(--space-lg);
+}
+
+.release-body {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.release-body h4 {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: var(--space-lg);
+  margin-bottom: var(--space-sm);
+}
+
+.release-body h4:first-child {
+  margin-top: 0;
+}
+
+.release-body p {
+  margin-bottom: var(--space-md);
+}
+
+.release-body ul {
+  padding-left: var(--space-xl);
+  margin-bottom: var(--space-md);
+}
+
+.release-body li {
+  margin-bottom: var(--space-xs);
+}
+
+.release-body code {
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.release-body a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(84,174,229,0.3);
+}
+
+.release-body a:hover {
+  text-decoration-color: var(--accent);
+}
+
+.release-body strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.empty-state {
+  text-align: center;
+  font-size: 15px;
+  color: var(--text-tertiary);
+  padding: var(--space-4xl) 0;
+}
+
+/* ============================================================
    Reduced Motion
    ============================================================ */
 
