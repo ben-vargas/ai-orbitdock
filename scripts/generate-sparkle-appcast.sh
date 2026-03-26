@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SITE_DIR="${SITE_DIR:?SITE_DIR is required}"
 RELEASE_TAG="${RELEASE_TAG:?RELEASE_TAG is required}"
+RELEASE_VERSION="${RELEASE_VERSION:-${RELEASE_TAG#v}}"
 SPARKLE_PRIVATE_ED_KEY="${SPARKLE_PRIVATE_ED_KEY:?SPARKLE_PRIVATE_ED_KEY is required}"
 
 # Channel support: stable (default), beta, nightly.
@@ -22,7 +23,7 @@ esac
 
 DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://github.com/Robdel12/OrbitDock/releases/download/${RELEASE_TAG}/}"
 
-VERSION="${RELEASE_TAG#v}"
+VERSION="$RELEASE_VERSION"
 APP_NAME="${APP_NAME:-OrbitDock}"
 ARCHIVE_NAME="${APP_NAME}-${VERSION}.zip"
 ARCHIVE_PATH="$SITE_DIR/$ARCHIVE_NAME"

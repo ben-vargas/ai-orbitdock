@@ -1,9 +1,15 @@
-name: Nightly macOS Release
+name: Nightly Release
 
 on:
   schedule:
     - cron: '0 6 * * *' # Daily at 06:00 UTC
   workflow_dispatch:
+    inputs:
+      build_server_assets:
+        description: Build and publish nightly server artifacts
+        required: true
+        default: true
+        type: boolean
 
 env:
   APP_NAME: OrbitDock
@@ -17,7 +23,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  nightly:
+  metadata:
+    name: Compute Nightly Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build_number: ${{ steps.version.outputs.build_number }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
+      build_date: ${{ steps.version.outputs.build_date }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute nightly version
+        id: version
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          BASE_VERSION="${LATEST_TAG#v}"
+          DATE_STAMP=$(date -u +%Y%m%d)
+          BUILD_DATE=$(date -u +%Y-%m-%d)
+          SHORT_SHA=$(git rev-parse --short=12 HEAD)
+          NIGHTLY_VERSION="${BASE_VERSION}-nightly.${DATE_STAMP}"
+          BUILD_NUMBER="${DATE_STAMP}01"
+          echo "version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "build_date=$BUILD_DATE" >> "$GITHUB_OUTPUT"
+          echo "Nightly version: $NIGHTLY_VERSION (build $BUILD_NUMBER, commit $SHORT_SHA)"
+
+  nightly-app:
+    name: Build Nightly macOS App
+    needs: metadata
     runs-on: macos-15
     timeout-minutes: 45
 
@@ -34,6 +73,17 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: orbitdock-web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: orbitdock-web
+        run: npm ci
 
       - name: Import Developer ID certificate
         env:
@@ -53,27 +103,15 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
 
-      - name: Compute nightly version
-        id: version
-        run: |
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          BASE_VERSION="${LATEST_TAG#v}"
-          DATE_STAMP=$(date -u +%Y%m%d)
-          NIGHTLY_VERSION="${BASE_VERSION}-nightly.${DATE_STAMP}"
-          BUILD_NUMBER="${DATE_STAMP}01"
-          echo "version=$NIGHTLY_VERSION" >> $GITHUB_OUTPUT
-          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
-          echo "Nightly version: $NIGHTLY_VERSION (build $BUILD_NUMBER)"
-
       - name: Set Xcode version numbers
         run: |
           cd OrbitDockNative
-          agvtool new-marketing-version "${{ steps.version.outputs.version }}"
-          agvtool new-version -all "${{ steps.version.outputs.build_number }}"
+          agvtool new-marketing-version "${{ needs.metadata.outputs.version }}"
+          agvtool new-version -all "${{ needs.metadata.outputs.build_number }}"
 
       - name: Archive, notarize, and package
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.metadata.outputs.version }}
           CHANNEL: nightly
           SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
           MACOS_DEVELOPMENT_TEAM: ${{ secrets.MACOS_DEVELOPMENT_TEAM || secrets.APPLE_TEAM_ID }}
@@ -85,35 +123,261 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID || secrets.MACOS_DEVELOPMENT_TEAM || secrets.APPLE_TEAM_ID }}
         run: ./scripts/archive-macos-app-release.sh
 
+      - name: Prepare nightly changelog context
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          SHORT_SHA: ${{ needs.metadata.outputs.short_sha }}
+          BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          BUILD_SERVER_ASSETS: ${{ github.event_name != 'workflow_dispatch' || inputs.build_server_assets }}
+        run: |
+          PREVIOUS_REF="nightly"
+          if git rev-parse --verify "refs/tags/nightly" >/dev/null 2>&1; then
+            BASE_REF="refs/tags/nightly"
+          else
+            BASE_REF="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+            PREVIOUS_REF="$BASE_REF"
+          fi
+
+          {
+            echo "PREVIOUS_REF=$PREVIOUS_REF"
+            echo "BASE_REF=$BASE_REF"
+          } >> "$GITHUB_ENV"
+
+          git diff --summary "$BASE_REF"...HEAD > dist/nightly-diff-summary.txt
+          git diff --stat "$BASE_REF"...HEAD > dist/nightly-diff-stat.txt
+          git diff --name-only "$BASE_REF"...HEAD > dist/nightly-changed-files.txt
+          git log --no-merges --date=short --format='- %h %s (%ad)' "$BASE_REF"...HEAD > dist/nightly-commit-log.txt
+
+          cat <<EOF > dist/nightly-notes-prompt.md
+          Write GitHub release notes for the OrbitDock nightly build in changelog style.
+
+          Requirements:
+          - Be factual and use only the provided git history and diff context.
+          - Do not invent behavior changes.
+          - Prefer a polished, concise markdown format.
+          - Include these sections when they are supported by the diff:
+            - Highlights
+            - Detailed Changes
+            - Notes
+          - Start with this exact heading: # ${APP_NAME} ${VERSION}
+          - Include this metadata near the top:
+            - Built: ${BUILD_DATE}
+            - Commit: [${SHORT_SHA}](https://github.com/${REPOSITORY}/commit/${COMMIT_SHA})
+            - Compared against: \`${PREVIOUS_REF}\`
+            - Channel: nightly
+          - Mention whether server assets are included or skipped for this run.
+          - Mention that nightly builds may be unstable.
+          - If the diff is mostly maintenance, say so plainly.
+          - In Detailed Changes, group related work with bold lead-ins when helpful.
+
+          Server assets mode: ${BUILD_SERVER_ASSETS}
+
+          Git diff summary:
+          $(cat dist/nightly-diff-summary.txt)
+
+          Git diff --stat:
+          $(cat dist/nightly-diff-stat.txt)
+
+          Changed files:
+          $(cat dist/nightly-changed-files.txt)
+
+          Commit log:
+          $(cat dist/nightly-commit-log.txt)
+          EOF
+
+      - name: Generate nightly changelog
+        id: nightly_notes
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: dist/nightly-notes-prompt.md
+          output-file: dist/${{ env.APP_NAME }}-${{ needs.metadata.outputs.version }}.md
+          model: gpt-5.4-mini
+          effort: high
+          sandbox: read-only
+
       - name: Generate nightly appcast
         env:
           SITE_DIR: ${{ github.workspace }}/dist
           RELEASE_TAG: nightly
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
           CHANNEL: nightly
           SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
           DOWNLOAD_URL_PREFIX: https://github.com/${{ github.repository }}/releases/download/nightly/
         run: ./scripts/generate-sparkle-appcast.sh
 
-      - name: Publish to nightly release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Delete existing nightly release/tag if present
-          gh release delete nightly --yes 2>/dev/null || true
-          git push origin :refs/tags/nightly 2>/dev/null || true
-
-          # Create fresh nightly prerelease
-          gh release create nightly \
-            --title "$APP_NAME Nightly ($VERSION)" \
-            --notes "Automated nightly build from \`main\` at $(date -u +%Y-%m-%d).
-
-          **Version:** $VERSION
-          **Commit:** ${{ github.sha }}
-
-          > Nightly builds may be unstable. Use Stable or Beta channels for production." \
-            --prerelease \
-            dist/${APP_NAME}-${VERSION}.zip \
-            dist/${APP_NAME}-${VERSION}.zip.sha256 \
+      - name: Upload nightly app assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-app-assets
+          path: |
+            dist/${{ env.APP_NAME }}-${{ needs.metadata.outputs.version }}.zip
+            dist/${{ env.APP_NAME }}-${{ needs.metadata.outputs.version }}.zip.sha256
+            dist/${{ env.APP_NAME }}-${{ needs.metadata.outputs.version }}.md
             dist/appcast-nightly.xml
+          if-no-files-found: error
+
+  nightly-server-darwin:
+    name: Build Nightly Server (darwin arm64)
+    needs: metadata
+    if: github.event_name != 'workflow_dispatch' || inputs.build_server_assets
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: orbitdock-web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: orbitdock-web
+        run: npm ci
+
+      - name: Package darwin server assets
+        run: make rust-release-darwin
+
+      - name: Upload darwin server assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-server-darwin
+          path: |
+            dist/orbitdock-darwin-arm64.zip
+            dist/orbitdock-darwin-arm64.zip.sha256
+          if-no-files-found: error
+
+  nightly-server-linux-x86_64:
+    name: Build Nightly Server (linux x86_64)
+    needs: metadata
+    if: github.event_name != 'workflow_dispatch' || inputs.build_server_assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: orbitdock-web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: orbitdock-web
+        run: npm ci
+
+      - name: Package linux x86_64 server assets
+        run: make rust-release-linux-x86_64
+
+      - name: Upload linux x86_64 server assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-server-linux-x86_64
+          path: |
+            dist/orbitdock-linux-x86_64.zip
+            dist/orbitdock-linux-x86_64.zip.sha256
+          if-no-files-found: error
+
+  nightly-server-linux-aarch64:
+    name: Build Nightly Server (linux aarch64)
+    needs: metadata
+    if: github.event_name != 'workflow_dispatch' || inputs.build_server_assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: orbitdock-web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: orbitdock-web
+        run: npm ci
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Package linux aarch64 server assets
+        run: make rust-release-linux-aarch64
+
+      - name: Upload linux aarch64 server assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-server-linux-aarch64
+          path: |
+            dist/orbitdock-linux-aarch64.zip
+            dist/orbitdock-linux-aarch64.zip.sha256
+          if-no-files-found: error
+
+  publish-nightly:
+    name: Publish Nightly Release
+    if: |
+      always() &&
+      needs.metadata.result == 'success' &&
+      needs.nightly-app.result == 'success' &&
+      (needs.nightly-server-darwin.result == 'success' || needs.nightly-server-darwin.result == 'skipped') &&
+      (needs.nightly-server-linux-x86_64.result == 'success' || needs.nightly-server-linux-x86_64.result == 'skipped') &&
+      (needs.nightly-server-linux-aarch64.result == 'success' || needs.nightly-server-linux-aarch64.result == 'skipped')
+    needs:
+      - metadata
+      - nightly-app
+      - nightly-server-darwin
+      - nightly-server-linux-x86_64
+      - nightly-server-linux-aarch64
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Download nightly assets
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: nightly-*
+          merge-multiple: true
+
+      - name: Publish rolling nightly prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          SHORT_SHA: ${{ needs.metadata.outputs.short_sha }}
+          BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          BUILD_SERVER_ASSETS: ${{ github.event_name != 'workflow_dispatch' || inputs.build_server_assets }}
+        run: |
+          gh release delete nightly --repo "$REPOSITORY" --yes 2>/dev/null || true
+          gh api \
+            --method DELETE \
+            "/repos/$REPOSITORY/git/refs/tags/nightly" \
+            >/dev/null 2>&1 || true
+
+          gh release create nightly \
+            --repo "$REPOSITORY" \
+            --title "${APP_NAME} Nightly ($VERSION)" \
+            --notes-file "dist/${APP_NAME}-${VERSION}.md" \
+            --prerelease \
+            dist/*
