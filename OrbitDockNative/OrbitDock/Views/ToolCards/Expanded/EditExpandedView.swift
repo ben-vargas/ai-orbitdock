@@ -142,16 +142,20 @@ struct EditExpandedView: View {
       // Diff content with CodeViewport + DiffChangeStrip
       HStack(alignment: .top, spacing: 0) {
         CodeViewport(lineCount: entries.count, accentColor: .toolWrite) {
-          ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-            if entry.kind == .separator {
-              hunkSeparator(gutter: gutter)
-            } else {
-              diffLineRow(
-                entry: entry,
-                wordDiff: wordDiffSegments(entries: entries, at: index),
-                lang: lang,
-                gutter: gutter
-              )
+          ScrollView(.horizontal, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+              ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                if entry.kind == .separator {
+                  hunkSeparator(gutter: gutter)
+                } else {
+                  diffLineRow(
+                    entry: entry,
+                    wordDiff: wordDiffSegments(entries: entries, at: index),
+                    lang: lang,
+                    gutter: gutter
+                  )
+                }
+              }
             }
           }
         }
@@ -167,8 +171,6 @@ struct EditExpandedView: View {
 
   // MARK: - Diff Line Row
 
-  /// Single line number gutter — shows old line for deletions, new line for additions,
-  /// new line for context. No +/- prefix (edge bar already communicates change type).
   private func diffLineRow(
     entry: DiffEntry,
     wordDiff: [WordLevelDiff.Segment]?,
@@ -184,7 +186,7 @@ struct EditExpandedView: View {
         .frame(width: gutter, alignment: .trailing)
         .padding(.trailing, Spacing.xs)
 
-      // ── Edge bar (doubles as gutter divider — colored for changes, neutral for context) ──
+      // ── Edge bar ──
       Rectangle()
         .fill(entry.kind == .context || entry.kind == .separator
           ? Color.textQuaternary.opacity(0.08)
@@ -192,21 +194,21 @@ struct EditExpandedView: View {
         .frame(width: 3)
 
       // ── Content ──
-      if let segments = wordDiff {
-        wordLevelContent(segments: segments, kind: entry.kind)
-          .padding(.leading, Spacing.sm_)
-      } else if let lang, !lang.isEmpty, !entry.content.isEmpty {
-        let highlighted = SyntaxHighlighter.highlightLine(entry.content, language: lang)
-        Text(highlighted)
-          .padding(.leading, Spacing.sm_)
-      } else {
-        Text(entry.content.isEmpty ? " " : entry.content)
-          .font(.system(size: TypeScale.code, design: .monospaced))
-          .foregroundStyle(lineColor(entry.kind))
-          .padding(.leading, Spacing.sm_)
+      Group {
+        if let segments = wordDiff {
+          wordLevelContent(segments: segments, kind: entry.kind)
+        } else if let lang, !lang.isEmpty, !entry.content.isEmpty {
+          Text(SyntaxHighlighter.highlightLine(entry.content, language: lang))
+        } else {
+          Text(entry.content.isEmpty ? " " : entry.content)
+            .font(.system(size: TypeScale.code, design: .monospaced))
+            .foregroundStyle(lineColor(entry.kind))
+        }
       }
+      .fixedSize(horizontal: true, vertical: false)
+      .padding(.leading, Spacing.sm_)
+      .padding(.trailing, Spacing.sm)
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.vertical, 1)
     .background(lineBg(entry.kind))
   }
@@ -218,7 +220,6 @@ struct EditExpandedView: View {
       Color.clear
         .frame(width: gutter + Spacing.xs)
 
-      // Neutral divider bar (matches edge bar position)
       Rectangle()
         .fill(Color.textQuaternary.opacity(0.08))
         .frame(width: 3)

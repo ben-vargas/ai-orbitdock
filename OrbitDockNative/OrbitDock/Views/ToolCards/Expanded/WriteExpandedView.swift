@@ -42,38 +42,37 @@ struct WriteExpandedView: View {
         let gutterChars = max(3, "\(lineCount)".count)
 
         CodeViewport(lineCount: lineCount, accentColor: .feedbackPositive) {
-          ForEach(Array(contentLines.enumerated()), id: \.offset) { index, line in
-            HStack(alignment: .top, spacing: 0) {
-              // ── Line number ──
-              Text("\(index + 1)")
-                .font(.system(size: TypeScale.code, design: .monospaced))
-                .foregroundStyle(Color.feedbackPositive.opacity(0.4))
-                .frame(width: CGFloat(gutterChars) * 8 + Spacing.sm, alignment: .trailing)
-                .padding(.trailing, Spacing.sm_)
+          ScrollView(.horizontal, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+              ForEach(Array(contentLines.enumerated()), id: \.offset) { index, line in
+                HStack(alignment: .top, spacing: 0) {
+                  Text("\(index + 1)")
+                    .font(.system(size: TypeScale.code, design: .monospaced))
+                    .foregroundStyle(Color.feedbackPositive.opacity(0.4))
+                    .frame(width: CGFloat(gutterChars) * 8 + Spacing.sm, alignment: .trailing)
+                    .padding(.trailing, Spacing.sm_)
 
-              // ── Gutter divider ──
-              Rectangle()
-                .fill(Color.textQuaternary.opacity(0.08))
-                .frame(width: 1)
+                  Rectangle()
+                    .fill(Color.textQuaternary.opacity(0.08))
+                    .frame(width: 1)
 
-              // ── Content ──
-              if let lang, !lang.isEmpty, !line.isEmpty {
-                let highlighted = SyntaxHighlighter.highlightLine(line, language: lang)
-                Text(highlighted)
+                  Group {
+                    if let lang, !lang.isEmpty, !line.isEmpty {
+                      Text(SyntaxHighlighter.highlightLine(line, language: lang))
+                    } else {
+                      Text(line.isEmpty ? " " : line)
+                        .font(.system(size: TypeScale.code, design: .monospaced))
+                        .foregroundStyle(Color.textSecondary)
+                    }
+                  }
+                  .fixedSize(horizontal: true, vertical: false)
                   .padding(.leading, Spacing.sm_)
-              } else {
-                Text(line.isEmpty ? " " : line)
-                  .font(.system(size: TypeScale.code, design: .monospaced))
-                  .foregroundStyle(Color.textSecondary)
-                  .padding(.leading, Spacing.sm_)
+                  .padding(.trailing, Spacing.sm)
+                }
+                .padding(.vertical, 1)
+                .background((index / 5) % 2 == 1 ? Color.codeStripe : Color.clear)
               }
             }
-            .padding(.vertical, 1)
-            .background(
-              (index / 5) % 2 == 1
-                ? Color.codeStripe
-                : Color.clear
-            )
           }
         }
       }
