@@ -61,7 +61,6 @@ XCODEBUILD_ARGS=(
 if [[ "$MACOS_PROVISIONING_PROFILE_XCODE_MANAGED" == "true" ]]; then
   XCODEBUILD_ARGS+=(
     CODE_SIGN_STYLE=Automatic
-    "CODE_SIGN_IDENTITY=Developer ID Application"
   )
 else
   XCODEBUILD_ARGS+=(
