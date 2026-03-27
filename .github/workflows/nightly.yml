@@ -41,7 +41,10 @@ jobs:
       - name: Compute nightly version
         id: version
         run: |
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          LATEST_TAG=$(git tag --list 'v*' --sort=-version:refname | head -n 1)
+          if [[ -z "$LATEST_TAG" ]]; then
+            LATEST_TAG="v0.0.0"
+          fi
           BASE_VERSION="${LATEST_TAG#v}"
           DATE_STAMP=$(date -u +%Y%m%d)
           BUILD_DATE=$(date -u +%Y-%m-%d)
@@ -105,8 +108,21 @@ jobs:
           PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
         run: |
           PP_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          PROFILE_PATH="$RUNNER_TEMP/orbitdock.provisionprofile"
+          PROFILE_PLIST="$RUNNER_TEMP/orbitdock-provisioning-profile.plist"
           mkdir -p "$PP_DIR"
-          printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 -D -o "$PP_DIR/orbitdock.provisionprofile"
+          printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 -D -o "$PROFILE_PATH"
+
+          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$PROFILE_PLIST")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$PROFILE_PLIST")
+          cp "$PROFILE_PATH" "$PP_DIR/$PROFILE_UUID.provisionprofile"
+
+          {
+            echo "MACOS_PROVISIONING_PROFILE_UUID=$PROFILE_UUID"
+            echo "MACOS_PROVISIONING_PROFILE_SPECIFIER=$PROFILE_NAME"
+          } >> "$GITHUB_ENV"
 
       - name: Set Xcode version numbers
         run: |
@@ -118,6 +134,7 @@ jobs:
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
           CHANNEL: nightly
+          XCODE_DERIVED_DATA_PATH: ${{ github.workspace }}/.build/release-deriveddata
           SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
           MACOS_DEVELOPMENT_TEAM: ${{ secrets.MACOS_DEVELOPMENT_TEAM || secrets.APPLE_TEAM_ID }}
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
@@ -209,6 +226,7 @@ jobs:
           RELEASE_TAG: nightly
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
           CHANNEL: nightly
+          XCODE_DERIVED_DATA_PATH: ${{ github.workspace }}/.build/release-deriveddata
           SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
           DOWNLOAD_URL_PREFIX: https://github.com/${{ github.repository }}/releases/download/nightly/
         run: ./scripts/generate-sparkle-appcast.sh
@@ -402,15 +420,41 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           BUILD_SERVER_ASSETS: ${{ github.event_name != 'workflow_dispatch' || inputs.build_server_assets }}
         run: |
-          gh release delete nightly --repo "$REPOSITORY" --yes 2>/dev/null || true
-          gh api \
-            --method DELETE \
-            "/repos/$REPOSITORY/git/refs/tags/nightly" \
-            >/dev/null 2>&1 || true
+          if gh release view nightly --repo "$REPOSITORY" >/dev/null 2>&1; then
+            if ! gh api \
+              --method PATCH \
+              "/repos/$REPOSITORY/git/refs/tags/nightly" \
+              -f sha="$COMMIT_SHA" \
+              -F force=true \
+              >/dev/null 2>&1; then
+              gh api \
+                --method POST \
+                "/repos/$REPOSITORY/git/refs" \
+                -f ref="refs/tags/nightly" \
+                -f sha="$COMMIT_SHA" \
+                >/dev/null
+            fi
 
-          gh release create nightly \
+            gh release edit nightly \
+              --repo "$REPOSITORY" \
+              --title "${APP_NAME} Nightly ($VERSION)" \
+              --notes-file "dist/${APP_NAME}-${VERSION}.md" \
+              --prerelease
+
+            while IFS= read -r asset_name; do
+              [[ -z "$asset_name" ]] && continue
+              gh release delete-asset nightly "$asset_name" --repo "$REPOSITORY" --yes
+            done < <(gh release view nightly --repo "$REPOSITORY" --json assets --jq '.assets[].name')
+          else
+            gh release create nightly \
+              --repo "$REPOSITORY" \
+              --target "$COMMIT_SHA" \
+              --title "${APP_NAME} Nightly ($VERSION)" \
+              --notes-file "dist/${APP_NAME}-${VERSION}.md" \
+              --prerelease
+          fi
+
+          gh release upload nightly \
             --repo "$REPOSITORY" \
-            --title "${APP_NAME} Nightly ($VERSION)" \
-            --notes-file "dist/${APP_NAME}-${VERSION}.md" \
-            --prerelease \
+            --clobber \
             dist/*

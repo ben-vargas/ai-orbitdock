@@ -174,6 +174,7 @@ Required repository secrets for the nightly workflow:
 - `APPLE_CERTIFICATE_BASE64` — Developer ID `.p12` exported as Base64
 - `APPLE_CERTIFICATE_PASSWORD` — password for that `.p12`
 - `KEYCHAIN_PASSWORD` — temporary runner keychain password
+- `PROVISIONING_PROFILE_BASE64` — Developer ID provisioning profile exported as Base64
 - `SPARKLE_PUBLIC_ED_KEY` — compiled into the app
 - `SPARKLE_PRIVATE_ED_KEY` — signs the appcast
 - `MACOS_DEVELOPMENT_TEAM` — Developer ID team ID for code signing

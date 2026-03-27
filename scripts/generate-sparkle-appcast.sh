@@ -7,6 +7,7 @@ SITE_DIR="${SITE_DIR:?SITE_DIR is required}"
 RELEASE_TAG="${RELEASE_TAG:?RELEASE_TAG is required}"
 RELEASE_VERSION="${RELEASE_VERSION:-${RELEASE_TAG#v}}"
 SPARKLE_PRIVATE_ED_KEY="${SPARKLE_PRIVATE_ED_KEY:?SPARKLE_PRIVATE_ED_KEY is required}"
+XCODE_DERIVED_DATA_PATH="${XCODE_DERIVED_DATA_PATH:-}"
 
 # Channel support: stable (default), beta, nightly.
 # Sets APPCAST_FILENAME automatically when CHANNEL is provided.
@@ -34,10 +35,14 @@ if [[ ! -f "$ARCHIVE_PATH" ]]; then
   exit 1
 fi
 
-SPARKLE_BIN_DIR="$(find "$HOME/Library/Developer/Xcode/DerivedData" -path '*SourcePackages/artifacts/sparkle/Sparkle/bin' | head -n 1)"
+SPARKLE_SEARCH_ROOT="${XCODE_DERIVED_DATA_PATH:-$HOME/Library/Developer/Xcode/DerivedData}"
+SPARKLE_BIN_DIR="$(find "$SPARKLE_SEARCH_ROOT" -path '*SourcePackages/artifacts/sparkle/Sparkle/bin' | head -n 1)"
 if [[ -z "$SPARKLE_BIN_DIR" ]]; then
-  echo "error: Sparkle tools not found in Xcode DerivedData"
-  exit 1
+  SPARKLE_BIN_DIR="$(find "$HOME/Library/Developer/Xcode/DerivedData" -path '*SourcePackages/artifacts/sparkle/Sparkle/bin' | head -n 1)"
+  if [[ -z "$SPARKLE_BIN_DIR" ]]; then
+    echo "error: Sparkle tools not found in Xcode DerivedData"
+    exit 1
+  fi
 fi
 
 mkdir -p "$SITE_DIR"
