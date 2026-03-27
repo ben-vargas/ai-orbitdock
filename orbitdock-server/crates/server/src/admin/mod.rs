@@ -9,6 +9,8 @@ mod remote_setup;
 mod setup;
 mod status;
 mod tunnel;
+mod upgrade;
+mod upgrade_executor;
 
 pub use doctor::print_diagnostics;
 pub use ensure_path::ensure_shell_path;
@@ -30,3 +32,5 @@ pub use status::{
   print_server_status, revoke_auth_token,
 };
 pub use tunnel::start_cloudflare_tunnel;
+pub use upgrade::check_for_update;
+pub use upgrade_executor::{execute_upgrade, UpgradeOptions};

@@ -60,7 +60,7 @@ bytes = "1"
 notify = "7"
 arc-swap = "1"
 dashmap = "6"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 clap = { version = "4", features = ["derive", "env"] }
 dirs = "6"
 libc = "0.2"
@@ -70,6 +70,9 @@ liquid = "0.26"
 serde_yaml = "0.9"
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
+semver = { version = "1", features = ["serde"] }
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # Internal crates
 orbitdock-protocol = { path = "crates/protocol" }
