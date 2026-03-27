@@ -4,25 +4,25 @@
 /// at dispatch time. The YAML front matter configures the orchestrator with
 /// `MissionConfig` keys at the top level.
 pub fn default_mission_template(provider: &str, tracker: &str) -> String {
-    let (states_hint, dispatch_state, complete_state, issue_label, tracker_label) = match tracker {
-        "github" => (
-            r#"[Ready, Backlog]"#,
-            "In progress",
-            "In review",
-            "GitHub issue",
-            "GitHub",
-        ),
-        _ => (
-            r#"[Todo, "In Progress"]"#,
-            "In Progress",
-            "In Review",
-            "Linear issue",
-            "Linear",
-        ),
-    };
+  let (states_hint, dispatch_state, complete_state, issue_label, tracker_label) = match tracker {
+    "github" => (
+      r#"[Ready, Backlog]"#,
+      "In progress",
+      "In review",
+      "GitHub issue",
+      "GitHub",
+    ),
+    _ => (
+      r#"[Todo, "In Progress"]"#,
+      "In Progress",
+      "In Review",
+      "Linear issue",
+      "Linear",
+    ),
+  };
 
-    format!(
-        r#"---
+  format!(
+    r#"---
 # ── Tracker ────────────────────────────────────────────────────────────
 # Which issue tracker to poll. Values: linear, github
 tracker: {tracker}
@@ -134,152 +134,152 @@ You are working in a git worktree on branch `mission/{{{{ issue.identifier | dow
 - Write detailed PR descriptions: summarize what changed and why, call out new tests, non-obvious decisions, and anything a reviewer wouldn't expect.
 - Use gitmoji in PR titles (e.g. ✨, 🐛, ♻️, 🔧).
 "#
-    )
+  )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn template_includes_provider() {
-        let tmpl = default_mission_template("codex", "linear");
-        assert!(tmpl.contains("primary: codex"));
-        assert!(!tmpl.contains("PROVIDER_PLACEHOLDER"));
-    }
+  #[test]
+  fn template_includes_provider() {
+    let tmpl = default_mission_template("codex", "linear");
+    assert!(tmpl.contains("primary: codex"));
+    assert!(!tmpl.contains("PROVIDER_PLACEHOLDER"));
+  }
 
-    #[test]
-    fn template_has_front_matter() {
-        let tmpl = default_mission_template("claude", "linear");
-        assert!(tmpl.starts_with("---\n"));
-        assert!(tmpl.matches("---").count() >= 2);
-    }
+  #[test]
+  fn template_has_front_matter() {
+    let tmpl = default_mission_template("claude", "linear");
+    assert!(tmpl.starts_with("---\n"));
+    assert!(tmpl.matches("---").count() >= 2);
+  }
 
-    #[test]
-    fn template_has_top_level_schema() {
-        let tmpl = default_mission_template("claude", "linear");
-        assert!(!tmpl.contains("orbitdock:"));
-        assert!(tmpl.contains("provider:"));
-        assert!(tmpl.contains("strategy: single"));
-        assert!(tmpl.contains("trigger:"));
-        assert!(tmpl.contains("orchestration:"));
-    }
+  #[test]
+  fn template_has_top_level_schema() {
+    let tmpl = default_mission_template("claude", "linear");
+    assert!(!tmpl.contains("orbitdock:"));
+    assert!(tmpl.contains("provider:"));
+    assert!(tmpl.contains("strategy: single"));
+    assert!(tmpl.contains("trigger:"));
+    assert!(tmpl.contains("orchestration:"));
+  }
 
-    #[test]
-    fn template_has_liquid_variables() {
-        let tmpl = default_mission_template("claude", "linear");
-        assert!(tmpl.contains("{{ issue.identifier }}"));
-        assert!(tmpl.contains("{{ issue.title }}"));
-        assert!(tmpl.contains("{% if attempt > 1 %}"));
-    }
+  #[test]
+  fn template_has_liquid_variables() {
+    let tmpl = default_mission_template("claude", "linear");
+    assert!(tmpl.contains("{{ issue.identifier }}"));
+    assert!(tmpl.contains("{{ issue.title }}"));
+    assert!(tmpl.contains("{% if attempt > 1 %}"));
+  }
 
-    #[test]
-    fn template_has_workflow_structure() {
-        let tmpl = default_mission_template("claude", "linear");
-        assert!(tmpl.contains("## Workflow"));
-        assert!(tmpl.contains("## Rules"));
-        assert!(tmpl.contains("workpad"));
-    }
+  #[test]
+  fn template_has_workflow_structure() {
+    let tmpl = default_mission_template("claude", "linear");
+    assert!(tmpl.contains("## Workflow"));
+    assert!(tmpl.contains("## Rules"));
+    assert!(tmpl.contains("workpad"));
+  }
 
-    #[test]
-    fn template_parses_as_valid_mission_file() {
-        let tmpl = default_mission_template("claude", "linear");
-        let def = crate::domain::mission_control::config::parse_mission_file(&tmpl).unwrap();
-        assert_eq!(def.config.tracker, "linear");
-        assert_eq!(def.config.provider.strategy, "single");
-        assert_eq!(def.config.provider.primary, "claude");
-        assert_eq!(def.config.provider.max_concurrent, 3);
-        assert_eq!(def.config.trigger.kind, "polling");
-        assert_eq!(def.config.trigger.interval, 60);
-        assert_eq!(def.config.orchestration.max_retries, 3);
-        assert_eq!(def.config.orchestration.stall_timeout, 600);
-        assert_eq!(def.config.orchestration.base_branch, "main");
-        assert_eq!(def.config.orchestration.state_on_dispatch, "In Progress");
-        assert_eq!(def.config.orchestration.state_on_complete, "In Review");
-    }
+  #[test]
+  fn template_parses_as_valid_mission_file() {
+    let tmpl = default_mission_template("claude", "linear");
+    let def = crate::domain::mission_control::config::parse_mission_file(&tmpl).unwrap();
+    assert_eq!(def.config.tracker, "linear");
+    assert_eq!(def.config.provider.strategy, "single");
+    assert_eq!(def.config.provider.primary, "claude");
+    assert_eq!(def.config.provider.max_concurrent, 3);
+    assert_eq!(def.config.trigger.kind, "polling");
+    assert_eq!(def.config.trigger.interval, 60);
+    assert_eq!(def.config.orchestration.max_retries, 3);
+    assert_eq!(def.config.orchestration.stall_timeout, 600);
+    assert_eq!(def.config.orchestration.base_branch, "main");
+    assert_eq!(def.config.orchestration.state_on_dispatch, "In Progress");
+    assert_eq!(def.config.orchestration.state_on_complete, "In Review");
+  }
 
-    // ── Commented option docs ─────────────────────────────────────────
+  // ── Commented option docs ─────────────────────────────────────────
 
-    #[test]
-    fn template_documents_provider_strategy_options() {
-        let tmpl = default_mission_template("claude", "linear");
-        assert!(tmpl.contains("single"));
-        assert!(tmpl.contains("priority"));
-        assert!(tmpl.contains("round_robin"));
-        assert!(tmpl.contains("secondary:"));
-        assert!(tmpl.contains("max_concurrent_primary:"));
-    }
+  #[test]
+  fn template_documents_provider_strategy_options() {
+    let tmpl = default_mission_template("claude", "linear");
+    assert!(tmpl.contains("single"));
+    assert!(tmpl.contains("priority"));
+    assert!(tmpl.contains("round_robin"));
+    assert!(tmpl.contains("secondary:"));
+    assert!(tmpl.contains("max_concurrent_primary:"));
+  }
 
-    #[test]
-    fn template_documents_agent_claude_options() {
-        let tmpl = default_mission_template("claude", "linear");
-        assert!(tmpl.contains("permission_mode:"));
-        assert!(tmpl.contains("plan | default | auto-edit | auto | bypass"));
-        assert!(tmpl.contains("allowed_tools:"));
-        assert!(tmpl.contains("disallowed_tools:"));
-        assert!(tmpl.contains("effort:"));
-        assert!(tmpl.contains("low | medium | high"));
-        assert!(tmpl.contains("skills:"));
-    }
+  #[test]
+  fn template_documents_agent_claude_options() {
+    let tmpl = default_mission_template("claude", "linear");
+    assert!(tmpl.contains("permission_mode:"));
+    assert!(tmpl.contains("plan | default | auto-edit | auto | bypass"));
+    assert!(tmpl.contains("allowed_tools:"));
+    assert!(tmpl.contains("disallowed_tools:"));
+    assert!(tmpl.contains("effort:"));
+    assert!(tmpl.contains("low | medium | high"));
+    assert!(tmpl.contains("skills:"));
+  }
 
-    #[test]
-    fn template_documents_agent_codex_options() {
-        let tmpl = default_mission_template("claude", "linear");
-        assert!(tmpl.contains("approval_policy:"));
-        assert!(tmpl.contains("untrusted | on-failure | on-request | never"));
-        assert!(tmpl.contains("sandbox_mode:"));
-        assert!(tmpl.contains("workspace-write | danger-full-access"));
-        assert!(tmpl.contains("collaboration_mode:"));
-        assert!(tmpl.contains("multi_agent:"));
-        assert!(tmpl.contains("service_tier:"));
-        assert!(tmpl.contains("developer_instructions:"));
-    }
+  #[test]
+  fn template_documents_agent_codex_options() {
+    let tmpl = default_mission_template("claude", "linear");
+    assert!(tmpl.contains("approval_policy:"));
+    assert!(tmpl.contains("untrusted | on-failure | on-request | never"));
+    assert!(tmpl.contains("sandbox_mode:"));
+    assert!(tmpl.contains("workspace-write | danger-full-access"));
+    assert!(tmpl.contains("collaboration_mode:"));
+    assert!(tmpl.contains("multi_agent:"));
+    assert!(tmpl.contains("service_tier:"));
+    assert!(tmpl.contains("developer_instructions:"));
+  }
 
-    #[test]
-    fn template_documents_trigger_options() {
-        let tmpl = default_mission_template("claude", "linear");
-        assert!(tmpl.contains("polling | manual_only"));
-        assert!(tmpl.contains("labels:"));
-        assert!(tmpl.contains("states:"));
-        assert!(tmpl.contains("project:"));
-        assert!(tmpl.contains("team:"));
-    }
+  #[test]
+  fn template_documents_trigger_options() {
+    let tmpl = default_mission_template("claude", "linear");
+    assert!(tmpl.contains("polling | manual_only"));
+    assert!(tmpl.contains("labels:"));
+    assert!(tmpl.contains("states:"));
+    assert!(tmpl.contains("project:"));
+    assert!(tmpl.contains("team:"));
+  }
 
-    #[test]
-    fn template_documents_orchestration_options() {
-        let tmpl = default_mission_template("claude", "linear");
-        assert!(tmpl.contains("worktree_root_dir:"));
-        assert!(tmpl.contains("stall_timeout:"));
-        assert!(tmpl.contains("state_on_dispatch:"));
-        assert!(tmpl.contains("state_on_complete:"));
-    }
+  #[test]
+  fn template_documents_orchestration_options() {
+    let tmpl = default_mission_template("claude", "linear");
+    assert!(tmpl.contains("worktree_root_dir:"));
+    assert!(tmpl.contains("stall_timeout:"));
+    assert!(tmpl.contains("state_on_dispatch:"));
+    assert!(tmpl.contains("state_on_complete:"));
+  }
 
-    #[test]
-    fn template_github_tracker_uses_github_hints() {
-        let tmpl = default_mission_template("claude", "github");
-        assert!(tmpl.contains("tracker: github"));
-        assert!(tmpl.contains("GitHub issue"));
-        assert!(tmpl.contains("GitHub project key"));
-        assert!(tmpl.contains("GitHub team key"));
-        assert!(tmpl.contains("[Ready, Backlog]"));
-    }
+  #[test]
+  fn template_github_tracker_uses_github_hints() {
+    let tmpl = default_mission_template("claude", "github");
+    assert!(tmpl.contains("tracker: github"));
+    assert!(tmpl.contains("GitHub issue"));
+    assert!(tmpl.contains("GitHub project key"));
+    assert!(tmpl.contains("GitHub team key"));
+    assert!(tmpl.contains("[Ready, Backlog]"));
+  }
 
-    #[test]
-    fn template_linear_tracker_uses_linear_hints() {
-        let tmpl = default_mission_template("claude", "linear");
-        assert!(tmpl.contains("tracker: linear"));
-        assert!(tmpl.contains("Linear issue"));
-        assert!(tmpl.contains("Linear project key"));
-        assert!(tmpl.contains("Linear team key"));
-    }
+  #[test]
+  fn template_linear_tracker_uses_linear_hints() {
+    let tmpl = default_mission_template("claude", "linear");
+    assert!(tmpl.contains("tracker: linear"));
+    assert!(tmpl.contains("Linear issue"));
+    assert!(tmpl.contains("Linear project key"));
+    assert!(tmpl.contains("Linear team key"));
+  }
 
-    #[test]
-    fn template_github_parses_as_valid_mission_file() {
-        let tmpl = default_mission_template("codex", "github");
-        let def = crate::domain::mission_control::config::parse_mission_file(&tmpl).unwrap();
-        assert_eq!(def.config.tracker, "github");
-        assert_eq!(def.config.provider.primary, "codex");
-        assert_eq!(def.config.orchestration.state_on_dispatch, "In progress");
-        assert_eq!(def.config.orchestration.state_on_complete, "In review");
-    }
+  #[test]
+  fn template_github_parses_as_valid_mission_file() {
+    let tmpl = default_mission_template("codex", "github");
+    let def = crate::domain::mission_control::config::parse_mission_file(&tmpl).unwrap();
+    assert_eq!(def.config.tracker, "github");
+    assert_eq!(def.config.provider.primary, "codex");
+    assert_eq!(def.config.orchestration.state_on_dispatch, "In progress");
+    assert_eq!(def.config.orchestration.state_on_complete, "In review");
+  }
 }

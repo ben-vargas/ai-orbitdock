@@ -10,5 +10,5 @@ pub type ToolPreview = ToolPreviewPayload;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolPayloadReference {
-    pub tool_id: String,
+  pub tool_id: String,
 }

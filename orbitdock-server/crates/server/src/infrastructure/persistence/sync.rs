@@ -12,6 +12,5 @@ mod types;
 
 pub(crate) use plan::SyncPlan;
 pub(crate) use types::{
-    SyncApprovalRequestedParams, SyncBatchRequest, SyncCommand, SyncEnvelope,
-    SyncSessionCreateParams,
+  SyncApprovalRequestedParams, SyncBatchRequest, SyncCommand, SyncEnvelope, SyncSessionCreateParams,
 };

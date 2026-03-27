@@ -6,513 +6,513 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::types::{
-    CodexApprovalPolicy, ImageInput, MentionInput, PermissionGrantScope, Provider,
-    ReviewCommentStatus, ReviewCommentTag, SkillInput, ToolApprovalDecision,
+  CodexApprovalPolicy, ImageInput, MentionInput, PermissionGrantScope, Provider,
+  ReviewCommentStatus, ReviewCommentTag, SkillInput, ToolApprovalDecision,
 };
 
 /// Messages sent from client to server
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    // Subscriptions
-    SubscribeDashboard {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        since_revision: Option<u64>,
-    },
-    SubscribeMissions {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        since_revision: Option<u64>,
-    },
-    SubscribeSessionSurface {
-        session_id: String,
-        surface: crate::types::SessionSurface,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        since_revision: Option<u64>,
-    },
-    UnsubscribeSessionSurface {
-        session_id: String,
-        surface: crate::types::SessionSurface,
-    },
+  // Subscriptions
+  SubscribeDashboard {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    since_revision: Option<u64>,
+  },
+  SubscribeMissions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    since_revision: Option<u64>,
+  },
+  SubscribeSessionSurface {
+    session_id: String,
+    surface: crate::types::SessionSurface,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    since_revision: Option<u64>,
+  },
+  UnsubscribeSessionSurface {
+    session_id: String,
+    surface: crate::types::SessionSurface,
+  },
 
-    // Actions
-    SendMessage {
-        session_id: String,
-        content: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        model: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        effort: Option<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        skills: Vec<SkillInput>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        images: Vec<ImageInput>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        mentions: Vec<MentionInput>,
-    },
-    ApproveTool {
-        session_id: String,
-        request_id: String,
-        decision: ToolApprovalDecision,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        message: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        interrupt: Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        updated_input: Option<Value>,
-    },
-    AnswerQuestion {
-        session_id: String,
-        request_id: String,
-        answer: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        question_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        answers: Option<HashMap<String, Vec<String>>>,
-    },
-    RespondToPermissionRequest {
-        session_id: String,
-        request_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        permissions: Option<Value>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        scope: Option<PermissionGrantScope>,
-    },
-    InterruptSession {
-        session_id: String,
-    },
-    EndSession {
-        session_id: String,
-    },
+  // Actions
+  SendMessage {
+    session_id: String,
+    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    skills: Vec<SkillInput>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    images: Vec<ImageInput>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    mentions: Vec<MentionInput>,
+  },
+  ApproveTool {
+    session_id: String,
+    request_id: String,
+    decision: ToolApprovalDecision,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    interrupt: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    updated_input: Option<Value>,
+  },
+  AnswerQuestion {
+    session_id: String,
+    request_id: String,
+    answer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    question_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    answers: Option<HashMap<String, Vec<String>>>,
+  },
+  RespondToPermissionRequest {
+    session_id: String,
+    request_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    permissions: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scope: Option<PermissionGrantScope>,
+  },
+  InterruptSession {
+    session_id: String,
+  },
+  EndSession {
+    session_id: String,
+  },
 
-    // Session config
-    UpdateSessionConfig {
-        session_id: String,
-        approval_policy: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        approval_policy_details: Option<CodexApprovalPolicy>,
-        sandbox_mode: Option<String>,
-        permission_mode: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        collaboration_mode: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        multi_agent: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        personality: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        service_tier: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        developer_instructions: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        model: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        effort: Option<String>,
-    },
+  // Session config
+  UpdateSessionConfig {
+    session_id: String,
+    approval_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    approval_policy_details: Option<CodexApprovalPolicy>,
+    sandbox_mode: Option<String>,
+    permission_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    collaboration_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    multi_agent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    personality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    developer_instructions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effort: Option<String>,
+  },
 
-    // Session naming
-    RenameSession {
-        session_id: String,
-        name: Option<String>,
-    },
+  // Session naming
+  RenameSession {
+    session_id: String,
+    name: Option<String>,
+  },
 
-    // Session management
-    CreateSession {
-        provider: Provider,
-        cwd: String,
-        model: Option<String>,
-        approval_policy: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        approval_policy_details: Option<CodexApprovalPolicy>,
-        sandbox_mode: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        permission_mode: Option<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        allowed_tools: Vec<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        disallowed_tools: Vec<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        effort: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        collaboration_mode: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        multi_agent: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        personality: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        service_tier: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        developer_instructions: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        system_prompt: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        append_system_prompt: Option<String>,
-    },
-    ResumeSession {
-        session_id: String,
-    },
-    TakeoverSession {
-        session_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        model: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        approval_policy: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        approval_policy_details: Option<CodexApprovalPolicy>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        sandbox_mode: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        permission_mode: Option<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        allowed_tools: Vec<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        disallowed_tools: Vec<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        collaboration_mode: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        multi_agent: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        personality: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        service_tier: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        developer_instructions: Option<String>,
-    },
-    ForkSession {
-        source_session_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        nth_user_message: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        model: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        approval_policy: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        approval_policy_details: Option<CodexApprovalPolicy>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        sandbox_mode: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        cwd: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        permission_mode: Option<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        allowed_tools: Vec<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        disallowed_tools: Vec<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        collaboration_mode: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        multi_agent: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        personality: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        service_tier: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        developer_instructions: Option<String>,
-    },
-    ForkSessionToWorktree {
-        source_session_id: String,
-        branch_name: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        base_branch: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        nth_user_message: Option<u32>,
-    },
-    ForkSessionToExistingWorktree {
-        source_session_id: String,
-        worktree_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        nth_user_message: Option<u32>,
-    },
+  // Session management
+  CreateSession {
+    provider: Provider,
+    cwd: String,
+    model: Option<String>,
+    approval_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    approval_policy_details: Option<CodexApprovalPolicy>,
+    sandbox_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permission_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    allowed_tools: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    disallowed_tools: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    collaboration_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    multi_agent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    personality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    developer_instructions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system_prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    append_system_prompt: Option<String>,
+  },
+  ResumeSession {
+    session_id: String,
+  },
+  TakeoverSession {
+    session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approval_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    approval_policy_details: Option<CodexApprovalPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sandbox_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permission_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    allowed_tools: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    disallowed_tools: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    collaboration_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    multi_agent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    personality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    developer_instructions: Option<String>,
+  },
+  ForkSession {
+    source_session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nth_user_message: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approval_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    approval_policy_details: Option<CodexApprovalPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sandbox_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permission_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    allowed_tools: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    disallowed_tools: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    collaboration_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    multi_agent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    personality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    developer_instructions: Option<String>,
+  },
+  ForkSessionToWorktree {
+    source_session_id: String,
+    branch_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    base_branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nth_user_message: Option<u32>,
+  },
+  ForkSessionToExistingWorktree {
+    source_session_id: String,
+    worktree_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nth_user_message: Option<u32>,
+  },
 
-    // Approval history
-    ListApprovals {
-        session_id: Option<String>,
-        limit: Option<u32>,
-    },
-    DeleteApproval {
-        approval_id: i64,
-    },
+  // Approval history
+  ListApprovals {
+    session_id: Option<String>,
+    limit: Option<u32>,
+  },
+  DeleteApproval {
+    approval_id: i64,
+  },
 
-    // Codex models
-    ListModels,
-    // Codex account/auth state
-    CodexAccountRead {
-        #[serde(default)]
-        refresh_token: bool,
-    },
-    CodexLoginChatgptStart,
-    CodexLoginChatgptCancel {
-        login_id: String,
-    },
-    CodexAccountLogout,
+  // Codex models
+  ListModels,
+  // Codex account/auth state
+  CodexAccountRead {
+    #[serde(default)]
+    refresh_token: bool,
+  },
+  CodexLoginChatgptStart,
+  CodexLoginChatgptCancel {
+    login_id: String,
+  },
+  CodexAccountLogout,
 
-    // Skills
-    ListSkills {
-        session_id: String,
-        #[serde(default)]
-        cwds: Vec<String>,
-        #[serde(default)]
-        force_reload: bool,
-    },
+  // Skills
+  ListSkills {
+    session_id: String,
+    #[serde(default)]
+    cwds: Vec<String>,
+    #[serde(default)]
+    force_reload: bool,
+  },
 
-    // MCP
-    ListMcpTools {
-        session_id: String,
-    },
-    RefreshMcpServers {
-        session_id: String,
-    },
+  // MCP
+  ListMcpTools {
+    session_id: String,
+  },
+  RefreshMcpServers {
+    session_id: String,
+  },
 
-    // Server config
-    SetOpenAiKey {
-        key: String,
-    },
-    SetServerRole {
-        is_primary: bool,
-    },
-    SetClientPrimaryClaim {
-        client_id: String,
-        device_name: String,
-        is_primary: bool,
-    },
-    CheckOpenAiKey {
-        request_id: String,
-    },
-    FetchCodexUsage {
-        request_id: String,
-    },
-    FetchClaudeUsage {
-        request_id: String,
-    },
+  // Server config
+  SetOpenAiKey {
+    key: String,
+  },
+  SetServerRole {
+    is_primary: bool,
+  },
+  SetClientPrimaryClaim {
+    client_id: String,
+    device_name: String,
+    is_primary: bool,
+  },
+  CheckOpenAiKey {
+    request_id: String,
+  },
+  FetchCodexUsage {
+    request_id: String,
+  },
+  FetchClaudeUsage {
+    request_id: String,
+  },
 
-    // Turn steering
-    SteerTurn {
-        session_id: String,
-        content: String,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        images: Vec<ImageInput>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        mentions: Vec<MentionInput>,
-    },
+  // Turn steering
+  SteerTurn {
+    session_id: String,
+    content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    images: Vec<ImageInput>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    mentions: Vec<MentionInput>,
+  },
 
-    // Context management
-    CompactContext {
-        session_id: String,
-    },
-    UndoLastTurn {
-        session_id: String,
-    },
-    RollbackTurns {
-        session_id: String,
-        num_turns: u32,
-    },
-    StopTask {
-        session_id: String,
-        task_id: String,
-    },
-    RewindFiles {
-        session_id: String,
-        user_message_id: String,
-    },
+  // Context management
+  CompactContext {
+    session_id: String,
+  },
+  UndoLastTurn {
+    session_id: String,
+  },
+  RollbackTurns {
+    session_id: String,
+    num_turns: u32,
+  },
+  StopTask {
+    session_id: String,
+    task_id: String,
+  },
+  RewindFiles {
+    session_id: String,
+    user_message_id: String,
+  },
 
-    // Review comments
-    CreateReviewComment {
-        session_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        turn_id: Option<String>,
-        file_path: String,
-        line_start: u32,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        line_end: Option<u32>,
-        body: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        tag: Option<ReviewCommentTag>,
-    },
-    UpdateReviewComment {
-        comment_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        body: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        tag: Option<ReviewCommentTag>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        status: Option<ReviewCommentStatus>,
-    },
-    DeleteReviewComment {
-        comment_id: String,
-    },
-    ListReviewComments {
-        session_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        turn_id: Option<String>,
-    },
+  // Review comments
+  CreateReviewComment {
+    session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    turn_id: Option<String>,
+    file_path: String,
+    line_start: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line_end: Option<u32>,
+    body: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tag: Option<ReviewCommentTag>,
+  },
+  UpdateReviewComment {
+    comment_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tag: Option<ReviewCommentTag>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<ReviewCommentStatus>,
+  },
+  DeleteReviewComment {
+    comment_id: String,
+  },
+  ListReviewComments {
+    session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    turn_id: Option<String>,
+  },
 
-    // Claude hook transport (server-owned write path)
-    ClaudeSessionStart {
-        session_id: String,
-        cwd: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        model: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        source: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        context_label: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        transcript_path: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        permission_mode: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        agent_type: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        terminal_session_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        terminal_app: Option<String>,
-    },
-    ClaudeSessionEnd {
-        session_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        reason: Option<String>,
-    },
-    ClaudeStatusEvent {
-        session_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        cwd: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        transcript_path: Option<String>,
-        hook_event_name: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        notification_type: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        tool_name: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        stop_hook_active: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        prompt: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        message: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        title: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        trigger: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        custom_instructions: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        permission_mode: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        last_assistant_message: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        teammate_name: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        team_name: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        task_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        task_subject: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        task_description: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "source")]
-        config_source: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "file_path")]
-        config_file_path: Option<String>,
-    },
-    ClaudeToolEvent {
-        session_id: String,
-        cwd: String,
-        hook_event_name: String,
-        tool_name: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        tool_input: Option<Value>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        tool_response: Option<Value>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        tool_use_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        permission_suggestions: Option<Value>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        is_interrupt: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        permission_mode: Option<String>,
-    },
-    // Subagent tools
-    GetSubagentTools {
-        session_id: String,
-        subagent_id: String,
-    },
+  // Claude hook transport (server-owned write path)
+  ClaudeSessionStart {
+    session_id: String,
+    cwd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transcript_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permission_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    terminal_session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    terminal_app: Option<String>,
+  },
+  ClaudeSessionEnd {
+    session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+  },
+  ClaudeStatusEvent {
+    session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transcript_path: Option<String>,
+    hook_event_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notification_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stop_hook_active: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trigger: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    custom_instructions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permission_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_assistant_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    teammate_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    team_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    task_subject: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    task_description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "source")]
+    config_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "file_path")]
+    config_file_path: Option<String>,
+  },
+  ClaudeToolEvent {
+    session_id: String,
+    cwd: String,
+    hook_event_name: String,
+    tool_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_input: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_response: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_use_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permission_suggestions: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_interrupt: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permission_mode: Option<String>,
+  },
+  // Subagent tools
+  GetSubagentTools {
+    session_id: String,
+    subagent_id: String,
+  },
 
-    ClaudeSubagentEvent {
-        session_id: String,
-        hook_event_name: String,
-        agent_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        agent_type: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        agent_transcript_path: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        stop_hook_active: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        last_assistant_message: Option<String>,
-    },
+  ClaudeSubagentEvent {
+    session_id: String,
+    hook_event_name: String,
+    agent_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_transcript_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stop_hook_active: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_assistant_message: Option<String>,
+  },
 
-    // Shell execution (provider-independent, user-initiated)
-    ExecuteShell {
-        session_id: String,
-        command: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        cwd: Option<String>,
-        #[serde(default = "default_shell_timeout")]
-        timeout_secs: u64,
-    },
-    CancelShell {
-        session_id: String,
-        request_id: String,
-    },
+  // Shell execution (provider-independent, user-initiated)
+  ExecuteShell {
+    session_id: String,
+    command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cwd: Option<String>,
+    #[serde(default = "default_shell_timeout")]
+    timeout_secs: u64,
+  },
+  CancelShell {
+    session_id: String,
+    request_id: String,
+  },
 
-    // Remote filesystem browsing (for iOS project picker)
-    BrowseDirectory {
-        #[serde(default)]
-        path: Option<String>,
-        request_id: String,
-    },
-    ListRecentProjects {
-        request_id: String,
-    },
+  // Remote filesystem browsing (for iOS project picker)
+  BrowseDirectory {
+    #[serde(default)]
+    path: Option<String>,
+    request_id: String,
+  },
+  ListRecentProjects {
+    request_id: String,
+  },
 
-    // Worktree management
-    ListWorktrees {
-        request_id: String,
-        #[serde(default)]
-        repo_root: Option<String>,
-    },
-    CreateWorktree {
-        request_id: String,
-        repo_path: String,
-        branch_name: String,
-        #[serde(default)]
-        base_branch: Option<String>,
-    },
-    RemoveWorktree {
-        request_id: String,
-        worktree_id: String,
-        #[serde(default)]
-        force: bool,
-    },
-    DiscoverWorktrees {
-        request_id: String,
-        repo_path: String,
-    },
+  // Worktree management
+  ListWorktrees {
+    request_id: String,
+    #[serde(default)]
+    repo_root: Option<String>,
+  },
+  CreateWorktree {
+    request_id: String,
+    repo_path: String,
+    branch_name: String,
+    #[serde(default)]
+    base_branch: Option<String>,
+  },
+  RemoveWorktree {
+    request_id: String,
+    worktree_id: String,
+    #[serde(default)]
+    force: bool,
+  },
+  DiscoverWorktrees {
+    request_id: String,
+    repo_path: String,
+  },
 }
 
 fn default_shell_timeout() -> u64 {
-    30
+  30
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ClientMessage;
-    use crate::types::SessionSurface;
+  use super::ClientMessage;
+  use crate::types::SessionSurface;
 
-    #[test]
-    fn deserializes_claude_status_event() {
-        let json = r#"{
+  #[test]
+  fn deserializes_claude_status_event() {
+    let json = r#"{
           "type":"claude_status_event",
           "session_id":"sess-1",
           "cwd":"/tmp/project",
@@ -521,32 +521,32 @@ mod tests {
           "prompt":"Ship it"
         }"#;
 
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse claude status event");
-        match parsed {
-            ClientMessage::ClaudeStatusEvent {
-                session_id,
-                cwd,
-                transcript_path,
-                hook_event_name,
-                prompt,
-                ..
-            } => {
-                assert_eq!(session_id, "sess-1");
-                assert_eq!(cwd.as_deref(), Some("/tmp/project"));
-                assert_eq!(
-                    transcript_path.as_deref(),
-                    Some("/tmp/project/sess-1.jsonl")
-                );
-                assert_eq!(hook_event_name, "UserPromptSubmit");
-                assert_eq!(prompt.as_deref(), Some("Ship it"));
-            }
-            other => panic!("unexpected message variant: {:?}", other),
-        }
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse claude status event");
+    match parsed {
+      ClientMessage::ClaudeStatusEvent {
+        session_id,
+        cwd,
+        transcript_path,
+        hook_event_name,
+        prompt,
+        ..
+      } => {
+        assert_eq!(session_id, "sess-1");
+        assert_eq!(cwd.as_deref(), Some("/tmp/project"));
+        assert_eq!(
+          transcript_path.as_deref(),
+          Some("/tmp/project/sess-1.jsonl")
+        );
+        assert_eq!(hook_event_name, "UserPromptSubmit");
+        assert_eq!(prompt.as_deref(), Some("Ship it"));
+      }
+      other => panic!("unexpected message variant: {:?}", other),
     }
+  }
 
-    #[test]
-    fn deserializes_claude_tool_event() {
-        let json = r#"{
+  #[test]
+  fn deserializes_claude_tool_event() {
+    let json = r#"{
           "type":"claude_tool_event",
           "session_id":"sess-2",
           "cwd":"/tmp/project",
@@ -556,373 +556,371 @@ mod tests {
           "tool_use_id":"tool-1"
         }"#;
 
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse claude tool event");
-        match parsed {
-            ClientMessage::ClaudeToolEvent {
-                session_id,
-                cwd,
-                hook_event_name,
-                tool_name,
-                tool_input,
-                tool_use_id,
-                ..
-            } => {
-                assert_eq!(session_id, "sess-2");
-                assert_eq!(cwd, "/tmp/project");
-                assert_eq!(hook_event_name, "PreToolUse");
-                assert_eq!(tool_name, "Bash");
-                assert_eq!(tool_use_id.as_deref(), Some("tool-1"));
-                let command = tool_input.and_then(|v| {
-                    v.get("command")
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string)
-                });
-                assert_eq!(command.as_deref(), Some("echo hello"));
-            }
-            other => panic!("unexpected message variant: {:?}", other),
-        }
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse claude tool event");
+    match parsed {
+      ClientMessage::ClaudeToolEvent {
+        session_id,
+        cwd,
+        hook_event_name,
+        tool_name,
+        tool_input,
+        tool_use_id,
+        ..
+      } => {
+        assert_eq!(session_id, "sess-2");
+        assert_eq!(cwd, "/tmp/project");
+        assert_eq!(hook_event_name, "PreToolUse");
+        assert_eq!(tool_name, "Bash");
+        assert_eq!(tool_use_id.as_deref(), Some("tool-1"));
+        let command = tool_input.and_then(|v| {
+          v.get("command")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+        });
+        assert_eq!(command.as_deref(), Some("echo hello"));
+      }
+      other => panic!("unexpected message variant: {:?}", other),
     }
+  }
 
-    #[test]
-    fn roundtrip_list_skills() {
-        let json = r#"{
+  #[test]
+  fn roundtrip_list_skills() {
+    let json = r#"{
           "type":"list_skills",
           "session_id":"sess-3",
           "cwds":["/tmp/project","/tmp/other"],
           "force_reload":true
         }"#;
 
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse list_skills");
-        match &parsed {
-            ClientMessage::ListSkills {
-                session_id,
-                cwds,
-                force_reload,
-            } => {
-                assert_eq!(session_id, "sess-3");
-                assert_eq!(cwds, &["/tmp/project", "/tmp/other"]);
-                assert!(*force_reload);
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-
-        // Roundtrip: serialize and deserialize
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
-        match reparsed {
-            ClientMessage::ListSkills {
-                session_id,
-                cwds,
-                force_reload,
-            } => {
-                assert_eq!(session_id, "sess-3");
-                assert_eq!(cwds.len(), 2);
-                assert!(force_reload);
-            }
-            other => panic!("unexpected variant on roundtrip: {:?}", other),
-        }
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse list_skills");
+    match &parsed {
+      ClientMessage::ListSkills {
+        session_id,
+        cwds,
+        force_reload,
+      } => {
+        assert_eq!(session_id, "sess-3");
+        assert_eq!(cwds, &["/tmp/project", "/tmp/other"]);
+        assert!(*force_reload);
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
 
-    #[test]
-    fn roundtrip_send_message_with_skills() {
-        let json = r#"{
+    // Roundtrip: serialize and deserialize
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+    match reparsed {
+      ClientMessage::ListSkills {
+        session_id,
+        cwds,
+        force_reload,
+      } => {
+        assert_eq!(session_id, "sess-3");
+        assert_eq!(cwds.len(), 2);
+        assert!(force_reload);
+      }
+      other => panic!("unexpected variant on roundtrip: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn roundtrip_send_message_with_skills() {
+    let json = r#"{
           "type":"send_message",
           "session_id":"sess-4",
           "content":"hello",
           "skills":[{"name":"deploy","path":"/home/.codex/skills/deploy.md"}]
         }"#;
 
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse send_message with skills");
-        match &parsed {
-            ClientMessage::SendMessage {
-                session_id,
-                content,
-                skills,
-                ..
-            } => {
-                assert_eq!(session_id, "sess-4");
-                assert_eq!(content, "hello");
-                assert_eq!(skills.len(), 1);
-                assert_eq!(skills[0].name, "deploy");
-                assert_eq!(skills[0].path, "/home/.codex/skills/deploy.md");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse send_message with skills");
+    match &parsed {
+      ClientMessage::SendMessage {
+        session_id,
+        content,
+        skills,
+        ..
+      } => {
+        assert_eq!(session_id, "sess-4");
+        assert_eq!(content, "hello");
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "deploy");
+        assert_eq!(skills[0].path, "/home/.codex/skills/deploy.md");
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+  }
 
-    #[test]
-    fn roundtrip_set_server_role() {
-        let json = r#"{
+  #[test]
+  fn roundtrip_set_server_role() {
+    let json = r#"{
           "type":"set_server_role",
           "is_primary":false
         }"#;
 
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse set_server_role");
-        match parsed {
-            ClientMessage::SetServerRole { is_primary } => {
-                assert!(!is_primary);
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse set_server_role");
+    match parsed {
+      ClientMessage::SetServerRole { is_primary } => {
+        assert!(!is_primary);
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+  }
 
-    #[test]
-    fn roundtrip_set_client_primary_claim() {
-        let json = r#"{
+  #[test]
+  fn roundtrip_set_client_primary_claim() {
+    let json = r#"{
           "type":"set_client_primary_claim",
           "client_id":"device-123",
           "device_name":"Robert's iPhone",
           "is_primary":true
         }"#;
 
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse set_client_primary_claim");
-        match parsed {
-            ClientMessage::SetClientPrimaryClaim {
-                client_id,
-                device_name,
-                is_primary,
-            } => {
-                assert_eq!(client_id, "device-123");
-                assert_eq!(device_name, "Robert's iPhone");
-                assert!(is_primary);
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse set_client_primary_claim");
+    match parsed {
+      ClientMessage::SetClientPrimaryClaim {
+        client_id,
+        device_name,
+        is_primary,
+      } => {
+        assert_eq!(client_id, "device-123");
+        assert_eq!(device_name, "Robert's iPhone");
+        assert!(is_primary);
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+  }
 
-    #[test]
-    fn send_message_without_skills_defaults_to_empty() {
-        let json = r#"{
+  #[test]
+  fn send_message_without_skills_defaults_to_empty() {
+    let json = r#"{
           "type":"send_message",
           "session_id":"sess-5",
           "content":"hello"
         }"#;
 
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse send_message without skills");
-        match parsed {
-            ClientMessage::SendMessage { skills, .. } => {
-                assert!(skills.is_empty());
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
+    let parsed: ClientMessage =
+      serde_json::from_str(json).expect("parse send_message without skills");
+    match parsed {
+      ClientMessage::SendMessage { skills, .. } => {
+        assert!(skills.is_empty());
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+  }
 
-    #[test]
-    fn roundtrip_list_mcp_tools() {
-        let json = r#"{"type":"list_mcp_tools","session_id":"sess-m1"}"#;
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse list_mcp_tools");
-        match &parsed {
-            ClientMessage::ListMcpTools { session_id } => {
-                assert_eq!(session_id, "sess-m1");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  #[test]
+  fn roundtrip_list_mcp_tools() {
+    let json = r#"{"type":"list_mcp_tools","session_id":"sess-m1"}"#;
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse list_mcp_tools");
+    match &parsed {
+      ClientMessage::ListMcpTools { session_id } => {
+        assert_eq!(session_id, "sess-m1");
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
 
-    #[test]
-    fn roundtrip_refresh_mcp_servers() {
-        let json = r#"{"type":"refresh_mcp_servers","session_id":"sess-m2"}"#;
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse refresh_mcp_servers");
-        match &parsed {
-            ClientMessage::RefreshMcpServers { session_id } => {
-                assert_eq!(session_id, "sess-m2");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  #[test]
+  fn roundtrip_refresh_mcp_servers() {
+    let json = r#"{"type":"refresh_mcp_servers","session_id":"sess-m2"}"#;
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse refresh_mcp_servers");
+    match &parsed {
+      ClientMessage::RefreshMcpServers { session_id } => {
+        assert_eq!(session_id, "sess-m2");
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
 
-    #[test]
-    fn roundtrip_codex_account_read() {
-        let json = r#"{"type":"codex_account_read","refresh_token":true}"#;
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse codex_account_read");
-        match &parsed {
-            ClientMessage::CodexAccountRead { refresh_token } => {
-                assert!(*refresh_token);
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  #[test]
+  fn roundtrip_codex_account_read() {
+    let json = r#"{"type":"codex_account_read","refresh_token":true}"#;
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse codex_account_read");
+    match &parsed {
+      ClientMessage::CodexAccountRead { refresh_token } => {
+        assert!(*refresh_token);
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
 
-    #[test]
-    fn roundtrip_codex_login_chatgpt_start() {
-        let json = r#"{"type":"codex_login_chatgpt_start"}"#;
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse codex_login_chatgpt_start");
-        match &parsed {
-            ClientMessage::CodexLoginChatgptStart => {}
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  #[test]
+  fn roundtrip_codex_login_chatgpt_start() {
+    let json = r#"{"type":"codex_login_chatgpt_start"}"#;
+    let parsed: ClientMessage =
+      serde_json::from_str(json).expect("parse codex_login_chatgpt_start");
+    match &parsed {
+      ClientMessage::CodexLoginChatgptStart => {}
+      other => panic!("unexpected variant: {:?}", other),
     }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
 
-    #[test]
-    fn roundtrip_codex_login_chatgpt_cancel() {
-        let json = r#"{"type":"codex_login_chatgpt_cancel","login_id":"9fbdb600-7778-49a7-8d7a-adc9c52a2f1a"}"#;
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse codex_login_chatgpt_cancel");
-        match &parsed {
-            ClientMessage::CodexLoginChatgptCancel { login_id } => {
-                assert_eq!(login_id, "9fbdb600-7778-49a7-8d7a-adc9c52a2f1a");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  #[test]
+  fn roundtrip_codex_login_chatgpt_cancel() {
+    let json =
+      r#"{"type":"codex_login_chatgpt_cancel","login_id":"9fbdb600-7778-49a7-8d7a-adc9c52a2f1a"}"#;
+    let parsed: ClientMessage =
+      serde_json::from_str(json).expect("parse codex_login_chatgpt_cancel");
+    match &parsed {
+      ClientMessage::CodexLoginChatgptCancel { login_id } => {
+        assert_eq!(login_id, "9fbdb600-7778-49a7-8d7a-adc9c52a2f1a");
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
 
-    #[test]
-    fn roundtrip_codex_account_logout() {
-        let json = r#"{"type":"codex_account_logout"}"#;
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse codex_account_logout");
-        match &parsed {
-            ClientMessage::CodexAccountLogout => {}
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  #[test]
+  fn roundtrip_codex_account_logout() {
+    let json = r#"{"type":"codex_account_logout"}"#;
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse codex_account_logout");
+    match &parsed {
+      ClientMessage::CodexAccountLogout => {}
+      other => panic!("unexpected variant: {:?}", other),
     }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
 
-    #[test]
-    fn roundtrip_cancel_shell() {
-        let json = r#"{"type":"cancel_shell","session_id":"sess-shell","request_id":"req-shell"}"#;
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse cancel_shell");
-        match &parsed {
-            ClientMessage::CancelShell {
-                session_id,
-                request_id,
-            } => {
-                assert_eq!(session_id, "sess-shell");
-                assert_eq!(request_id, "req-shell");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  #[test]
+  fn roundtrip_cancel_shell() {
+    let json = r#"{"type":"cancel_shell","session_id":"sess-shell","request_id":"req-shell"}"#;
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse cancel_shell");
+    match &parsed {
+      ClientMessage::CancelShell {
+        session_id,
+        request_id,
+      } => {
+        assert_eq!(session_id, "sess-shell");
+        assert_eq!(request_id, "req-shell");
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
 
-    #[test]
-    fn roundtrip_steer_turn() {
-        let json =
-            r#"{"type":"steer_turn","session_id":"sess-s1","content":"use postgres instead"}"#;
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse steer_turn");
-        match &parsed {
-            ClientMessage::SteerTurn {
-                session_id,
-                content,
-                images,
-                mentions,
-            } => {
-                assert_eq!(session_id, "sess-s1");
-                assert_eq!(content, "use postgres instead");
-                assert!(images.is_empty());
-                assert!(mentions.is_empty());
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  #[test]
+  fn roundtrip_steer_turn() {
+    let json = r#"{"type":"steer_turn","session_id":"sess-s1","content":"use postgres instead"}"#;
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse steer_turn");
+    match &parsed {
+      ClientMessage::SteerTurn {
+        session_id,
+        content,
+        images,
+        mentions,
+      } => {
+        assert_eq!(session_id, "sess-s1");
+        assert_eq!(content, "use postgres instead");
+        assert!(images.is_empty());
+        assert!(mentions.is_empty());
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
 
-    #[test]
-    fn roundtrip_steer_turn_with_mixed_inputs() {
-        let json = r#"{
+  #[test]
+  fn roundtrip_steer_turn_with_mixed_inputs() {
+    let json = r#"{
           "type":"steer_turn",
           "session_id":"sess-s2",
           "content":"take this into account",
           "images":[{"input_type":"url","value":"data:image/png;base64,iVBOR"}],
           "mentions":[{"name":"main.rs","path":"/project/src/main.rs"}]
         }"#;
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse steer_turn with mixed inputs");
-        match &parsed {
-            ClientMessage::SteerTurn {
-                session_id,
-                content,
-                images,
-                mentions,
-            } => {
-                assert_eq!(session_id, "sess-s2");
-                assert_eq!(content, "take this into account");
-                assert_eq!(images.len(), 1);
-                assert_eq!(mentions.len(), 1);
-                assert_eq!(images[0].input_type, "url");
-                assert_eq!(mentions[0].name, "main.rs");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
-        match reparsed {
-            ClientMessage::SteerTurn {
-                images, mentions, ..
-            } => {
-                assert_eq!(images.len(), 1);
-                assert_eq!(mentions.len(), 1);
-            }
-            other => panic!("unexpected variant on roundtrip: {:?}", other),
-        }
+    let parsed: ClientMessage =
+      serde_json::from_str(json).expect("parse steer_turn with mixed inputs");
+    match &parsed {
+      ClientMessage::SteerTurn {
+        session_id,
+        content,
+        images,
+        mentions,
+      } => {
+        assert_eq!(session_id, "sess-s2");
+        assert_eq!(content, "take this into account");
+        assert_eq!(images.len(), 1);
+        assert_eq!(mentions.len(), 1);
+        assert_eq!(images[0].input_type, "url");
+        assert_eq!(mentions[0].name, "main.rs");
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
 
-    #[test]
-    fn roundtrip_compact_context() {
-        let json = r#"{"type":"compact_context","session_id":"sess-c1"}"#;
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse compact_context");
-        match &parsed {
-            ClientMessage::CompactContext { session_id } => {
-                assert_eq!(session_id, "sess-c1");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+    match reparsed {
+      ClientMessage::SteerTurn {
+        images, mentions, ..
+      } => {
+        assert_eq!(images.len(), 1);
+        assert_eq!(mentions.len(), 1);
+      }
+      other => panic!("unexpected variant on roundtrip: {:?}", other),
     }
+  }
 
-    #[test]
-    fn roundtrip_undo_last_turn() {
-        let json = r#"{"type":"undo_last_turn","session_id":"sess-u1"}"#;
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse undo_last_turn");
-        match &parsed {
-            ClientMessage::UndoLastTurn { session_id } => {
-                assert_eq!(session_id, "sess-u1");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  #[test]
+  fn roundtrip_compact_context() {
+    let json = r#"{"type":"compact_context","session_id":"sess-c1"}"#;
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse compact_context");
+    match &parsed {
+      ClientMessage::CompactContext { session_id } => {
+        assert_eq!(session_id, "sess-c1");
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
 
-    #[test]
-    fn roundtrip_rollback_turns() {
-        let json = r#"{"type":"rollback_turns","session_id":"sess-r1","num_turns":3}"#;
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse rollback_turns");
-        match &parsed {
-            ClientMessage::RollbackTurns {
-                session_id,
-                num_turns,
-            } => {
-                assert_eq!(session_id, "sess-r1");
-                assert_eq!(*num_turns, 3);
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  #[test]
+  fn roundtrip_undo_last_turn() {
+    let json = r#"{"type":"undo_last_turn","session_id":"sess-u1"}"#;
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse undo_last_turn");
+    match &parsed {
+      ClientMessage::UndoLastTurn { session_id } => {
+        assert_eq!(session_id, "sess-u1");
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
 
-    #[test]
-    fn test_fork_session_roundtrip() {
-        let json = r#"{
+  #[test]
+  fn roundtrip_rollback_turns() {
+    let json = r#"{"type":"rollback_turns","session_id":"sess-r1","num_turns":3}"#;
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse rollback_turns");
+    match &parsed {
+      ClientMessage::RollbackTurns {
+        session_id,
+        num_turns,
+      } => {
+        assert_eq!(session_id, "sess-r1");
+        assert_eq!(*num_turns, 3);
+      }
+      other => panic!("unexpected variant: {:?}", other),
+    }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
+
+  #[test]
+  fn test_fork_session_roundtrip() {
+    let json = r#"{
           "type":"fork_session",
           "source_session_id":"sess-src-1",
           "nth_user_message":3,
@@ -932,64 +930,64 @@ mod tests {
           "cwd":"/tmp/fork-target"
         }"#;
 
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse fork_session");
-        match &parsed {
-            ClientMessage::ForkSession {
-                source_session_id,
-                nth_user_message,
-                model,
-                approval_policy,
-                sandbox_mode,
-                cwd,
-                ..
-            } => {
-                assert_eq!(source_session_id, "sess-src-1");
-                assert_eq!(*nth_user_message, Some(3));
-                assert_eq!(model.as_deref(), Some("o3"));
-                assert_eq!(approval_policy.as_deref(), Some("on-request"));
-                assert_eq!(sandbox_mode.as_deref(), Some("read-only"));
-                assert_eq!(cwd.as_deref(), Some("/tmp/fork-target"));
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
-        match reparsed {
-            ClientMessage::ForkSession {
-                source_session_id,
-                nth_user_message,
-                ..
-            } => {
-                assert_eq!(source_session_id, "sess-src-1");
-                assert_eq!(nth_user_message, Some(3));
-            }
-            other => panic!("unexpected variant on roundtrip: {:?}", other),
-        }
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse fork_session");
+    match &parsed {
+      ClientMessage::ForkSession {
+        source_session_id,
+        nth_user_message,
+        model,
+        approval_policy,
+        sandbox_mode,
+        cwd,
+        ..
+      } => {
+        assert_eq!(source_session_id, "sess-src-1");
+        assert_eq!(*nth_user_message, Some(3));
+        assert_eq!(model.as_deref(), Some("o3"));
+        assert_eq!(approval_policy.as_deref(), Some("on-request"));
+        assert_eq!(sandbox_mode.as_deref(), Some("read-only"));
+        assert_eq!(cwd.as_deref(), Some("/tmp/fork-target"));
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
 
-    #[test]
-    fn fork_session_minimal() {
-        let json = r#"{"type":"fork_session","source_session_id":"sess-src-2"}"#;
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse minimal fork_session");
-        match &parsed {
-            ClientMessage::ForkSession {
-                source_session_id,
-                nth_user_message,
-                model,
-                ..
-            } => {
-                assert_eq!(source_session_id, "sess-src-2");
-                assert_eq!(*nth_user_message, None);
-                assert_eq!(*model, None);
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+    match reparsed {
+      ClientMessage::ForkSession {
+        source_session_id,
+        nth_user_message,
+        ..
+      } => {
+        assert_eq!(source_session_id, "sess-src-1");
+        assert_eq!(nth_user_message, Some(3));
+      }
+      other => panic!("unexpected variant on roundtrip: {:?}", other),
     }
+  }
 
-    #[test]
-    fn fork_session_to_worktree_roundtrip() {
-        let json = r#"{
+  #[test]
+  fn fork_session_minimal() {
+    let json = r#"{"type":"fork_session","source_session_id":"sess-src-2"}"#;
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse minimal fork_session");
+    match &parsed {
+      ClientMessage::ForkSession {
+        source_session_id,
+        nth_user_message,
+        model,
+        ..
+      } => {
+        assert_eq!(source_session_id, "sess-src-2");
+        assert_eq!(*nth_user_message, None);
+        assert_eq!(*model, None);
+      }
+      other => panic!("unexpected variant: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn fork_session_to_worktree_roundtrip() {
+    let json = r#"{
           "type":"fork_session_to_worktree",
           "source_session_id":"sess-src-3",
           "branch_name":"feat/server-side-fork",
@@ -997,170 +995,169 @@ mod tests {
           "nth_user_message":4
         }"#;
 
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse fork_session_to_worktree");
-        match &parsed {
-            ClientMessage::ForkSessionToWorktree {
-                source_session_id,
-                branch_name,
-                base_branch,
-                nth_user_message,
-            } => {
-                assert_eq!(source_session_id, "sess-src-3");
-                assert_eq!(branch_name, "feat/server-side-fork");
-                assert_eq!(base_branch.as_deref(), Some("main"));
-                assert_eq!(*nth_user_message, Some(4));
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
-        match reparsed {
-            ClientMessage::ForkSessionToWorktree {
-                source_session_id,
-                branch_name,
-                ..
-            } => {
-                assert_eq!(source_session_id, "sess-src-3");
-                assert_eq!(branch_name, "feat/server-side-fork");
-            }
-            other => panic!("unexpected variant on roundtrip: {:?}", other),
-        }
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse fork_session_to_worktree");
+    match &parsed {
+      ClientMessage::ForkSessionToWorktree {
+        source_session_id,
+        branch_name,
+        base_branch,
+        nth_user_message,
+      } => {
+        assert_eq!(source_session_id, "sess-src-3");
+        assert_eq!(branch_name, "feat/server-side-fork");
+        assert_eq!(base_branch.as_deref(), Some("main"));
+        assert_eq!(*nth_user_message, Some(4));
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
 
-    #[test]
-    fn fork_session_to_existing_worktree_roundtrip() {
-        let json = r#"{
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+    match reparsed {
+      ClientMessage::ForkSessionToWorktree {
+        source_session_id,
+        branch_name,
+        ..
+      } => {
+        assert_eq!(source_session_id, "sess-src-3");
+        assert_eq!(branch_name, "feat/server-side-fork");
+      }
+      other => panic!("unexpected variant on roundtrip: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn fork_session_to_existing_worktree_roundtrip() {
+    let json = r#"{
           "type":"fork_session_to_existing_worktree",
           "source_session_id":"sess-src-4",
           "worktree_id":"wt-123",
           "nth_user_message":2
         }"#;
 
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse fork_session_to_existing_worktree");
-        match &parsed {
-            ClientMessage::ForkSessionToExistingWorktree {
-                source_session_id,
-                worktree_id,
-                nth_user_message,
-            } => {
-                assert_eq!(source_session_id, "sess-src-4");
-                assert_eq!(worktree_id, "wt-123");
-                assert_eq!(*nth_user_message, Some(2));
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
-        match reparsed {
-            ClientMessage::ForkSessionToExistingWorktree {
-                source_session_id,
-                worktree_id,
-                ..
-            } => {
-                assert_eq!(source_session_id, "sess-src-4");
-                assert_eq!(worktree_id, "wt-123");
-            }
-            other => panic!("unexpected variant on roundtrip: {:?}", other),
-        }
+    let parsed: ClientMessage =
+      serde_json::from_str(json).expect("parse fork_session_to_existing_worktree");
+    match &parsed {
+      ClientMessage::ForkSessionToExistingWorktree {
+        source_session_id,
+        worktree_id,
+        nth_user_message,
+      } => {
+        assert_eq!(source_session_id, "sess-src-4");
+        assert_eq!(worktree_id, "wt-123");
+        assert_eq!(*nth_user_message, Some(2));
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
 
-    #[test]
-    fn roundtrip_send_message_with_image_url() {
-        let json = r#"{
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+    match reparsed {
+      ClientMessage::ForkSessionToExistingWorktree {
+        source_session_id,
+        worktree_id,
+        ..
+      } => {
+        assert_eq!(source_session_id, "sess-src-4");
+        assert_eq!(worktree_id, "wt-123");
+      }
+      other => panic!("unexpected variant on roundtrip: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn roundtrip_send_message_with_image_url() {
+    let json = r#"{
           "type":"send_message",
           "session_id":"sess-img1",
           "content":"check this screenshot",
           "images":[{"input_type":"url","value":"data:image/png;base64,iVBOR"}]
         }"#;
 
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse send_message with image url");
-        match &parsed {
-            ClientMessage::SendMessage {
-                session_id,
-                content,
-                images,
-                ..
-            } => {
-                assert_eq!(session_id, "sess-img1");
-                assert_eq!(content, "check this screenshot");
-                assert_eq!(images.len(), 1);
-                assert_eq!(images[0].input_type, "url");
-                assert_eq!(images[0].value, "data:image/png;base64,iVBOR");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
-        match reparsed {
-            ClientMessage::SendMessage { images, .. } => {
-                assert_eq!(images.len(), 1);
-                assert_eq!(images[0].input_type, "url");
-            }
-            other => panic!("unexpected variant on roundtrip: {:?}", other),
-        }
+    let parsed: ClientMessage =
+      serde_json::from_str(json).expect("parse send_message with image url");
+    match &parsed {
+      ClientMessage::SendMessage {
+        session_id,
+        content,
+        images,
+        ..
+      } => {
+        assert_eq!(session_id, "sess-img1");
+        assert_eq!(content, "check this screenshot");
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].input_type, "url");
+        assert_eq!(images[0].value, "data:image/png;base64,iVBOR");
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
 
-    #[test]
-    fn roundtrip_send_message_with_local_image() {
-        let json = r#"{
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+    match reparsed {
+      ClientMessage::SendMessage { images, .. } => {
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].input_type, "url");
+      }
+      other => panic!("unexpected variant on roundtrip: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn roundtrip_send_message_with_local_image() {
+    let json = r#"{
           "type":"send_message",
           "session_id":"sess-img2",
           "content":"look at this",
           "images":[{"input_type":"path","value":"/tmp/screenshot.png"}]
         }"#;
 
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse send_message with local image");
-        match &parsed {
-            ClientMessage::SendMessage { images, .. } => {
-                assert_eq!(images.len(), 1);
-                assert_eq!(images[0].input_type, "path");
-                assert_eq!(images[0].value, "/tmp/screenshot.png");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
+    let parsed: ClientMessage =
+      serde_json::from_str(json).expect("parse send_message with local image");
+    match &parsed {
+      ClientMessage::SendMessage { images, .. } => {
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].input_type, "path");
+        assert_eq!(images[0].value, "/tmp/screenshot.png");
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
+  }
 
-    #[test]
-    fn roundtrip_send_message_with_mention() {
-        let json = r#"{
+  #[test]
+  fn roundtrip_send_message_with_mention() {
+    let json = r#"{
           "type":"send_message",
           "session_id":"sess-men1",
           "content":"update this file",
           "mentions":[{"name":"main.rs","path":"/project/src/main.rs"}]
         }"#;
 
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse send_message with mention");
-        match &parsed {
-            ClientMessage::SendMessage { mentions, .. } => {
-                assert_eq!(mentions.len(), 1);
-                assert_eq!(mentions[0].name, "main.rs");
-                assert_eq!(mentions[0].path, "/project/src/main.rs");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
-        match reparsed {
-            ClientMessage::SendMessage { mentions, .. } => {
-                assert_eq!(mentions.len(), 1);
-                assert_eq!(mentions[0].name, "main.rs");
-            }
-            other => panic!("unexpected variant on roundtrip: {:?}", other),
-        }
+    let parsed: ClientMessage =
+      serde_json::from_str(json).expect("parse send_message with mention");
+    match &parsed {
+      ClientMessage::SendMessage { mentions, .. } => {
+        assert_eq!(mentions.len(), 1);
+        assert_eq!(mentions[0].name, "main.rs");
+        assert_eq!(mentions[0].path, "/project/src/main.rs");
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
 
-    #[test]
-    fn roundtrip_send_message_mixed_inputs() {
-        let json = r#"{
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+    match reparsed {
+      ClientMessage::SendMessage { mentions, .. } => {
+        assert_eq!(mentions.len(), 1);
+        assert_eq!(mentions[0].name, "main.rs");
+      }
+      other => panic!("unexpected variant on roundtrip: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn roundtrip_send_message_mixed_inputs() {
+    let json = r#"{
           "type":"send_message",
           "session_id":"sess-mix1",
           "content":"deploy with these files",
@@ -1169,179 +1166,175 @@ mod tests {
           "mentions":[{"name":"config.toml","path":"/project/config.toml"}]
         }"#;
 
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse mixed inputs");
-        match &parsed {
-            ClientMessage::SendMessage {
-                skills,
-                images,
-                mentions,
-                ..
-            } => {
-                assert_eq!(skills.len(), 1);
-                assert_eq!(images.len(), 1);
-                assert_eq!(mentions.len(), 1);
-                assert_eq!(skills[0].name, "deploy");
-                assert_eq!(images[0].input_type, "url");
-                assert_eq!(mentions[0].name, "config.toml");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-
-        // Roundtrip
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
-        match reparsed {
-            ClientMessage::SendMessage {
-                skills,
-                images,
-                mentions,
-                ..
-            } => {
-                assert_eq!(skills.len(), 1);
-                assert_eq!(images.len(), 1);
-                assert_eq!(mentions.len(), 1);
-            }
-            other => panic!("unexpected variant on roundtrip: {:?}", other),
-        }
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse mixed inputs");
+    match &parsed {
+      ClientMessage::SendMessage {
+        skills,
+        images,
+        mentions,
+        ..
+      } => {
+        assert_eq!(skills.len(), 1);
+        assert_eq!(images.len(), 1);
+        assert_eq!(mentions.len(), 1);
+        assert_eq!(skills[0].name, "deploy");
+        assert_eq!(images[0].input_type, "url");
+        assert_eq!(mentions[0].name, "config.toml");
+      }
+      other => panic!("unexpected variant: {:?}", other),
     }
 
-    #[test]
-    fn roundtrip_correlated_utility_requests() {
-        let check = ClientMessage::CheckOpenAiKey {
-            request_id: "req-check".to_string(),
-        };
-        let codex_usage = ClientMessage::FetchCodexUsage {
-            request_id: "req-codex-usage".to_string(),
-        };
-        let claude_usage = ClientMessage::FetchClaudeUsage {
-            request_id: "req-claude-usage".to_string(),
-        };
-        let list = ClientMessage::ListRecentProjects {
-            request_id: "req-projects".to_string(),
-        };
-        let browse = ClientMessage::BrowseDirectory {
-            path: Some("/tmp".to_string()),
-            request_id: "req-browse".to_string(),
-        };
+    // Roundtrip
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+    match reparsed {
+      ClientMessage::SendMessage {
+        skills,
+        images,
+        mentions,
+        ..
+      } => {
+        assert_eq!(skills.len(), 1);
+        assert_eq!(images.len(), 1);
+        assert_eq!(mentions.len(), 1);
+      }
+      other => panic!("unexpected variant on roundtrip: {:?}", other),
+    }
+  }
 
-        let check_json = serde_json::to_string(&check).expect("serialize check");
-        let codex_usage_json = serde_json::to_string(&codex_usage).expect("serialize codex usage");
-        let claude_usage_json =
-            serde_json::to_string(&claude_usage).expect("serialize claude usage");
-        let list_json = serde_json::to_string(&list).expect("serialize list");
-        let browse_json = serde_json::to_string(&browse).expect("serialize browse");
+  #[test]
+  fn roundtrip_correlated_utility_requests() {
+    let check = ClientMessage::CheckOpenAiKey {
+      request_id: "req-check".to_string(),
+    };
+    let codex_usage = ClientMessage::FetchCodexUsage {
+      request_id: "req-codex-usage".to_string(),
+    };
+    let claude_usage = ClientMessage::FetchClaudeUsage {
+      request_id: "req-claude-usage".to_string(),
+    };
+    let list = ClientMessage::ListRecentProjects {
+      request_id: "req-projects".to_string(),
+    };
+    let browse = ClientMessage::BrowseDirectory {
+      path: Some("/tmp".to_string()),
+      request_id: "req-browse".to_string(),
+    };
 
-        match serde_json::from_str::<ClientMessage>(&check_json).expect("deserialize check") {
-            ClientMessage::CheckOpenAiKey { request_id } => {
-                assert_eq!(request_id, "req-check");
-            }
-            other => panic!("unexpected variant for check: {:?}", other),
-        }
+    let check_json = serde_json::to_string(&check).expect("serialize check");
+    let codex_usage_json = serde_json::to_string(&codex_usage).expect("serialize codex usage");
+    let claude_usage_json = serde_json::to_string(&claude_usage).expect("serialize claude usage");
+    let list_json = serde_json::to_string(&list).expect("serialize list");
+    let browse_json = serde_json::to_string(&browse).expect("serialize browse");
 
-        match serde_json::from_str::<ClientMessage>(&codex_usage_json)
-            .expect("deserialize codex usage")
-        {
-            ClientMessage::FetchCodexUsage { request_id } => {
-                assert_eq!(request_id, "req-codex-usage");
-            }
-            other => panic!("unexpected variant for codex usage: {:?}", other),
-        }
-
-        match serde_json::from_str::<ClientMessage>(&claude_usage_json)
-            .expect("deserialize claude usage")
-        {
-            ClientMessage::FetchClaudeUsage { request_id } => {
-                assert_eq!(request_id, "req-claude-usage");
-            }
-            other => panic!("unexpected variant for claude usage: {:?}", other),
-        }
-
-        match serde_json::from_str::<ClientMessage>(&list_json).expect("deserialize list") {
-            ClientMessage::ListRecentProjects { request_id } => {
-                assert_eq!(request_id, "req-projects");
-            }
-            other => panic!("unexpected variant for list: {:?}", other),
-        }
-
-        match serde_json::from_str::<ClientMessage>(&browse_json).expect("deserialize browse") {
-            ClientMessage::BrowseDirectory { path, request_id } => {
-                assert_eq!(request_id, "req-browse");
-                assert_eq!(path.as_deref(), Some("/tmp"));
-            }
-            other => panic!("unexpected variant for browse: {:?}", other),
-        }
+    match serde_json::from_str::<ClientMessage>(&check_json).expect("deserialize check") {
+      ClientMessage::CheckOpenAiKey { request_id } => {
+        assert_eq!(request_id, "req-check");
+      }
+      other => panic!("unexpected variant for check: {:?}", other),
     }
 
-    #[test]
-    fn correlated_utility_requests_require_request_id() {
-        let missing_request_id_payloads = [
-            r#"{"type":"check_open_ai_key"}"#,
-            r#"{"type":"fetch_codex_usage"}"#,
-            r#"{"type":"fetch_claude_usage"}"#,
-            r#"{"type":"list_recent_projects"}"#,
-            r#"{"type":"browse_directory","path":"/tmp"}"#,
-        ];
-
-        for payload in missing_request_id_payloads {
-            let result = serde_json::from_str::<ClientMessage>(payload);
-            assert!(result.is_err(), "payload should fail: {payload}");
-        }
+    match serde_json::from_str::<ClientMessage>(&codex_usage_json).expect("deserialize codex usage")
+    {
+      ClientMessage::FetchCodexUsage { request_id } => {
+        assert_eq!(request_id, "req-codex-usage");
+      }
+      other => panic!("unexpected variant for codex usage: {:?}", other),
     }
 
-    #[test]
-    fn update_session_config_round_trips_model_and_effort() {
-        let message = ClientMessage::UpdateSessionConfig {
-            session_id: "sess-1".to_string(),
-            approval_policy: Some("on-request".to_string()),
-            approval_policy_details: None,
-            sandbox_mode: Some("workspace-write".to_string()),
-            permission_mode: Some("default".to_string()),
-            collaboration_mode: Some("default".to_string()),
-            multi_agent: Some(true),
-            personality: Some("balanced".to_string()),
-            service_tier: Some("priority".to_string()),
-            developer_instructions: Some("Stay concise".to_string()),
-            model: Some("gpt-5-codex".to_string()),
-            effort: Some("high".to_string()),
-        };
-
-        let json = serde_json::to_string(&message).expect("serialize update_session_config");
-        match serde_json::from_str::<ClientMessage>(&json)
-            .expect("deserialize update_session_config")
-        {
-            ClientMessage::UpdateSessionConfig { model, effort, .. } => {
-                assert_eq!(model.as_deref(), Some("gpt-5-codex"));
-                assert_eq!(effort.as_deref(), Some("high"));
-            }
-            other => panic!("unexpected variant for update_session_config: {:?}", other),
-        }
+    match serde_json::from_str::<ClientMessage>(&claude_usage_json)
+      .expect("deserialize claude usage")
+    {
+      ClientMessage::FetchClaudeUsage { request_id } => {
+        assert_eq!(request_id, "req-claude-usage");
+      }
+      other => panic!("unexpected variant for claude usage: {:?}", other),
     }
 
-    #[test]
-    fn subscribe_session_surface_round_trips_since_revision() {
-        let message = ClientMessage::SubscribeSessionSurface {
-            session_id: "sess-1".to_string(),
-            surface: SessionSurface::Conversation,
-            since_revision: Some(42),
-        };
-
-        let json = serde_json::to_string(&message).expect("serialize subscribe_session_surface");
-        match serde_json::from_str::<ClientMessage>(&json)
-            .expect("deserialize subscribe_session_surface")
-        {
-            ClientMessage::SubscribeSessionSurface {
-                session_id,
-                surface,
-                since_revision,
-            } => {
-                assert_eq!(session_id, "sess-1");
-                assert_eq!(surface, SessionSurface::Conversation);
-                assert_eq!(since_revision, Some(42));
-            }
-            other => panic!(
-                "unexpected variant for subscribe_session_surface: {:?}",
-                other
-            ),
-        }
+    match serde_json::from_str::<ClientMessage>(&list_json).expect("deserialize list") {
+      ClientMessage::ListRecentProjects { request_id } => {
+        assert_eq!(request_id, "req-projects");
+      }
+      other => panic!("unexpected variant for list: {:?}", other),
     }
+
+    match serde_json::from_str::<ClientMessage>(&browse_json).expect("deserialize browse") {
+      ClientMessage::BrowseDirectory { path, request_id } => {
+        assert_eq!(request_id, "req-browse");
+        assert_eq!(path.as_deref(), Some("/tmp"));
+      }
+      other => panic!("unexpected variant for browse: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn correlated_utility_requests_require_request_id() {
+    let missing_request_id_payloads = [
+      r#"{"type":"check_open_ai_key"}"#,
+      r#"{"type":"fetch_codex_usage"}"#,
+      r#"{"type":"fetch_claude_usage"}"#,
+      r#"{"type":"list_recent_projects"}"#,
+      r#"{"type":"browse_directory","path":"/tmp"}"#,
+    ];
+
+    for payload in missing_request_id_payloads {
+      let result = serde_json::from_str::<ClientMessage>(payload);
+      assert!(result.is_err(), "payload should fail: {payload}");
+    }
+  }
+
+  #[test]
+  fn update_session_config_round_trips_model_and_effort() {
+    let message = ClientMessage::UpdateSessionConfig {
+      session_id: "sess-1".to_string(),
+      approval_policy: Some("on-request".to_string()),
+      approval_policy_details: None,
+      sandbox_mode: Some("workspace-write".to_string()),
+      permission_mode: Some("default".to_string()),
+      collaboration_mode: Some("default".to_string()),
+      multi_agent: Some(true),
+      personality: Some("balanced".to_string()),
+      service_tier: Some("priority".to_string()),
+      developer_instructions: Some("Stay concise".to_string()),
+      model: Some("gpt-5-codex".to_string()),
+      effort: Some("high".to_string()),
+    };
+
+    let json = serde_json::to_string(&message).expect("serialize update_session_config");
+    match serde_json::from_str::<ClientMessage>(&json).expect("deserialize update_session_config") {
+      ClientMessage::UpdateSessionConfig { model, effort, .. } => {
+        assert_eq!(model.as_deref(), Some("gpt-5-codex"));
+        assert_eq!(effort.as_deref(), Some("high"));
+      }
+      other => panic!("unexpected variant for update_session_config: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn subscribe_session_surface_round_trips_since_revision() {
+    let message = ClientMessage::SubscribeSessionSurface {
+      session_id: "sess-1".to_string(),
+      surface: SessionSurface::Conversation,
+      since_revision: Some(42),
+    };
+
+    let json = serde_json::to_string(&message).expect("serialize subscribe_session_surface");
+    match serde_json::from_str::<ClientMessage>(&json)
+      .expect("deserialize subscribe_session_surface")
+    {
+      ClientMessage::SubscribeSessionSurface {
+        session_id,
+        surface,
+        since_revision,
+      } => {
+        assert_eq!(session_id, "sess-1");
+        assert_eq!(surface, SessionSurface::Conversation);
+        assert_eq!(since_revision, Some(42));
+      }
+      other => panic!(
+        "unexpected variant for subscribe_session_surface: {:?}",
+        other
+      ),
+    }
+  }
 }

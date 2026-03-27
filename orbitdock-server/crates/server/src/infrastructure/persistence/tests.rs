@@ -2,7 +2,7 @@ use rusqlite::Connection;
 use std::sync::{Mutex, OnceLock};
 
 use orbitdock_protocol::conversation_contracts::{
-    rows::MessageDeliveryStatus, ConversationRow, ConversationRowEntry, MessageRowContent,
+  rows::MessageDeliveryStatus, ConversationRow, ConversationRowEntry, MessageRowContent,
 };
 use orbitdock_protocol::{Provider, SessionLifecycleState, SessionStatus};
 
@@ -11,25 +11,25 @@ use super::messages::load_messages_from_db;
 use super::SyncCommand;
 
 fn persistence_test_db_guard() -> &'static Mutex<()> {
-    static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
-    GUARD.get_or_init(|| Mutex::new(()))
+  static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+  GUARD.get_or_init(|| Mutex::new(()))
 }
 
 type PersistenceTestGuard = std::sync::MutexGuard<'static, ()>;
 
 fn setup_test_db() -> (
-    Connection,
-    std::path::PathBuf,
-    tempfile::TempDir,
-    PersistenceTestGuard,
+  Connection,
+  std::path::PathBuf,
+  tempfile::TempDir,
+  PersistenceTestGuard,
 ) {
-    let guard = persistence_test_db_guard().lock().unwrap();
-    crate::support::test_support::ensure_server_test_data_dir();
-    let dir = tempfile::TempDir::new().unwrap();
-    crate::infrastructure::paths::init_data_dir(Some(dir.path()));
-    let db_path = dir.path().join("orbitdock.db");
-    let conn = Connection::open(&db_path).unwrap();
-    conn.execute_batch(
+  let guard = persistence_test_db_guard().lock().unwrap();
+  crate::support::test_support::ensure_server_test_data_dir();
+  let dir = tempfile::TempDir::new().unwrap();
+  crate::infrastructure::paths::init_data_dir(Some(dir.path()));
+  let db_path = dir.path().join("orbitdock.db");
+  let conn = Connection::open(&db_path).unwrap();
+  conn.execute_batch(
         "PRAGMA journal_mode = WAL;
          PRAGMA busy_timeout = 5000;
          PRAGMA synchronous = NORMAL;
@@ -152,600 +152,605 @@ fn setup_test_db() -> (
     )
     .unwrap();
 
-    (conn, db_path, dir, guard)
+  (conn, db_path, dir, guard)
 }
 
 fn user_entry(id: &str, sequence: u64) -> ConversationRowEntry {
-    ConversationRowEntry {
-        session_id: "test-session".to_string(),
-        sequence,
-        turn_id: None,
-        turn_status: Default::default(),
-        row: ConversationRow::User(MessageRowContent {
-            id: id.to_string(),
-            content: format!("message from {id}"),
-            turn_id: None,
-            timestamp: None,
-            is_streaming: false,
-            images: vec![],
-            memory_citation: None,
-            delivery_status: None,
-        }),
-    }
+  ConversationRowEntry {
+    session_id: "test-session".to_string(),
+    sequence,
+    turn_id: None,
+    turn_status: Default::default(),
+    row: ConversationRow::User(MessageRowContent {
+      id: id.to_string(),
+      content: format!("message from {id}"),
+      turn_id: None,
+      timestamp: None,
+      is_streaming: false,
+      images: vec![],
+      memory_citation: None,
+      delivery_status: None,
+    }),
+  }
 }
 
 fn assistant_entry(id: &str, sequence: u64) -> ConversationRowEntry {
-    ConversationRowEntry {
-        session_id: "test-session".to_string(),
-        sequence,
-        turn_id: None,
-        turn_status: Default::default(),
-        row: ConversationRow::Assistant(MessageRowContent {
-            id: id.to_string(),
-            content: format!("response from {id}"),
-            turn_id: None,
-            timestamp: None,
-            is_streaming: false,
-            images: vec![],
-            memory_citation: None,
-            delivery_status: None,
-        }),
-    }
+  ConversationRowEntry {
+    session_id: "test-session".to_string(),
+    sequence,
+    turn_id: None,
+    turn_status: Default::default(),
+    row: ConversationRow::Assistant(MessageRowContent {
+      id: id.to_string(),
+      content: format!("response from {id}"),
+      turn_id: None,
+      timestamp: None,
+      is_streaming: false,
+      images: vec![],
+      memory_citation: None,
+      delivery_status: None,
+    }),
+  }
 }
 
 fn steer_entry(id: &str, sequence: u64) -> ConversationRowEntry {
-    ConversationRowEntry {
-        session_id: "test-session".to_string(),
-        sequence,
-        turn_id: None,
-        turn_status: Default::default(),
-        row: ConversationRow::Steer(MessageRowContent {
-            id: id.to_string(),
-            content: format!("steer from {id}"),
-            turn_id: None,
-            timestamp: None,
-            is_streaming: false,
-            images: vec![],
-            memory_citation: None,
-            delivery_status: Some(MessageDeliveryStatus::Pending),
-        }),
-    }
+  ConversationRowEntry {
+    session_id: "test-session".to_string(),
+    sequence,
+    turn_id: None,
+    turn_status: Default::default(),
+    row: ConversationRow::Steer(MessageRowContent {
+      id: id.to_string(),
+      content: format!("steer from {id}"),
+      turn_id: None,
+      timestamp: None,
+      is_streaming: false,
+      images: vec![],
+      memory_citation: None,
+      delivery_status: Some(MessageDeliveryStatus::Pending),
+    }),
+  }
 }
 
 fn session_lifecycle_state(conn: &Connection, session_id: &str) -> String {
-    conn.query_row(
-        "SELECT lifecycle_state FROM sessions WHERE id = ?1",
-        [session_id],
-        |row| row.get(0),
+  conn
+    .query_row(
+      "SELECT lifecycle_state FROM sessions WHERE id = ?1",
+      [session_id],
+      |row| row.get(0),
     )
     .unwrap()
 }
 
 fn session_control_mode(conn: &Connection, session_id: &str) -> String {
-    conn.query_row(
-        "SELECT control_mode FROM sessions WHERE id = ?1",
-        [session_id],
-        |row| row.get(0),
+  conn
+    .query_row(
+      "SELECT control_mode FROM sessions WHERE id = ?1",
+      [session_id],
+      |row| row.get(0),
     )
     .unwrap()
 }
 
 fn session_last_activity_at(conn: &Connection, session_id: &str) -> Option<String> {
-    conn.query_row(
-        "SELECT last_activity_at FROM sessions WHERE id = ?1",
-        [session_id],
-        |row| row.get(0),
+  conn
+    .query_row(
+      "SELECT last_activity_at FROM sessions WHERE id = ?1",
+      [session_id],
+      |row| row.get(0),
     )
     .unwrap()
 }
 
 fn session_last_progress_at(conn: &Connection, session_id: &str) -> Option<String> {
-    conn.query_row(
-        "SELECT last_progress_at FROM sessions WHERE id = ?1",
-        [session_id],
-        |row| row.get(0),
+  conn
+    .query_row(
+      "SELECT last_progress_at FROM sessions WHERE id = ?1",
+      [session_id],
+      |row| row.get(0),
     )
     .unwrap()
 }
 
 #[test]
 fn row_append_stores_correct_sequence() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    drop(conn);
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  drop(conn);
 
-    let batch = vec![
-        PersistCommand::RowAppend {
-            session_id: "test-session".to_string(),
-            viewer_present: false,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: user_entry("row-0", 0),
-        },
-        PersistCommand::RowAppend {
-            session_id: "test-session".to_string(),
-            viewer_present: false,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: assistant_entry("row-1", 1),
-        },
-        PersistCommand::RowAppend {
-            session_id: "test-session".to_string(),
-            viewer_present: false,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: user_entry("row-2", 2),
-        },
-    ];
+  let batch = vec![
+    PersistCommand::RowAppend {
+      session_id: "test-session".to_string(),
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: user_entry("row-0", 0),
+    },
+    PersistCommand::RowAppend {
+      session_id: "test-session".to_string(),
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: assistant_entry("row-1", 1),
+    },
+    PersistCommand::RowAppend {
+      session_id: "test-session".to_string(),
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: user_entry("row-2", 2),
+    },
+  ];
 
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let rows = load_messages_from_db(&conn, "test-session").unwrap();
+  let conn = Connection::open(&db_path).unwrap();
+  let rows = load_messages_from_db(&conn, "test-session").unwrap();
 
-    assert_eq!(rows.len(), 3);
-    assert_eq!(rows[0].sequence, 0);
-    assert_eq!(rows[1].sequence, 1);
-    assert_eq!(rows[2].sequence, 2);
+  assert_eq!(rows.len(), 3);
+  assert_eq!(rows[0].sequence, 0);
+  assert_eq!(rows[1].sequence, 1);
+  assert_eq!(rows[2].sequence, 2);
 }
 
 #[test]
 fn flush_batch_emits_row_sync_commands_with_db_assigned_sequences() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    drop(conn);
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  drop(conn);
 
-    let batch = vec![
-        PersistCommand::RowAppend {
-            session_id: "test-session".to_string(),
-            viewer_present: false,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: user_entry("row-a", 0),
-        },
-        PersistCommand::RowAppend {
-            session_id: "test-session".to_string(),
-            viewer_present: true,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: assistant_entry("row-b", 0),
-        },
-    ];
+  let batch = vec![
+    PersistCommand::RowAppend {
+      session_id: "test-session".to_string(),
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: user_entry("row-a", 0),
+    },
+    PersistCommand::RowAppend {
+      session_id: "test-session".to_string(),
+      viewer_present: true,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: assistant_entry("row-b", 0),
+    },
+  ];
 
-    let result = super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  let result = super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    assert_eq!(result.command_count, 2);
-    assert_eq!(result.sync_commands.len(), 2);
-    assert!(matches!(
-        &result.sync_commands[0],
-        SyncCommand::RowAppend { sequence: 0, .. }
-    ));
-    assert!(matches!(
-        &result.sync_commands[1],
-        SyncCommand::RowAppend { sequence: 1, .. }
-    ));
+  assert_eq!(result.command_count, 2);
+  assert_eq!(result.sync_commands.len(), 2);
+  assert!(matches!(
+    &result.sync_commands[0],
+    SyncCommand::RowAppend { sequence: 0, .. }
+  ));
+  assert!(matches!(
+    &result.sync_commands[1],
+    SyncCommand::RowAppend { sequence: 1, .. }
+  ));
 }
 
 #[test]
 fn flush_batch_skips_non_syncable_commands() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    drop(conn);
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  drop(conn);
 
-    let batch = vec![
-        PersistCommand::SetConfig {
-            key: "workspace_provider".to_string(),
-            value: "local".to_string(),
-        },
-        PersistCommand::RowAppend {
-            session_id: "test-session".to_string(),
-            viewer_present: false,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: user_entry("row-syncable", 0),
-        },
-    ];
+  let batch = vec![
+    PersistCommand::SetConfig {
+      key: "workspace_provider".to_string(),
+      value: "local".to_string(),
+    },
+    PersistCommand::RowAppend {
+      session_id: "test-session".to_string(),
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: user_entry("row-syncable", 0),
+    },
+  ];
 
-    let result = super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  let result = super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    assert_eq!(result.command_count, 2);
-    assert_eq!(result.sync_commands.len(), 1);
-    assert!(matches!(
-        &result.sync_commands[0],
-        SyncCommand::RowAppend { .. }
-    ));
+  assert_eq!(result.command_count, 2);
+  assert_eq!(result.sync_commands.len(), 1);
+  assert!(matches!(
+    &result.sync_commands[0],
+    SyncCommand::RowAppend { .. }
+  ));
 }
 
 #[test]
 fn row_append_with_zero_sequence_gets_db_assigned_sequence() {
-    // DB computes MAX(sequence)+1 — callers no longer need to assign sequences.
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    drop(conn);
+  // DB computes MAX(sequence)+1 — callers no longer need to assign sequences.
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  drop(conn);
 
-    let batch = vec![
-        PersistCommand::RowAppend {
-            session_id: "test-session".to_string(),
-            viewer_present: false,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: user_entry("row-a", 0),
-        },
-        PersistCommand::RowAppend {
-            session_id: "test-session".to_string(),
-            viewer_present: false,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: user_entry("row-b", 0),
-        },
-    ];
+  let batch = vec![
+    PersistCommand::RowAppend {
+      session_id: "test-session".to_string(),
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: user_entry("row-a", 0),
+    },
+    PersistCommand::RowAppend {
+      session_id: "test-session".to_string(),
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: user_entry("row-b", 0),
+    },
+  ];
 
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let rows = load_messages_from_db(&conn, "test-session").unwrap();
+  let conn = Connection::open(&db_path).unwrap();
+  let rows = load_messages_from_db(&conn, "test-session").unwrap();
 
-    // DB assigns contiguous sequences regardless of the app-provided value.
-    assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0].sequence, 0);
-    assert_eq!(rows[1].sequence, 1);
+  // DB assigns contiguous sequences regardless of the app-provided value.
+  assert_eq!(rows.len(), 2);
+  assert_eq!(rows[0].sequence, 0);
+  assert_eq!(rows[1].sequence, 1);
 }
 
 #[test]
 fn row_upsert_preserves_original_sequence_on_conflict() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    drop(conn);
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  drop(conn);
 
-    // First: insert a row — DB assigns sequence=0
-    let batch = vec![PersistCommand::RowAppend {
-        session_id: "test-session".to_string(),
-        viewer_present: false,
-        assigned_sequence: None,
-        sequence_tx: None,
-        entry: user_entry("row-0", 0),
-    }];
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  // First: insert a row — DB assigns sequence=0
+  let batch = vec![PersistCommand::RowAppend {
+    session_id: "test-session".to_string(),
+    viewer_present: false,
+    assigned_sequence: None,
+    sequence_tx: None,
+    entry: user_entry("row-0", 0),
+  }];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    // Then: upsert the same row — sequence should be preserved (not overwritten)
-    let batch = vec![PersistCommand::RowUpsert {
-        session_id: "test-session".to_string(),
-        viewer_present: false,
-        assigned_sequence: None,
-        sequence_tx: None,
-        entry: user_entry("row-0", 5),
-    }];
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  // Then: upsert the same row — sequence should be preserved (not overwritten)
+  let batch = vec![PersistCommand::RowUpsert {
+    session_id: "test-session".to_string(),
+    viewer_present: false,
+    assigned_sequence: None,
+    sequence_tx: None,
+    entry: user_entry("row-0", 5),
+  }];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let rows = load_messages_from_db(&conn, "test-session").unwrap();
+  let conn = Connection::open(&db_path).unwrap();
+  let rows = load_messages_from_db(&conn, "test-session").unwrap();
 
-    assert_eq!(rows.len(), 1);
-    // ON CONFLICT preserves the original DB-assigned sequence
-    assert_eq!(
-        rows[0].sequence, 0,
-        "RowUpsert must preserve original sequence on conflict"
-    );
+  assert_eq!(rows.len(), 1);
+  // ON CONFLICT preserves the original DB-assigned sequence
+  assert_eq!(
+    rows[0].sequence, 0,
+    "RowUpsert must preserve original sequence on conflict"
+  );
 }
 
 #[test]
 fn row_upsert_inserts_when_not_existing() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    drop(conn);
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  drop(conn);
 
-    let batch = vec![PersistCommand::RowUpsert {
-        session_id: "test-session".to_string(),
-        viewer_present: false,
-        assigned_sequence: None,
-        sequence_tx: None,
-        entry: user_entry("new-row", 3),
-    }];
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  let batch = vec![PersistCommand::RowUpsert {
+    session_id: "test-session".to_string(),
+    viewer_present: false,
+    assigned_sequence: None,
+    sequence_tx: None,
+    entry: user_entry("new-row", 3),
+  }];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let rows = load_messages_from_db(&conn, "test-session").unwrap();
+  let conn = Connection::open(&db_path).unwrap();
+  let rows = load_messages_from_db(&conn, "test-session").unwrap();
 
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].id(), "new-row");
-    // DB computes sequence as MAX+1 (0 for first row), ignoring app-provided value
-    assert_eq!(rows[0].sequence, 0);
+  assert_eq!(rows.len(), 1);
+  assert_eq!(rows[0].id(), "new-row");
+  // DB computes sequence as MAX+1 (0 for first row), ignoring app-provided value
+  assert_eq!(rows[0].sequence, 0);
 }
 
 #[test]
 fn steer_rows_persist_as_steer_type() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    drop(conn);
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  drop(conn);
 
-    let batch = vec![PersistCommand::RowAppend {
-        session_id: "test-session".to_string(),
-        viewer_present: false,
-        assigned_sequence: None,
-        sequence_tx: None,
-        entry: steer_entry("steer-1", 0),
-    }];
+  let batch = vec![PersistCommand::RowAppend {
+    session_id: "test-session".to_string(),
+    viewer_present: false,
+    assigned_sequence: None,
+    sequence_tx: None,
+    entry: steer_entry("steer-1", 0),
+  }];
 
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let row_type: String = conn
-        .query_row(
-            "SELECT type FROM messages WHERE id = 'steer-1'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    let rows = load_messages_from_db(&conn, "test-session").unwrap();
+  let conn = Connection::open(&db_path).unwrap();
+  let row_type: String = conn
+    .query_row(
+      "SELECT type FROM messages WHERE id = 'steer-1'",
+      [],
+      |row| row.get(0),
+    )
+    .unwrap();
+  let rows = load_messages_from_db(&conn, "test-session").unwrap();
 
-    assert_eq!(row_type, "steer");
-    match &rows[0].row {
-        ConversationRow::Steer(_) => {}
-        other => panic!("expected user row, got {other:?}"),
-    }
+  assert_eq!(row_type, "steer");
+  match &rows[0].row {
+    ConversationRow::Steer(_) => {}
+    other => panic!("expected user row, got {other:?}"),
+  }
 }
 
 #[test]
 fn batch_of_appends_preserves_insertion_order() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    drop(conn);
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  drop(conn);
 
-    // Simulate a burst of 10 rapid messages with correct sequences
-    let batch: Vec<PersistCommand> = (0..10)
-        .map(|i| PersistCommand::RowAppend {
-            session_id: "test-session".to_string(),
-            viewer_present: false,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: assistant_entry(&format!("msg-{i}"), i as u64),
-        })
-        .collect();
+  // Simulate a burst of 10 rapid messages with correct sequences
+  let batch: Vec<PersistCommand> = (0..10)
+    .map(|i| PersistCommand::RowAppend {
+      session_id: "test-session".to_string(),
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: assistant_entry(&format!("msg-{i}"), i as u64),
+    })
+    .collect();
 
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let rows = load_messages_from_db(&conn, "test-session").unwrap();
+  let conn = Connection::open(&db_path).unwrap();
+  let rows = load_messages_from_db(&conn, "test-session").unwrap();
 
-    assert_eq!(rows.len(), 10);
-    for (i, row) in rows.iter().enumerate() {
-        assert_eq!(row.id(), format!("msg-{i}"));
-        assert_eq!(row.sequence, i as u64);
-    }
+  assert_eq!(rows.len(), 10);
+  for (i, row) in rows.iter().enumerate() {
+    assert_eq!(row.id(), format!("msg-{i}"));
+    assert_eq!(row.sequence, i as u64);
+  }
 
-    // Verify ORDER BY sequence returns them in correct order
-    let sequences: Vec<u64> = rows.iter().map(|r| r.sequence).collect();
-    let mut sorted = sequences.clone();
-    sorted.sort();
-    assert_eq!(
-        sequences, sorted,
-        "rows must be ordered by sequence from DB"
-    );
+  // Verify ORDER BY sequence returns them in correct order
+  let sequences: Vec<u64> = rows.iter().map(|r| r.sequence).collect();
+  let mut sorted = sequences.clone();
+  sorted.sort();
+  assert_eq!(
+    sequences, sorted,
+    "rows must be ordered by sequence from DB"
+  );
 }
 
 #[test]
 fn row_append_ignore_deduplicates_by_id() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    drop(conn);
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  drop(conn);
 
-    // ON CONFLICT(id) DO NOTHING means second insert with same id is silently dropped
-    let batch = vec![
-        PersistCommand::RowAppend {
-            session_id: "test-session".to_string(),
-            viewer_present: false,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: user_entry("dup-id", 0),
-        },
-        PersistCommand::RowAppend {
-            session_id: "test-session".to_string(),
-            viewer_present: false,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: user_entry("dup-id", 5), // Same id, different sequence
-        },
-    ];
+  // ON CONFLICT(id) DO NOTHING means second insert with same id is silently dropped
+  let batch = vec![
+    PersistCommand::RowAppend {
+      session_id: "test-session".to_string(),
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: user_entry("dup-id", 0),
+    },
+    PersistCommand::RowAppend {
+      session_id: "test-session".to_string(),
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: user_entry("dup-id", 5), // Same id, different sequence
+    },
+  ];
 
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let rows = load_messages_from_db(&conn, "test-session").unwrap();
+  let conn = Connection::open(&db_path).unwrap();
+  let rows = load_messages_from_db(&conn, "test-session").unwrap();
 
-    // Only one row should exist — the first one wins with ON CONFLICT(id) DO NOTHING
-    assert_eq!(rows.len(), 1);
-    assert_eq!(
-        rows[0].sequence, 0,
-        "first insert wins with ON CONFLICT(id) DO NOTHING"
-    );
+  // Only one row should exist — the first one wins with ON CONFLICT(id) DO NOTHING
+  assert_eq!(rows.len(), 1);
+  assert_eq!(
+    rows[0].sequence, 0,
+    "first insert wins with ON CONFLICT(id) DO NOTHING"
+  );
 }
 
 #[test]
 fn user_row_append_does_not_advance_last_progress() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    conn.execute(
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  conn.execute(
         "UPDATE sessions SET last_progress_at = '100Z', last_activity_at = '100Z' WHERE id = 'test-session'",
         [],
     )
     .unwrap();
-    drop(conn);
+  drop(conn);
 
-    let batch = vec![PersistCommand::RowAppend {
-        session_id: "test-session".to_string(),
-        viewer_present: false,
-        assigned_sequence: None,
-        sequence_tx: None,
-        entry: user_entry("user-row", 0),
-    }];
+  let batch = vec![PersistCommand::RowAppend {
+    session_id: "test-session".to_string(),
+    viewer_present: false,
+    assigned_sequence: None,
+    sequence_tx: None,
+    entry: user_entry("user-row", 0),
+  }];
 
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let (last_activity_at, last_progress_at): (Option<String>, Option<String>) = conn
-        .query_row(
-            "SELECT last_activity_at, last_progress_at FROM sessions WHERE id = 'test-session'",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .unwrap();
+  let conn = Connection::open(&db_path).unwrap();
+  let (last_activity_at, last_progress_at): (Option<String>, Option<String>) = conn
+    .query_row(
+      "SELECT last_activity_at, last_progress_at FROM sessions WHERE id = 'test-session'",
+      [],
+      |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .unwrap();
 
-    assert_ne!(last_activity_at.as_deref(), Some("100Z"));
-    assert_eq!(last_progress_at.as_deref(), Some("100Z"));
+  assert_ne!(last_activity_at.as_deref(), Some("100Z"));
+  assert_eq!(last_progress_at.as_deref(), Some("100Z"));
 }
 
 #[test]
 fn assistant_row_append_advances_last_progress() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    conn.execute(
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  conn.execute(
         "UPDATE sessions SET last_progress_at = '100Z', last_activity_at = '100Z' WHERE id = 'test-session'",
         [],
     )
     .unwrap();
-    drop(conn);
+  drop(conn);
 
-    let batch = vec![PersistCommand::RowAppend {
-        session_id: "test-session".to_string(),
-        viewer_present: false,
-        assigned_sequence: None,
-        sequence_tx: None,
-        entry: assistant_entry("assistant-row", 0),
-    }];
+  let batch = vec![PersistCommand::RowAppend {
+    session_id: "test-session".to_string(),
+    viewer_present: false,
+    assigned_sequence: None,
+    sequence_tx: None,
+    entry: assistant_entry("assistant-row", 0),
+  }];
 
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let (last_activity_at, last_progress_at): (Option<String>, Option<String>) = conn
-        .query_row(
-            "SELECT last_activity_at, last_progress_at FROM sessions WHERE id = 'test-session'",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .unwrap();
+  let conn = Connection::open(&db_path).unwrap();
+  let (last_activity_at, last_progress_at): (Option<String>, Option<String>) = conn
+    .query_row(
+      "SELECT last_activity_at, last_progress_at FROM sessions WHERE id = 'test-session'",
+      [],
+      |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .unwrap();
 
-    assert_ne!(last_activity_at.as_deref(), Some("100Z"));
-    assert_ne!(last_progress_at.as_deref(), Some("100Z"));
+  assert_ne!(last_activity_at.as_deref(), Some("100Z"));
+  assert_ne!(last_progress_at.as_deref(), Some("100Z"));
 }
 
 #[test]
 fn session_lifecycle_state_transitions_are_persisted() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    drop(conn);
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  drop(conn);
 
-    let session_id = "lifecycle-session";
+  let session_id = "lifecycle-session";
 
-    let batch = vec![PersistCommand::SessionCreate(Box::new(
-        SessionCreateParams {
-            id: session_id.to_string(),
-            provider: Provider::Codex,
-            control_mode: orbitdock_protocol::SessionControlMode::Direct,
-            project_path: "/tmp/test".to_string(),
-            project_name: Some("Test Project".to_string()),
-            branch: Some("main".to_string()),
-            model: Some("gpt-4.1".to_string()),
-            approval_policy: None,
-            sandbox_mode: None,
-            permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
-            codex_config_mode: None,
-            codex_config_profile: None,
-            codex_model_provider: None,
-            codex_config_source: None,
-            codex_config_overrides_json: None,
-            forked_from_session_id: None,
-            mission_id: None,
-            issue_identifier: None,
-            allow_bypass_permissions: false,
-            worktree_id: None,
-        },
-    ))];
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  let batch = vec![PersistCommand::SessionCreate(Box::new(
+    SessionCreateParams {
+      id: session_id.to_string(),
+      provider: Provider::Codex,
+      control_mode: orbitdock_protocol::SessionControlMode::Direct,
+      project_path: "/tmp/test".to_string(),
+      project_name: Some("Test Project".to_string()),
+      branch: Some("main".to_string()),
+      model: Some("gpt-4.1".to_string()),
+      approval_policy: None,
+      sandbox_mode: None,
+      permission_mode: None,
+      collaboration_mode: None,
+      multi_agent: None,
+      personality: None,
+      service_tier: None,
+      developer_instructions: None,
+      codex_config_mode: None,
+      codex_config_profile: None,
+      codex_model_provider: None,
+      codex_config_source: None,
+      codex_config_overrides_json: None,
+      forked_from_session_id: None,
+      mission_id: None,
+      issue_identifier: None,
+      allow_bypass_permissions: false,
+      worktree_id: None,
+    },
+  ))];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    assert_eq!(session_lifecycle_state(&conn, session_id), "open");
-    assert_eq!(session_control_mode(&conn, session_id), "direct");
-    drop(conn);
+  let conn = Connection::open(&db_path).unwrap();
+  assert_eq!(session_lifecycle_state(&conn, session_id), "open");
+  assert_eq!(session_control_mode(&conn, session_id), "direct");
+  drop(conn);
 
-    let batch = vec![PersistCommand::SessionEnd {
-        id: session_id.to_string(),
-        reason: "completed".to_string(),
-    }];
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  let batch = vec![PersistCommand::SessionEnd {
+    id: session_id.to_string(),
+    reason: "completed".to_string(),
+  }];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    assert_eq!(session_lifecycle_state(&conn, session_id), "ended");
-    assert_eq!(session_control_mode(&conn, session_id), "direct");
-    drop(conn);
+  let conn = Connection::open(&db_path).unwrap();
+  assert_eq!(session_lifecycle_state(&conn, session_id), "ended");
+  assert_eq!(session_control_mode(&conn, session_id), "direct");
+  drop(conn);
 
-    let batch = vec![PersistCommand::ReactivateSession {
-        id: session_id.to_string(),
-    }];
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  let batch = vec![PersistCommand::ReactivateSession {
+    id: session_id.to_string(),
+  }];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    assert_eq!(session_lifecycle_state(&conn, session_id), "open");
-    assert_eq!(session_control_mode(&conn, session_id), "direct");
+  let conn = Connection::open(&db_path).unwrap();
+  assert_eq!(session_lifecycle_state(&conn, session_id), "open");
+  assert_eq!(session_control_mode(&conn, session_id), "direct");
 }
 
 #[test]
 fn load_session_by_id_reads_persisted_lifecycle_state() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    drop(conn);
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  drop(conn);
 
-    let session_id = "lifecycle-session";
+  let session_id = "lifecycle-session";
 
-    let batch = vec![
-        PersistCommand::SessionCreate(Box::new(SessionCreateParams {
-            id: session_id.to_string(),
-            provider: Provider::Codex,
-            control_mode: orbitdock_protocol::SessionControlMode::Direct,
-            project_path: "/tmp/test".to_string(),
-            project_name: Some("Test Project".to_string()),
-            branch: Some("main".to_string()),
-            model: Some("gpt-4.1".to_string()),
-            approval_policy: None,
-            sandbox_mode: None,
-            permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
-            codex_config_mode: None,
-            codex_config_profile: None,
-            codex_model_provider: None,
-            codex_config_source: None,
-            codex_config_overrides_json: None,
-            forked_from_session_id: None,
-            mission_id: None,
-            issue_identifier: None,
-            allow_bypass_permissions: false,
-            worktree_id: None,
-        })),
-        PersistCommand::SessionEnd {
-            id: session_id.to_string(),
-            reason: "completed".to_string(),
-        },
-    ];
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  let batch = vec![
+    PersistCommand::SessionCreate(Box::new(SessionCreateParams {
+      id: session_id.to_string(),
+      provider: Provider::Codex,
+      control_mode: orbitdock_protocol::SessionControlMode::Direct,
+      project_path: "/tmp/test".to_string(),
+      project_name: Some("Test Project".to_string()),
+      branch: Some("main".to_string()),
+      model: Some("gpt-4.1".to_string()),
+      approval_policy: None,
+      sandbox_mode: None,
+      permission_mode: None,
+      collaboration_mode: None,
+      multi_agent: None,
+      personality: None,
+      service_tier: None,
+      developer_instructions: None,
+      codex_config_mode: None,
+      codex_config_profile: None,
+      codex_model_provider: None,
+      codex_config_source: None,
+      codex_config_overrides_json: None,
+      forked_from_session_id: None,
+      mission_id: None,
+      issue_identifier: None,
+      allow_bypass_permissions: false,
+      worktree_id: None,
+    })),
+    PersistCommand::SessionEnd {
+      id: session_id.to_string(),
+      reason: "completed".to_string(),
+    },
+  ];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let restored = runtime
-        .block_on(super::session_reads::load_session_lifecycle_state(
-            session_id,
-        ))
-        .unwrap()
-        .unwrap();
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  let restored = runtime
+    .block_on(super::session_reads::load_session_lifecycle_state(
+      session_id,
+    ))
+    .unwrap()
+    .unwrap();
 
-    assert_eq!(restored, SessionLifecycleState::Ended);
+  assert_eq!(restored, SessionLifecycleState::Ended);
 }
 
 #[test]
 fn reactivate_session_preserves_existing_activity_timestamps() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    let session_id = "test-session";
-    let original_last_activity_at = "2026-03-24T10:00:00Z";
-    let original_last_progress_at = "2026-03-24T10:05:00Z";
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  let session_id = "test-session";
+  let original_last_activity_at = "2026-03-24T10:00:00Z";
+  let original_last_progress_at = "2026-03-24T10:05:00Z";
 
-    conn.execute(
-        "UPDATE sessions
+  conn
+    .execute(
+      "UPDATE sessions
          SET status = 'ended',
              work_status = 'ended',
              lifecycle_state = 'ended',
@@ -754,148 +759,149 @@ fn reactivate_session_preserves_existing_activity_timestamps() {
              last_activity_at = ?1,
              last_progress_at = ?2
          WHERE id = ?3",
-        [
-            original_last_activity_at,
-            original_last_progress_at,
-            session_id,
-        ],
+      [
+        original_last_activity_at,
+        original_last_progress_at,
+        session_id,
+      ],
     )
     .unwrap();
-    drop(conn);
+  drop(conn);
 
-    super::writer::flush_batch_for_test(
-        &db_path,
-        vec![PersistCommand::ReactivateSession {
-            id: session_id.to_string(),
-        }],
-    )
-    .unwrap();
+  super::writer::flush_batch_for_test(
+    &db_path,
+    vec![PersistCommand::ReactivateSession {
+      id: session_id.to_string(),
+    }],
+  )
+  .unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    assert_eq!(session_lifecycle_state(&conn, session_id), "open");
-    assert_eq!(
-        session_last_activity_at(&conn, session_id).as_deref(),
-        Some(original_last_activity_at)
-    );
-    assert_eq!(
-        session_last_progress_at(&conn, session_id).as_deref(),
-        Some(original_last_progress_at)
-    );
+  let conn = Connection::open(&db_path).unwrap();
+  assert_eq!(session_lifecycle_state(&conn, session_id), "open");
+  assert_eq!(
+    session_last_activity_at(&conn, session_id).as_deref(),
+    Some(original_last_activity_at)
+  );
+  assert_eq!(
+    session_last_progress_at(&conn, session_id).as_deref(),
+    Some(original_last_progress_at)
+  );
 }
 
 #[test]
 fn load_session_by_id_and_startup_restore_use_persisted_control_mode() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
+  let (conn, db_path, _dir, _guard) = setup_test_db();
 
-    conn.execute(
-        "INSERT INTO sessions (
+  conn
+    .execute(
+      "INSERT INTO sessions (
             id, provider, status, work_status, lifecycle_state,
             project_path, codex_integration_mode, claude_integration_mode, control_mode
          ) VALUES (
             'control-mode-session', 'codex', 'active', 'waiting', 'open',
             '/tmp/test', 'passive', NULL, 'direct'
          )",
-        [],
+      [],
     )
     .unwrap();
-    drop(conn);
+  drop(conn);
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
 
-    let restored = runtime
-        .block_on(super::session_reads::load_session_by_id(
-            "control-mode-session",
-        ))
-        .unwrap()
-        .unwrap();
-    assert_eq!(restored.codex_integration_mode.as_deref(), Some("direct"));
+  let restored = runtime
+    .block_on(super::session_reads::load_session_by_id(
+      "control-mode-session",
+    ))
+    .unwrap()
+    .unwrap();
+  assert_eq!(restored.codex_integration_mode.as_deref(), Some("direct"));
 
-    let sessions = runtime
-        .block_on(super::session_reads::load_sessions_for_startup())
-        .unwrap();
-    let startup = sessions
-        .into_iter()
-        .find(|session| session.id == "control-mode-session")
-        .expect("startup session should be loaded");
-    assert_eq!(startup.codex_integration_mode.as_deref(), Some("direct"));
+  let sessions = runtime
+    .block_on(super::session_reads::load_sessions_for_startup())
+    .unwrap();
+  let startup = sessions
+    .into_iter()
+    .find(|session| session.id == "control-mode-session")
+    .expect("startup session should be loaded");
+  assert_eq!(startup.codex_integration_mode.as_deref(), Some("direct"));
 
-    let conn = Connection::open(&db_path).unwrap();
-    assert_eq!(
-        session_control_mode(&conn, "control-mode-session"),
-        "direct"
-    );
+  let conn = Connection::open(&db_path).unwrap();
+  assert_eq!(
+    session_control_mode(&conn, "control-mode-session"),
+    "direct"
+  );
 }
 
 #[test]
 fn load_direct_claude_owner_by_sdk_session_id_returns_direct_owner() {
-    let (_conn, db_path, _dir, _guard) = setup_test_db();
+  let (_conn, db_path, _dir, _guard) = setup_test_db();
 
-    let direct_id = "od-direct-claude";
-    let sdk_id = "claude-sdk-123";
-    let batch = vec![
-        PersistCommand::SessionCreate(Box::new(SessionCreateParams {
-            id: direct_id.to_string(),
-            provider: Provider::Claude,
-            control_mode: orbitdock_protocol::SessionControlMode::Direct,
-            project_path: "/tmp/test".to_string(),
-            project_name: Some("Test Project".to_string()),
-            branch: None,
-            model: Some("claude-opus-4-6".to_string()),
-            approval_policy: None,
-            sandbox_mode: None,
-            permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
-            codex_config_mode: None,
-            codex_config_profile: None,
-            codex_model_provider: None,
-            codex_config_source: None,
-            codex_config_overrides_json: None,
-            forked_from_session_id: None,
-            mission_id: None,
-            issue_identifier: None,
-            allow_bypass_permissions: false,
-            worktree_id: None,
-        })),
-        PersistCommand::SetClaudeSdkSessionId {
-            session_id: direct_id.to_string(),
-            claude_sdk_session_id: sdk_id.to_string(),
-        },
-        PersistCommand::SessionEnd {
-            id: direct_id.to_string(),
-            reason: "completed".to_string(),
-        },
-    ];
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  let direct_id = "od-direct-claude";
+  let sdk_id = "claude-sdk-123";
+  let batch = vec![
+    PersistCommand::SessionCreate(Box::new(SessionCreateParams {
+      id: direct_id.to_string(),
+      provider: Provider::Claude,
+      control_mode: orbitdock_protocol::SessionControlMode::Direct,
+      project_path: "/tmp/test".to_string(),
+      project_name: Some("Test Project".to_string()),
+      branch: None,
+      model: Some("claude-opus-4-6".to_string()),
+      approval_policy: None,
+      sandbox_mode: None,
+      permission_mode: None,
+      collaboration_mode: None,
+      multi_agent: None,
+      personality: None,
+      service_tier: None,
+      developer_instructions: None,
+      codex_config_mode: None,
+      codex_config_profile: None,
+      codex_model_provider: None,
+      codex_config_source: None,
+      codex_config_overrides_json: None,
+      forked_from_session_id: None,
+      mission_id: None,
+      issue_identifier: None,
+      allow_bypass_permissions: false,
+      worktree_id: None,
+    })),
+    PersistCommand::SetClaudeSdkSessionId {
+      session_id: direct_id.to_string(),
+      claude_sdk_session_id: sdk_id.to_string(),
+    },
+    PersistCommand::SessionEnd {
+      id: direct_id.to_string(),
+      reason: "completed".to_string(),
+    },
+  ];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let owner = runtime
-        .block_on(super::session_reads::load_direct_claude_owner_by_sdk_session_id(sdk_id))
-        .unwrap()
-        .expect("direct Claude owner should be found");
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  let owner = runtime
+    .block_on(super::session_reads::load_direct_claude_owner_by_sdk_session_id(sdk_id))
+    .unwrap()
+    .expect("direct Claude owner should be found");
 
-    assert_eq!(owner.session_id, direct_id);
-    assert_eq!(owner.status, SessionStatus::Ended);
-    assert_eq!(owner.lifecycle_state, SessionLifecycleState::Ended);
+  assert_eq!(owner.session_id, direct_id);
+  assert_eq!(owner.status, SessionStatus::Ended);
+  assert_eq!(owner.lifecycle_state, SessionLifecycleState::Ended);
 }
 
 #[test]
 fn startup_restore_ends_passive_claude_shadow_owned_by_direct_session() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
+  let (conn, db_path, _dir, _guard) = setup_test_db();
 
-    let direct_id = "od-direct-shadow-owner";
-    let sdk_id = "claude-sdk-shadow";
+  let direct_id = "od-direct-shadow-owner";
+  let sdk_id = "claude-sdk-shadow";
 
-    conn.execute(
+  conn.execute(
         "INSERT INTO sessions (
             id, provider, status, work_status, lifecycle_state, control_mode,
             project_path, claude_integration_mode, claude_sdk_session_id, started_at, last_activity_at
@@ -906,55 +912,57 @@ fn startup_restore_ends_passive_claude_shadow_owned_by_direct_session() {
         [direct_id, sdk_id],
     )
     .unwrap();
-    conn.execute(
-        "INSERT INTO sessions (
+  conn
+    .execute(
+      "INSERT INTO sessions (
             id, provider, status, work_status, lifecycle_state, control_mode,
             project_path, claude_integration_mode, started_at, last_activity_at
          ) VALUES (
             ?1, 'claude', 'active', 'working', 'open', 'passive',
             '/tmp/test', 'passive', '2026-03-26T10:05:00Z', '2026-03-26T10:05:00Z'
          )",
-        [sdk_id],
+      [sdk_id],
     )
     .unwrap();
-    drop(conn);
+  drop(conn);
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let _ = runtime
-        .block_on(super::session_reads::load_sessions_for_startup())
-        .unwrap();
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  let _ = runtime
+    .block_on(super::session_reads::load_sessions_for_startup())
+    .unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let shadow: (String, String, String) = conn
-        .query_row(
-            "SELECT status, work_status, COALESCE(end_reason, '') FROM sessions WHERE id = ?1",
-            [sdk_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .unwrap();
+  let conn = Connection::open(&db_path).unwrap();
+  let shadow: (String, String, String) = conn
+    .query_row(
+      "SELECT status, work_status, COALESCE(end_reason, '') FROM sessions WHERE id = ?1",
+      [sdk_id],
+      |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .unwrap();
 
-    assert_eq!(shadow.0, "ended");
-    assert_eq!(shadow.1, "ended");
-    assert_eq!(shadow.2, "startup_direct_shadow");
+  assert_eq!(shadow.0, "ended");
+  assert_eq!(shadow.1, "ended");
+  assert_eq!(shadow.2, "startup_direct_shadow");
 }
 
 // ── Mission-scoped tracker credentials ─────────────────────────────
 
 fn setup_mission_db() -> (
-    Connection,
-    std::path::PathBuf,
-    tempfile::TempDir,
-    PersistenceTestGuard,
+  Connection,
+  std::path::PathBuf,
+  tempfile::TempDir,
+  PersistenceTestGuard,
 ) {
-    let guard = persistence_test_db_guard().lock().unwrap();
-    let dir = tempfile::TempDir::new().unwrap();
-    let db_path = dir.path().join("test.db");
-    let conn = Connection::open(&db_path).unwrap();
-    conn.execute_batch(
-        "PRAGMA journal_mode = WAL;
+  let guard = persistence_test_db_guard().lock().unwrap();
+  let dir = tempfile::TempDir::new().unwrap();
+  let db_path = dir.path().join("test.db");
+  let conn = Connection::open(&db_path).unwrap();
+  conn
+    .execute_batch(
+      "PRAGMA journal_mode = WAL;
          PRAGMA busy_timeout = 5000;
 
          CREATE TABLE IF NOT EXISTS missions (
@@ -982,149 +990,150 @@ fn setup_mission_db() -> (
     )
     .unwrap();
 
-    (conn, db_path, dir, guard)
+  (conn, db_path, dir, guard)
 }
 
 #[test]
 fn mission_create_stores_tracker_key() {
-    let (conn, db_path, _dir, _guard) = setup_mission_db();
-    drop(conn);
+  let (conn, db_path, _dir, _guard) = setup_mission_db();
+  drop(conn);
 
-    let batch = vec![PersistCommand::MissionCreate {
-        id: "m-1".to_string(),
-        name: "Test Mission".to_string(),
-        repo_root: "/tmp/test".to_string(),
-        tracker_kind: "linear".to_string(),
-        provider: "claude".to_string(),
-        config_json: None,
-        prompt_template: None,
-        mission_file_path: None,
-        tracker_api_key: None,
-    }];
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  let batch = vec![PersistCommand::MissionCreate {
+    id: "m-1".to_string(),
+    name: "Test Mission".to_string(),
+    repo_root: "/tmp/test".to_string(),
+    tracker_kind: "linear".to_string(),
+    provider: "claude".to_string(),
+    config_json: None,
+    prompt_template: None,
+    mission_file_path: None,
+    tracker_api_key: None,
+  }];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let key: Option<String> = conn
-        .query_row(
-            "SELECT tracker_api_key FROM missions WHERE id = 'm-1'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert!(key.is_none(), "tracker_api_key should be NULL when not set");
+  let conn = Connection::open(&db_path).unwrap();
+  let key: Option<String> = conn
+    .query_row(
+      "SELECT tracker_api_key FROM missions WHERE id = 'm-1'",
+      [],
+      |row| row.get(0),
+    )
+    .unwrap();
+  assert!(key.is_none(), "tracker_api_key should be NULL when not set");
 }
 
 #[test]
 fn mission_set_tracker_key_persists() {
-    let (conn, db_path, _dir, _guard) = setup_mission_db();
+  let (conn, db_path, _dir, _guard) = setup_mission_db();
 
-    // Insert a mission directly
-    conn.execute(
-        "INSERT INTO missions (id, name, repo_root) VALUES ('m-2', 'Key Test', '/tmp/key')",
-        [],
+  // Insert a mission directly
+  conn
+    .execute(
+      "INSERT INTO missions (id, name, repo_root) VALUES ('m-2', 'Key Test', '/tmp/key')",
+      [],
     )
     .unwrap();
-    drop(conn);
+  drop(conn);
 
-    let batch = vec![PersistCommand::MissionSetTrackerKey {
-        mission_id: "m-2".to_string(),
-        key: Some("test_secret_key_123".to_string()),
-    }];
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  let batch = vec![PersistCommand::MissionSetTrackerKey {
+    mission_id: "m-2".to_string(),
+    key: Some("test_secret_key_123".to_string()),
+  }];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let raw: Option<String> = conn
-        .query_row(
-            "SELECT tracker_api_key FROM missions WHERE id = 'm-2'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
+  let conn = Connection::open(&db_path).unwrap();
+  let raw: Option<String> = conn
+    .query_row(
+      "SELECT tracker_api_key FROM missions WHERE id = 'm-2'",
+      [],
+      |row| row.get(0),
+    )
+    .unwrap();
 
-    // When an encryption key is available the value will be encrypted (enc: prefix).
-    // When no key is available the encrypt() call returns Err and the command stores
-    // the error result — but the command handler maps that to an Err that propagates.
-    // In CI the env-based encryption key may or may not be present, so we test the
-    // decrypt round-trip path: if it stored *something*, decrypt should recover it.
-    if let Some(raw_val) = raw {
-        let decrypted = crate::infrastructure::crypto::decrypt(&raw_val);
-        assert_eq!(decrypted, Some("test_secret_key_123".to_string()));
-    }
-    // If raw is None, the encrypt failed (no key) — the command returned Err and
-    // the batch writer logged the error. This is acceptable test behavior when no
-    // encryption key is configured.
+  // When an encryption key is available the value will be encrypted (enc: prefix).
+  // When no key is available the encrypt() call returns Err and the command stores
+  // the error result — but the command handler maps that to an Err that propagates.
+  // In CI the env-based encryption key may or may not be present, so we test the
+  // decrypt round-trip path: if it stored *something*, decrypt should recover it.
+  if let Some(raw_val) = raw {
+    let decrypted = crate::infrastructure::crypto::decrypt(&raw_val);
+    assert_eq!(decrypted, Some("test_secret_key_123".to_string()));
+  }
+  // If raw is None, the encrypt failed (no key) — the command returned Err and
+  // the batch writer logged the error. This is acceptable test behavior when no
+  // encryption key is configured.
 }
 
 #[test]
 fn mission_clear_tracker_key() {
-    let (conn, db_path, _dir, _guard) = setup_mission_db();
+  let (conn, db_path, _dir, _guard) = setup_mission_db();
 
-    // Insert a mission with a plaintext key (bypasses encryption for test simplicity)
-    conn.execute(
+  // Insert a mission with a plaintext key (bypasses encryption for test simplicity)
+  conn.execute(
         "INSERT INTO missions (id, name, repo_root, tracker_api_key) VALUES ('m-3', 'Clear Test', '/tmp/clear', 'old_key')",
         [],
     )
     .unwrap();
-    drop(conn);
+  drop(conn);
 
-    let batch = vec![PersistCommand::MissionSetTrackerKey {
-        mission_id: "m-3".to_string(),
-        key: None,
-    }];
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  let batch = vec![PersistCommand::MissionSetTrackerKey {
+    mission_id: "m-3".to_string(),
+    key: None,
+  }];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let key: Option<String> = conn
-        .query_row(
-            "SELECT tracker_api_key FROM missions WHERE id = 'm-3'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert!(
-        key.is_none(),
-        "tracker_api_key should be NULL after clearing"
-    );
+  let conn = Connection::open(&db_path).unwrap();
+  let key: Option<String> = conn
+    .query_row(
+      "SELECT tracker_api_key FROM missions WHERE id = 'm-3'",
+      [],
+      |row| row.get(0),
+    )
+    .unwrap();
+  assert!(
+    key.is_none(),
+    "tracker_api_key should be NULL after clearing"
+  );
 }
 
 #[test]
 fn row_append_fk_violation_rejects_orphan_message() {
-    let (conn, db_path, _dir, _guard) = setup_test_db();
-    drop(conn);
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  drop(conn);
 
-    // Mix a valid command with an FK-violating one (ghost-session doesn't exist).
-    // The batch should succeed overall — the orphan is skipped, the valid one persists.
-    let batch = vec![
-        PersistCommand::RowAppend {
-            session_id: "test-session".to_string(),
-            viewer_present: false,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: user_entry("valid-msg", 0),
-        },
-        PersistCommand::RowAppend {
-            session_id: "ghost-session".to_string(),
-            viewer_present: false,
-            assigned_sequence: None,
-            sequence_tx: None,
-            entry: {
-                let mut e = user_entry("orphan-msg", 0);
-                e.session_id = "ghost-session".to_string();
-                e
-            },
-        },
-    ];
+  // Mix a valid command with an FK-violating one (ghost-session doesn't exist).
+  // The batch should succeed overall — the orphan is skipped, the valid one persists.
+  let batch = vec![
+    PersistCommand::RowAppend {
+      session_id: "test-session".to_string(),
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: user_entry("valid-msg", 0),
+    },
+    PersistCommand::RowAppend {
+      session_id: "ghost-session".to_string(),
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+      entry: {
+        let mut e = user_entry("orphan-msg", 0);
+        e.session_id = "ghost-session".to_string();
+        e
+      },
+    },
+  ];
 
-    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    let conn = Connection::open(&db_path).unwrap();
-    let valid_rows = load_messages_from_db(&conn, "test-session").unwrap();
-    assert_eq!(valid_rows.len(), 1, "valid message should be persisted");
+  let conn = Connection::open(&db_path).unwrap();
+  let valid_rows = load_messages_from_db(&conn, "test-session").unwrap();
+  assert_eq!(valid_rows.len(), 1, "valid message should be persisted");
 
-    let ghost_rows = load_messages_from_db(&conn, "ghost-session").unwrap();
-    assert_eq!(
-        ghost_rows.len(),
-        0,
-        "orphan message must NOT be persisted (FK violation)"
-    );
+  let ghost_rows = load_messages_from_db(&conn, "ghost-session").unwrap();
+  assert_eq!(
+    ghost_rows.len(),
+    0,
+    "orphan message must NOT be persisted (FK violation)"
+  );
 }

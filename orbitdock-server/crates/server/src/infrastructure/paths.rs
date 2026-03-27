@@ -17,48 +17,48 @@ static DATA_DIR: RwLock<Option<PathBuf>> = RwLock::new(None);
 /// Priority: `explicit` arg > `ORBITDOCK_DATA_DIR` env > `~/.orbitdock` default.
 /// Panics if no valid path can be resolved.
 pub fn init_data_dir(explicit: Option<&Path>) -> PathBuf {
-    let dir = if let Some(p) = explicit {
-        p.to_path_buf()
-    } else if let Ok(env_val) = std::env::var("ORBITDOCK_DATA_DIR") {
-        PathBuf::from(env_val)
-    } else {
-        dirs::home_dir()
-            .expect("HOME directory not found")
-            .join(".orbitdock")
-    };
+  let dir = if let Some(p) = explicit {
+    p.to_path_buf()
+  } else if let Ok(env_val) = std::env::var("ORBITDOCK_DATA_DIR") {
+    PathBuf::from(env_val)
+  } else {
+    dirs::home_dir()
+      .expect("HOME directory not found")
+      .join(".orbitdock")
+  };
 
-    let mut guard = DATA_DIR.write().expect("DATA_DIR lock poisoned");
-    *guard = Some(dir.clone());
-    dir
+  let mut guard = DATA_DIR.write().expect("DATA_DIR lock poisoned");
+  *guard = Some(dir.clone());
+  dir
 }
 
 /// Return the current data directory. Panics if `init_data_dir` hasn't been called.
 pub fn data_dir() -> PathBuf {
-    DATA_DIR
-        .read()
-        .expect("DATA_DIR lock poisoned")
-        .clone()
-        .expect("data_dir() called before init_data_dir()")
+  DATA_DIR
+    .read()
+    .expect("DATA_DIR lock poisoned")
+    .clone()
+    .expect("data_dir() called before init_data_dir()")
 }
 
 pub fn db_path() -> PathBuf {
-    data_dir().join("orbitdock.db")
+  data_dir().join("orbitdock.db")
 }
 
 pub fn log_dir() -> PathBuf {
-    data_dir().join("logs")
+  data_dir().join("logs")
 }
 
 pub fn spool_dir() -> PathBuf {
-    data_dir().join("spool")
+  data_dir().join("spool")
 }
 
 pub fn sync_spool_dir() -> PathBuf {
-    data_dir().join("sync-spool")
+  data_dir().join("sync-spool")
 }
 
 pub fn sync_spool_dir_for_workspace(workspace_id: &str) -> PathBuf {
-    sync_spool_dir().join(workspace_id)
+  sync_spool_dir().join(workspace_id)
 }
 
 /// Legacy JSON checkpoint path for the rollout watcher.
@@ -66,65 +66,65 @@ pub fn sync_spool_dir_for_workspace(workspace_id: &str) -> PathBuf {
 /// New durable checkpoints live in SQLite; this path is only used for one-time import
 /// of older watcher state during startup.
 pub fn rollout_state_path() -> PathBuf {
-    data_dir().join("codex-rollout-state.json")
+  data_dir().join("codex-rollout-state.json")
 }
 
 pub fn hook_transport_config_path() -> PathBuf {
-    data_dir().join("hook-forward.json")
+  data_dir().join("hook-forward.json")
 }
 
 pub fn pid_file_path() -> PathBuf {
-    data_dir().join("orbitdock.pid")
+  data_dir().join("orbitdock.pid")
 }
 
 pub fn images_dir() -> PathBuf {
-    data_dir().join("images")
+  data_dir().join("images")
 }
 
 pub fn encryption_key_path() -> PathBuf {
-    data_dir().join("encryption.key")
+  data_dir().join("encryption.key")
 }
 
 pub fn cloudflared_binary_path() -> PathBuf {
-    data_dir().join("bin/cloudflared")
+  data_dir().join("bin/cloudflared")
 }
 
 /// Create all required subdirectories under the data dir.
 pub fn ensure_dirs() -> io::Result<()> {
-    let base = data_dir();
-    std::fs::create_dir_all(&base)?;
-    let logs = base.join("logs");
-    let spool = base.join("spool");
-    let sync_spool = base.join("sync-spool");
-    let images = base.join("images");
-    std::fs::create_dir_all(&logs)?;
-    std::fs::create_dir_all(&spool)?;
-    std::fs::create_dir_all(&sync_spool)?;
-    std::fs::create_dir_all(&images)?;
+  let base = data_dir();
+  std::fs::create_dir_all(&base)?;
+  let logs = base.join("logs");
+  let spool = base.join("spool");
+  let sync_spool = base.join("sync-spool");
+  let images = base.join("images");
+  std::fs::create_dir_all(&logs)?;
+  std::fs::create_dir_all(&spool)?;
+  std::fs::create_dir_all(&sync_spool)?;
+  std::fs::create_dir_all(&images)?;
 
-    secure_dir_permissions(&base)?;
-    secure_dir_permissions(&logs)?;
-    secure_dir_permissions(&spool)?;
-    secure_dir_permissions(&sync_spool)?;
-    secure_dir_permissions(&images)?;
+  secure_dir_permissions(&base)?;
+  secure_dir_permissions(&logs)?;
+  secure_dir_permissions(&spool)?;
+  secure_dir_permissions(&sync_spool)?;
+  secure_dir_permissions(&images)?;
 
-    Ok(())
+  Ok(())
 }
 
 #[cfg(unix)]
 fn secure_dir_permissions(path: &Path) -> io::Result<()> {
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+  std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
 }
 
 #[cfg(not(unix))]
 fn secure_dir_permissions(_path: &Path) -> io::Result<()> {
-    Ok(())
+  Ok(())
 }
 
 /// Reset data dir — for test isolation only.
 #[cfg(test)]
 #[allow(dead_code)]
 pub fn reset_data_dir() {
-    let mut guard = DATA_DIR.write().expect("DATA_DIR lock poisoned");
-    *guard = None;
+  let mut guard = DATA_DIR.write().expect("DATA_DIR lock poisoned");
+  *guard = None;
 }

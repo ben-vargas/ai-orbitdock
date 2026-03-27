@@ -9,28 +9,28 @@ pub const EXIT_CONNECTION_ERROR: i32 = 3;
 /// Structured error from the server API.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ApiError {
-    pub code: String,
-    pub error: String,
+  pub code: String,
+  pub error: String,
 }
 
 /// Unified CLI error for JSON output.
 #[derive(Debug, Serialize)]
 pub struct CliError {
-    pub error: bool,
-    pub code: String,
-    pub message: String,
+  pub error: bool,
+  pub code: String,
+  pub message: String,
 }
 
 impl CliError {
-    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            error: true,
-            code: code.into(),
-            message: message.into(),
-        }
+  pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+    Self {
+      error: true,
+      code: code.into(),
+      message: message.into(),
     }
+  }
 
-    pub fn connection(message: impl Into<String>) -> Self {
-        Self::new("connection_error", message)
-    }
+  pub fn connection(message: impl Into<String>) -> Self {
+    Self::new("connection_error", message)
+  }
 }

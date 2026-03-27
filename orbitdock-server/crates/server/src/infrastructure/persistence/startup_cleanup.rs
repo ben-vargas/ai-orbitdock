@@ -9,9 +9,9 @@ use super::chrono_now;
 /// This runs at server startup to repair any sessions left in an inconsistent state
 /// from a previous run.
 pub async fn cleanup_stale_permission_state() -> Result<u64, anyhow::Error> {
-    let db_path = crate::infrastructure::paths::db_path();
+  let db_path = crate::infrastructure::paths::db_path();
 
-    let (moved_on_count, orphaned_permission_count, orphaned_approval_count) =
+  let (moved_on_count, orphaned_permission_count, orphaned_approval_count) =
         tokio::task::spawn_blocking(move || -> Result<(u64, u64, u64), anyhow::Error> {
             if !db_path.exists() {
                 return Ok((0, 0, 0));
@@ -88,20 +88,20 @@ pub async fn cleanup_stale_permission_state() -> Result<u64, anyhow::Error> {
         })
         .await??;
 
-    let count = moved_on_count + orphaned_permission_count;
-    if count > 0 {
-        info!(
-            component = "startup",
-            event = "startup.stale_permission_cleanup",
-            sessions_fixed = count,
-            moved_on_sessions_fixed = moved_on_count,
-            orphaned_permission_sessions_fixed = orphaned_permission_count,
-            orphaned_approval_rows_aborted = orphaned_approval_count,
-            "Cleared stale pending permission/question state from prior crash"
-        );
-    }
+  let count = moved_on_count + orphaned_permission_count;
+  if count > 0 {
+    info!(
+      component = "startup",
+      event = "startup.stale_permission_cleanup",
+      sessions_fixed = count,
+      moved_on_sessions_fixed = moved_on_count,
+      orphaned_permission_sessions_fixed = orphaned_permission_count,
+      orphaned_approval_rows_aborted = orphaned_approval_count,
+      "Cleared stale pending permission/question state from prior crash"
+    );
+  }
 
-    Ok(count)
+  Ok(count)
 }
 
 /// Clean up tool messages stuck with is_in_progress = 1 from sessions that are no longer working.
@@ -109,38 +109,38 @@ pub async fn cleanup_stale_permission_state() -> Result<u64, anyhow::Error> {
 ///
 /// Runs at server startup alongside `cleanup_stale_permission_state`.
 pub async fn cleanup_dangling_in_progress_messages() -> Result<u64, anyhow::Error> {
-    let db_path = crate::infrastructure::paths::db_path();
+  let db_path = crate::infrastructure::paths::db_path();
 
-    let count = tokio::task::spawn_blocking(move || -> Result<u64, anyhow::Error> {
-        if !db_path.exists() {
-            return Ok(0);
-        }
-
-        let conn = Connection::open(&db_path)?;
-        conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA busy_timeout = 5000;",
-        )?;
-
-        let rows = conn.execute(
-            "UPDATE messages SET is_in_progress = 0
-             WHERE is_in_progress = 1
-               AND session_id IN (SELECT id FROM sessions WHERE work_status != 'working')",
-            [],
-        )?;
-
-        Ok(rows as u64)
-    })
-    .await??;
-
-    if count > 0 {
-        info!(
-            component = "startup",
-            event = "startup.dangling_in_progress_cleanup",
-            messages_fixed = count,
-            "Cleared dangling is_in_progress tool messages from prior crash"
-        );
+  let count = tokio::task::spawn_blocking(move || -> Result<u64, anyhow::Error> {
+    if !db_path.exists() {
+      return Ok(0);
     }
 
-    Ok(count)
+    let conn = Connection::open(&db_path)?;
+    conn.execute_batch(
+      "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+    )?;
+
+    let rows = conn.execute(
+      "UPDATE messages SET is_in_progress = 0
+             WHERE is_in_progress = 1
+               AND session_id IN (SELECT id FROM sessions WHERE work_status != 'working')",
+      [],
+    )?;
+
+    Ok(rows as u64)
+  })
+  .await??;
+
+  if count > 0 {
+    info!(
+      component = "startup",
+      event = "startup.dangling_in_progress_cleanup",
+      messages_fixed = count,
+      "Cleared dangling is_in_progress tool messages from prior crash"
+    );
+  }
+
+  Ok(count)
 }

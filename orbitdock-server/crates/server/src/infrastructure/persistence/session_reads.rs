@@ -2,8 +2,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
-    CodexConfigMode, CodexConfigSource, CodexSessionOverrides, SessionControlMode,
-    SessionLifecycleState, SessionStatus, TokenUsageSnapshotKind,
+  CodexConfigMode, CodexConfigSource, CodexSessionOverrides, SessionControlMode,
+  SessionLifecycleState, SessionStatus, TokenUsageSnapshotKind,
 };
 
 use super::chrono_now;
@@ -12,186 +12,186 @@ use super::transcripts::{extract_summary_from_transcript, load_messages_from_tra
 use super::usage::snapshot_kind_from_str;
 
 type StoredCodexConfigRow = (
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<bool>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
+  Option<String>,
+  Option<String>,
+  Option<String>,
+  Option<String>,
+  Option<bool>,
+  Option<String>,
+  Option<String>,
+  Option<String>,
+  Option<String>,
+  Option<String>,
 );
 
 /// Intermediate row from the active-sessions SQL query.
 struct ActiveSessionRow {
-    id: String,
-    provider: String,
-    status: String,
-    work_status: String,
-    control_mode: Option<String>,
-    lifecycle_state: SessionLifecycleState,
-    project_path: String,
-    transcript_path: Option<String>,
-    project_name: Option<String>,
-    model: Option<String>,
-    custom_name: Option<String>,
-    first_prompt: Option<String>,
-    summary: Option<String>,
-    codex_integration_mode: Option<String>,
-    codex_thread_id: Option<String>,
-    started_at: Option<String>,
-    last_activity_at: Option<String>,
-    last_progress_at: Option<String>,
-    approval_policy: Option<String>,
-    sandbox_mode: Option<String>,
-    permission_mode: Option<String>,
-    pending_tool_name: Option<String>,
-    pending_tool_input: Option<String>,
-    pending_question: Option<String>,
-    input_tokens: i64,
-    output_tokens: i64,
-    cached_tokens: i64,
-    context_window: i64,
-    token_usage_snapshot_kind_str: String,
+  id: String,
+  provider: String,
+  status: String,
+  work_status: String,
+  control_mode: Option<String>,
+  lifecycle_state: SessionLifecycleState,
+  project_path: String,
+  transcript_path: Option<String>,
+  project_name: Option<String>,
+  model: Option<String>,
+  custom_name: Option<String>,
+  first_prompt: Option<String>,
+  summary: Option<String>,
+  codex_integration_mode: Option<String>,
+  codex_thread_id: Option<String>,
+  started_at: Option<String>,
+  last_activity_at: Option<String>,
+  last_progress_at: Option<String>,
+  approval_policy: Option<String>,
+  sandbox_mode: Option<String>,
+  permission_mode: Option<String>,
+  pending_tool_name: Option<String>,
+  pending_tool_input: Option<String>,
+  pending_question: Option<String>,
+  input_tokens: i64,
+  output_tokens: i64,
+  cached_tokens: i64,
+  context_window: i64,
+  token_usage_snapshot_kind_str: String,
 }
 
 /// A session restored from the database on startup.
 #[derive(Debug)]
 pub struct RestoredSession {
-    pub id: String,
-    pub provider: String,
-    pub status: String,
-    pub work_status: String,
-    pub control_mode: SessionControlMode,
-    pub lifecycle_state: SessionLifecycleState,
-    pub project_path: String,
-    pub transcript_path: Option<String>,
-    pub project_name: Option<String>,
-    pub model: Option<String>,
-    pub custom_name: Option<String>,
-    pub summary: Option<String>,
-    pub codex_integration_mode: Option<String>,
-    pub claude_integration_mode: Option<String>,
-    pub codex_thread_id: Option<String>,
-    pub claude_sdk_session_id: Option<String>,
-    pub started_at: Option<String>,
-    pub last_activity_at: Option<String>,
-    pub last_progress_at: Option<String>,
-    pub approval_policy: Option<String>,
-    pub sandbox_mode: Option<String>,
-    pub permission_mode: Option<String>,
-    pub collaboration_mode: Option<String>,
-    pub multi_agent: Option<bool>,
-    pub personality: Option<String>,
-    pub service_tier: Option<String>,
-    pub developer_instructions: Option<String>,
-    pub codex_config_mode: Option<CodexConfigMode>,
-    pub codex_config_profile: Option<String>,
-    pub codex_model_provider: Option<String>,
-    pub codex_config_source: Option<CodexConfigSource>,
-    pub codex_config_overrides: Option<CodexSessionOverrides>,
-    pub input_tokens: i64,
-    pub output_tokens: i64,
-    pub cached_tokens: i64,
-    pub context_window: i64,
-    pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
-    pub pending_tool_name: Option<String>,
-    pub pending_tool_input: Option<String>,
-    pub pending_question: Option<String>,
-    pub pending_approval_id: Option<String>,
-    pub rows: Vec<ConversationRowEntry>,
-    pub forked_from_session_id: Option<String>,
-    pub current_diff: Option<String>,
-    pub current_plan: Option<String>,
-    pub turn_diffs: Vec<(String, String, i64, i64, i64, i64, TokenUsageSnapshotKind)>,
-    pub git_branch: Option<String>,
-    pub git_sha: Option<String>,
-    pub current_cwd: Option<String>,
-    pub first_prompt: Option<String>,
-    pub last_message: Option<String>,
-    pub end_reason: Option<String>,
-    pub effort: Option<String>,
-    pub terminal_session_id: Option<String>,
-    pub terminal_app: Option<String>,
-    pub approval_version: u64,
-    pub unread_count: u64,
-    pub mission_id: Option<String>,
-    pub issue_identifier: Option<String>,
-    pub allow_bypass_permissions: bool,
+  pub id: String,
+  pub provider: String,
+  pub status: String,
+  pub work_status: String,
+  pub control_mode: SessionControlMode,
+  pub lifecycle_state: SessionLifecycleState,
+  pub project_path: String,
+  pub transcript_path: Option<String>,
+  pub project_name: Option<String>,
+  pub model: Option<String>,
+  pub custom_name: Option<String>,
+  pub summary: Option<String>,
+  pub codex_integration_mode: Option<String>,
+  pub claude_integration_mode: Option<String>,
+  pub codex_thread_id: Option<String>,
+  pub claude_sdk_session_id: Option<String>,
+  pub started_at: Option<String>,
+  pub last_activity_at: Option<String>,
+  pub last_progress_at: Option<String>,
+  pub approval_policy: Option<String>,
+  pub sandbox_mode: Option<String>,
+  pub permission_mode: Option<String>,
+  pub collaboration_mode: Option<String>,
+  pub multi_agent: Option<bool>,
+  pub personality: Option<String>,
+  pub service_tier: Option<String>,
+  pub developer_instructions: Option<String>,
+  pub codex_config_mode: Option<CodexConfigMode>,
+  pub codex_config_profile: Option<String>,
+  pub codex_model_provider: Option<String>,
+  pub codex_config_source: Option<CodexConfigSource>,
+  pub codex_config_overrides: Option<CodexSessionOverrides>,
+  pub input_tokens: i64,
+  pub output_tokens: i64,
+  pub cached_tokens: i64,
+  pub context_window: i64,
+  pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
+  pub pending_tool_name: Option<String>,
+  pub pending_tool_input: Option<String>,
+  pub pending_question: Option<String>,
+  pub pending_approval_id: Option<String>,
+  pub rows: Vec<ConversationRowEntry>,
+  pub forked_from_session_id: Option<String>,
+  pub current_diff: Option<String>,
+  pub current_plan: Option<String>,
+  pub turn_diffs: Vec<(String, String, i64, i64, i64, i64, TokenUsageSnapshotKind)>,
+  pub git_branch: Option<String>,
+  pub git_sha: Option<String>,
+  pub current_cwd: Option<String>,
+  pub first_prompt: Option<String>,
+  pub last_message: Option<String>,
+  pub end_reason: Option<String>,
+  pub effort: Option<String>,
+  pub terminal_session_id: Option<String>,
+  pub terminal_app: Option<String>,
+  pub approval_version: u64,
+  pub unread_count: u64,
+  pub mission_id: Option<String>,
+  pub issue_identifier: Option<String>,
+  pub allow_bypass_permissions: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectClaudeOwner {
-    pub session_id: String,
-    pub status: SessionStatus,
-    pub lifecycle_state: SessionLifecycleState,
+  pub session_id: String,
+  pub status: SessionStatus,
+  pub lifecycle_state: SessionLifecycleState,
 }
 
 fn resolve_custom_name_from_first_prompt(
-    _conn: &Connection,
-    _session_id: &str,
-    custom_name: Option<String>,
-    _first_prompt: Option<&str>,
+  _conn: &Connection,
+  _session_id: &str,
+  custom_name: Option<String>,
+  _first_prompt: Option<&str>,
 ) -> Result<Option<String>, rusqlite::Error> {
-    Ok(custom_name)
+  Ok(custom_name)
 }
 
 fn parse_lifecycle_state(value: Option<String>) -> SessionLifecycleState {
-    match value.as_deref().map(str::to_ascii_lowercase).as_deref() {
-        Some("resumable") => SessionLifecycleState::Resumable,
-        Some("ended") => SessionLifecycleState::Ended,
-        _ => SessionLifecycleState::Open,
-    }
+  match value.as_deref().map(str::to_ascii_lowercase).as_deref() {
+    Some("resumable") => SessionLifecycleState::Resumable,
+    Some("ended") => SessionLifecycleState::Ended,
+    _ => SessionLifecycleState::Open,
+  }
 }
 
 fn parse_session_status(value: &str) -> SessionStatus {
-    match value.to_ascii_lowercase().as_str() {
-        "ended" => SessionStatus::Ended,
-        _ => SessionStatus::Active,
-    }
+  match value.to_ascii_lowercase().as_str() {
+    "ended" => SessionStatus::Ended,
+    _ => SessionStatus::Active,
+  }
 }
 
 fn parse_control_mode(value: Option<String>) -> Option<SessionControlMode> {
-    match value.as_deref().map(str::to_ascii_lowercase).as_deref() {
-        Some("direct") => Some(SessionControlMode::Direct),
-        Some("passive") => Some(SessionControlMode::Passive),
-        _ => None,
-    }
+  match value.as_deref().map(str::to_ascii_lowercase).as_deref() {
+    Some("direct") => Some(SessionControlMode::Direct),
+    Some("passive") => Some(SessionControlMode::Passive),
+    _ => None,
+  }
 }
 
 fn control_mode_to_integration_mode(
-    provider: &str,
-    control_mode: SessionControlMode,
+  provider: &str,
+  control_mode: SessionControlMode,
 ) -> (Option<String>, Option<String>) {
-    match provider.to_ascii_lowercase().as_str() {
-        "claude" => (
-            None,
-            Some(match control_mode {
-                SessionControlMode::Direct => "direct".to_string(),
-                SessionControlMode::Passive => "passive".to_string(),
-            }),
-        ),
-        _ => (
-            Some(match control_mode {
-                SessionControlMode::Direct => "direct".to_string(),
-                SessionControlMode::Passive => "passive".to_string(),
-            }),
-            None,
-        ),
-    }
+  match provider.to_ascii_lowercase().as_str() {
+    "claude" => (
+      None,
+      Some(match control_mode {
+        SessionControlMode::Direct => "direct".to_string(),
+        SessionControlMode::Passive => "passive".to_string(),
+      }),
+    ),
+    _ => (
+      Some(match control_mode {
+        SessionControlMode::Direct => "direct".to_string(),
+        SessionControlMode::Passive => "passive".to_string(),
+      }),
+      None,
+    ),
+  }
 }
 
 /// Load just the persisted lifecycle state for a session.
 #[cfg(test)]
 pub async fn load_session_lifecycle_state(
-    id: &str,
+  id: &str,
 ) -> Result<Option<SessionLifecycleState>, anyhow::Error> {
-    let db_path = crate::infrastructure::paths::db_path();
-    let id_owned = id.to_string();
+  let db_path = crate::infrastructure::paths::db_path();
+  let id_owned = id.to_string();
 
-    tokio::task::spawn_blocking(move || -> Result<Option<SessionLifecycleState>, anyhow::Error> {
+  tokio::task::spawn_blocking(move || -> Result<Option<SessionLifecycleState>, anyhow::Error> {
         if !db_path.exists() {
             return Ok(None);
         }
@@ -220,9 +220,9 @@ pub async fn load_session_lifecycle_state(
 /// Load recent sessions from the database for server restart recovery.
 /// Includes ended sessions so UI history remains visible after app restart.
 pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow::Error> {
-    let db_path = crate::infrastructure::paths::db_path();
+  let db_path = crate::infrastructure::paths::db_path();
 
-    let sessions = tokio::task::spawn_blocking(
+  let sessions = tokio::task::spawn_blocking(
         move || -> Result<Vec<RestoredSession>, anyhow::Error> {
             if !db_path.exists() {
                 return Ok(Vec::new());
@@ -788,15 +788,15 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
     )
     .await??;
 
-    Ok(sessions)
+  Ok(sessions)
 }
 
 /// Load a specific session by ID (for resume — includes ended sessions).
 pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, anyhow::Error> {
-    let db_path = crate::infrastructure::paths::db_path();
-    let id_owned = id.to_string();
+  let db_path = crate::infrastructure::paths::db_path();
+  let id_owned = id.to_string();
 
-    let result = tokio::task::spawn_blocking(
+  let result = tokio::task::spawn_blocking(
         move || -> Result<Option<RestoredSession>, anyhow::Error> {
             if !db_path.exists() {
                 return Ok(None);
@@ -1131,16 +1131,16 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
     )
     .await??;
 
-    Ok(result)
+  Ok(result)
 }
 
 pub async fn load_direct_claude_owner_by_sdk_session_id(
-    sdk_session_id: &str,
+  sdk_session_id: &str,
 ) -> Result<Option<DirectClaudeOwner>, anyhow::Error> {
-    let db_path = crate::infrastructure::paths::db_path();
-    let sdk_session_id = sdk_session_id.to_string();
+  let db_path = crate::infrastructure::paths::db_path();
+  let sdk_session_id = sdk_session_id.to_string();
 
-    tokio::task::spawn_blocking(move || -> Result<Option<DirectClaudeOwner>, anyhow::Error> {
+  tokio::task::spawn_blocking(move || -> Result<Option<DirectClaudeOwner>, anyhow::Error> {
         if !db_path.exists() {
             return Ok(None);
         }
@@ -1186,32 +1186,32 @@ pub async fn load_direct_claude_owner_by_sdk_session_id(
 
 /// Load only the persisted Claude permission_mode for a session.
 pub async fn load_session_permission_mode(id: &str) -> Result<Option<String>, anyhow::Error> {
-    let db_path = crate::infrastructure::paths::db_path();
-    let id_owned = id.to_string();
+  let db_path = crate::infrastructure::paths::db_path();
+  let id_owned = id.to_string();
 
-    let mode = tokio::task::spawn_blocking(move || -> Result<Option<String>, anyhow::Error> {
-        if !db_path.exists() {
-            return Ok(None);
-        }
+  let mode = tokio::task::spawn_blocking(move || -> Result<Option<String>, anyhow::Error> {
+    if !db_path.exists() {
+      return Ok(None);
+    }
 
-        let conn = Connection::open(&db_path)?;
-        conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
+    let conn = Connection::open(&db_path)?;
+    conn.execute_batch(
+      "PRAGMA journal_mode = WAL;
              PRAGMA busy_timeout = 5000;",
-        )?;
+    )?;
 
-        let mode = conn
-            .query_row(
-                "SELECT permission_mode FROM sessions WHERE id = ?1",
-                params![&id_owned],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .optional()?
-            .flatten();
-
-        Ok(mode)
-    })
-    .await??;
+    let mode = conn
+      .query_row(
+        "SELECT permission_mode FROM sessions WHERE id = ?1",
+        params![&id_owned],
+        |row| row.get::<_, Option<String>>(0),
+      )
+      .optional()?
+      .flatten();
 
     Ok(mode)
+  })
+  .await??;
+
+  Ok(mode)
 }

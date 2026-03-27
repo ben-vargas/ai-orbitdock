@@ -1,176 +1,176 @@
 use std::collections::HashMap;
 
 use orbitdock_protocol::{
-    ApprovalType, ClaudeModelOption, McpAuthStatus, McpResource, McpResourceTemplate,
-    McpStartupFailure, McpStartupStatus, McpTool, SkillErrorInfo, SkillsListEntry, SubagentInfo,
-    TokenUsage, TokenUsageSnapshotKind,
+  ApprovalType, ClaudeModelOption, McpAuthStatus, McpResource, McpResourceTemplate,
+  McpStartupFailure, McpStartupStatus, McpTool, SkillErrorInfo, SkillsListEntry, SubagentInfo,
+  TokenUsage, TokenUsageSnapshotKind,
 };
 
 /// Events emitted by connectors
 #[derive(Debug, Clone)]
 pub enum ConnectorEvent {
-    /// Turn started
-    TurnStarted,
+  /// Turn started
+  TurnStarted,
 
-    /// Turn completed
-    TurnCompleted,
+  /// Turn completed
+  TurnCompleted,
 
-    /// Turn aborted
-    TurnAborted { reason: String },
+  /// Turn aborted
+  TurnAborted { reason: String },
 
-    /// New conversation row created
-    ConversationRowCreated(orbitdock_protocol::conversation_contracts::ConversationRowEntry),
+  /// New conversation row created
+  ConversationRowCreated(orbitdock_protocol::conversation_contracts::ConversationRowEntry),
 
-    /// Conversation row updated
-    ConversationRowUpdated {
-        row_id: String,
-        entry: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
-    },
+  /// Conversation row updated
+  ConversationRowUpdated {
+    row_id: String,
+    entry: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
+  },
 
-    /// Approval requested
-    ApprovalRequested {
-        request_id: String,
-        approval_type: ApprovalType,
-        tool_name: Option<String>,
-        tool_input: Option<String>,
-        command: Option<String>,
-        file_path: Option<String>,
-        diff: Option<String>,
-        question: Option<String>,
-        permission_reason: Option<String>,
-        requested_permissions: Option<serde_json::Value>,
-        proposed_amendment: Option<Vec<String>>,
-        /// Raw permission suggestions from Claude SDK (PermissionUpdate[])
-        permission_suggestions: Option<serde_json::Value>,
-        /// MCP elicitation mode: "form" or "url"
-        elicitation_mode: Option<String>,
-        /// JSON Schema for form-mode elicitation
-        elicitation_schema: Option<serde_json::Value>,
-        /// URL for browser-auth-mode elicitation
-        elicitation_url: Option<String>,
-        /// Human-readable message from the MCP server
-        elicitation_message: Option<String>,
-        /// Which MCP server initiated the elicitation
-        mcp_server_name: Option<String>,
-        /// Network approval context: target host
-        network_host: Option<String>,
-        /// Network approval context: protocol (e.g. "https")
-        network_protocol: Option<String>,
-    },
+  /// Approval requested
+  ApprovalRequested {
+    request_id: String,
+    approval_type: ApprovalType,
+    tool_name: Option<String>,
+    tool_input: Option<String>,
+    command: Option<String>,
+    file_path: Option<String>,
+    diff: Option<String>,
+    question: Option<String>,
+    permission_reason: Option<String>,
+    requested_permissions: Option<serde_json::Value>,
+    proposed_amendment: Option<Vec<String>>,
+    /// Raw permission suggestions from Claude SDK (PermissionUpdate[])
+    permission_suggestions: Option<serde_json::Value>,
+    /// MCP elicitation mode: "form" or "url"
+    elicitation_mode: Option<String>,
+    /// JSON Schema for form-mode elicitation
+    elicitation_schema: Option<serde_json::Value>,
+    /// URL for browser-auth-mode elicitation
+    elicitation_url: Option<String>,
+    /// Human-readable message from the MCP server
+    elicitation_message: Option<String>,
+    /// Which MCP server initiated the elicitation
+    mcp_server_name: Option<String>,
+    /// Network approval context: target host
+    network_host: Option<String>,
+    /// Network approval context: protocol (e.g. "https")
+    network_protocol: Option<String>,
+  },
 
-    /// Approval cancelled by the CLI (e.g. user interrupted, agent moved on)
-    ApprovalCancelled { request_id: String },
+  /// Approval cancelled by the CLI (e.g. user interrupted, agent moved on)
+  ApprovalCancelled { request_id: String },
 
-    /// Permission mode changed (e.g. plan mode entered/exited)
-    PermissionModeChanged { mode: String },
+  /// Permission mode changed (e.g. plan mode entered/exited)
+  PermissionModeChanged { mode: String },
 
-    /// Token usage updated
-    TokensUpdated {
-        usage: TokenUsage,
-        snapshot_kind: TokenUsageSnapshotKind,
-    },
+  /// Token usage updated
+  TokensUpdated {
+    usage: TokenUsage,
+    snapshot_kind: TokenUsageSnapshotKind,
+  },
 
-    /// Aggregated diff updated
-    DiffUpdated(String),
+  /// Aggregated diff updated
+  DiffUpdated(String),
 
-    /// Plan updated
-    PlanUpdated(String),
+  /// Plan updated
+  PlanUpdated(String),
 
-    /// Thread name updated (auto-generated by codex-core or manually set)
-    ThreadNameUpdated(String),
+  /// Thread name updated (auto-generated by codex-core or manually set)
+  ThreadNameUpdated(String),
 
-    /// Session ended
-    SessionEnded { reason: String },
+  /// Session ended
+  SessionEnded { reason: String },
 
-    /// Skills list response
-    SkillsList {
-        skills: Vec<SkillsListEntry>,
-        errors: Vec<SkillErrorInfo>,
-    },
+  /// Skills list response
+  SkillsList {
+    skills: Vec<SkillsListEntry>,
+    errors: Vec<SkillErrorInfo>,
+  },
 
-    /// Skills update available notification
-    SkillsUpdateAvailable,
+  /// Skills update available notification
+  SkillsUpdateAvailable,
 
-    /// MCP tools list response
-    McpToolsList {
-        tools: HashMap<String, McpTool>,
-        resources: HashMap<String, Vec<McpResource>>,
-        resource_templates: HashMap<String, Vec<McpResourceTemplate>>,
-        auth_statuses: HashMap<String, McpAuthStatus>,
-    },
+  /// MCP tools list response
+  McpToolsList {
+    tools: HashMap<String, McpTool>,
+    resources: HashMap<String, Vec<McpResource>>,
+    resource_templates: HashMap<String, Vec<McpResourceTemplate>>,
+    auth_statuses: HashMap<String, McpAuthStatus>,
+  },
 
-    /// MCP server startup progress update
-    McpStartupUpdate {
-        server: String,
-        status: McpStartupStatus,
-    },
+  /// MCP server startup progress update
+  McpStartupUpdate {
+    server: String,
+    status: McpStartupStatus,
+  },
 
-    /// MCP server startup complete
-    McpStartupComplete {
-        ready: Vec<String>,
-        failed: Vec<McpStartupFailure>,
-        cancelled: Vec<String>,
-    },
+  /// MCP server startup complete
+  McpStartupComplete {
+    ready: Vec<String>,
+    failed: Vec<McpStartupFailure>,
+    cancelled: Vec<String>,
+  },
 
-    /// Claude session initialized — carries capabilities from the init system message
-    ClaudeInitialized {
-        slash_commands: Vec<String>,
-        skills: Vec<String>,
-        tools: Vec<String>,
-        models: Vec<ClaudeModelOption>,
-    },
+  /// Claude session initialized — carries capabilities from the init system message
+  ClaudeInitialized {
+    slash_commands: Vec<String>,
+    skills: Vec<String>,
+    tools: Vec<String>,
+    models: Vec<ClaudeModelOption>,
+  },
 
-    /// Model name updated (e.g. from Claude init event)
-    ModelUpdated(String),
+  /// Model name updated (e.g. from Claude init event)
+  ModelUpdated(String),
 
-    /// Context was compacted (summarized)
-    ContextCompacted,
+  /// Context was compacted (summarized)
+  ContextCompacted,
 
-    /// Hook started with a (possibly new) session ID — used to register managed threads
-    HookSessionId(String),
+  /// Hook started with a (possibly new) session ID — used to register managed threads
+  HookSessionId(String),
 
-    /// Undo operation started
-    UndoStarted { message: Option<String> },
+  /// Undo operation started
+  UndoStarted { message: Option<String> },
 
-    /// Undo operation completed
-    UndoCompleted {
-        success: bool,
-        message: Option<String>,
-    },
+  /// Undo operation completed
+  UndoCompleted {
+    success: bool,
+    message: Option<String>,
+  },
 
-    /// Thread context was rolled back by N turns
-    ThreadRolledBack { num_turns: u32 },
+  /// Thread context was rolled back by N turns
+  ThreadRolledBack { num_turns: u32 },
 
-    /// Environment changed (cwd, git branch, git sha)
-    EnvironmentChanged {
-        cwd: Option<String>,
-        git_branch: Option<String>,
-        git_sha: Option<String>,
-    },
+  /// Environment changed (cwd, git branch, git sha)
+  EnvironmentChanged {
+    cwd: Option<String>,
+    git_branch: Option<String>,
+    git_sha: Option<String>,
+  },
 
-    /// Rate limit event from the Claude SDK
-    RateLimitEvent {
-        info: orbitdock_protocol::RateLimitInfo,
-    },
+  /// Rate limit event from the Claude SDK
+  RateLimitEvent {
+    info: orbitdock_protocol::RateLimitInfo,
+  },
 
-    /// Prompt suggestion from the Claude SDK
-    PromptSuggestion { suggestion: String },
+  /// Prompt suggestion from the Claude SDK
+  PromptSuggestion { suggestion: String },
 
-    /// Files were persisted (checkpoint saved)
-    FilesPersisted { files: Vec<String> },
+  /// Files were persisted (checkpoint saved)
+  FilesPersisted { files: Vec<String> },
 
-    /// Provider-reported worker/subagent updates that should be handled by the
-    /// session loop before generic state-machine transitions.
-    SubagentsUpdated { subagents: Vec<SubagentInfo> },
+  /// Provider-reported worker/subagent updates that should be handled by the
+  /// session loop before generic state-machine transitions.
+  SubagentsUpdated { subagents: Vec<SubagentInfo> },
 
-    /// Provider-reported dynamic tool request that must be executed by the
-    /// session loop before generic state-machine transitions.
-    DynamicToolCallRequested {
-        call_id: String,
-        tool_name: String,
-        arguments: serde_json::Value,
-    },
+  /// Provider-reported dynamic tool request that must be executed by the
+  /// session loop before generic state-machine transitions.
+  DynamicToolCallRequested {
+    call_id: String,
+    tool_name: String,
+    arguments: serde_json::Value,
+  },
 
-    /// Error occurred
-    Error(String),
+  /// Error occurred
+  Error(String),
 }

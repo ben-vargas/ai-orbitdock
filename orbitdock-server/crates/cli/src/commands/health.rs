@@ -6,39 +6,39 @@ use crate::output::Output;
 
 #[derive(Debug, Deserialize, serde::Serialize)]
 pub(super) struct HealthResponse {
-    pub status: String,
-    #[serde(default)]
-    pub version: Option<String>,
+  pub status: String,
+  #[serde(default)]
+  pub version: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct HealthJsonResponse {
-    kind: &'static str,
-    health: HealthResponse,
+  kind: &'static str,
+  health: HealthResponse,
 }
 
 pub async fn run(rest: &RestClient, output: &Output) -> i32 {
-    match rest.get::<HealthResponse>("/health").await.into_result() {
-        Ok(health) => {
-            if output.json {
-                output.print_json_pretty(&HealthJsonResponse {
-                    kind: "health",
-                    health,
-                });
-            } else {
-                let version = health.version.as_deref().unwrap_or("unknown");
-                let style = console::Style::new().green().bold();
-                println!(
-                    "{} Server is running (version: {})",
-                    style.apply_to("●"),
-                    version
-                );
-            }
-            EXIT_SUCCESS
-        }
-        Err((code, err)) => {
-            output.print_error(&err);
-            code
-        }
+  match rest.get::<HealthResponse>("/health").await.into_result() {
+    Ok(health) => {
+      if output.json {
+        output.print_json_pretty(&HealthJsonResponse {
+          kind: "health",
+          health,
+        });
+      } else {
+        let version = health.version.as_deref().unwrap_or("unknown");
+        let style = console::Style::new().green().bold();
+        println!(
+          "{} Server is running (version: {})",
+          style.apply_to("●"),
+          version
+        );
+      }
+      EXIT_SUCCESS
     }
+    Err((code, err)) => {
+      output.print_error(&err);
+      code
+    }
+  }
 }

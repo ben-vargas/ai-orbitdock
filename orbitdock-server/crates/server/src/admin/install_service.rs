@@ -14,18 +14,18 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 const PATH_PROBE_SENTINEL: &str = "__ORBITDOCK_PATH__";
 const COMMON_PATH_DIRS: [&str; 6] = [
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    "/usr/bin",
-    "/bin",
-    "/usr/sbin",
-    "/sbin",
+  "/opt/homebrew/bin",
+  "/usr/local/bin",
+  "/usr/bin",
+  "/bin",
+  "/usr/sbin",
+  "/sbin",
 ];
 const COMMON_CODEX_PATHS: [&str; 4] = [
-    "/usr/local/bin/codex",
-    "/opt/homebrew/bin/codex",
-    "/usr/bin/codex",
-    "/bin/codex",
+  "/usr/local/bin/codex",
+  "/opt/homebrew/bin/codex",
+  "/usr/bin/codex",
+  "/bin/codex",
 ];
 
 const LAUNCHD_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -74,309 +74,309 @@ WantedBy=default.target
 "#;
 
 pub struct ServiceOptions {
-    pub bind: SocketAddr,
-    pub enable: bool,
-    pub tls_cert: Option<PathBuf>,
-    pub tls_key: Option<PathBuf>,
-    pub auth_token: Option<String>,
+  pub bind: SocketAddr,
+  pub enable: bool,
+  pub tls_cert: Option<PathBuf>,
+  pub tls_key: Option<PathBuf>,
+  pub auth_token: Option<String>,
 }
 
 struct ServiceInstallPlan {
-    binary_path: String,
-    bind_addr: String,
-    data_dir: String,
-    extra_args: Vec<String>,
-    auth_token: Option<String>,
-    enable: bool,
+  binary_path: String,
+  bind_addr: String,
+  data_dir: String,
+  extra_args: Vec<String>,
+  auth_token: Option<String>,
+  enable: bool,
 }
 
 pub fn install_background_service(
-    data_dir: &Path,
-    bind: SocketAddr,
-    enable: bool,
-    auth_token: Option<String>,
+  data_dir: &Path,
+  bind: SocketAddr,
+  enable: bool,
+  auth_token: Option<String>,
 ) -> anyhow::Result<()> {
-    install_background_service_with_options(
-        data_dir,
-        ServiceOptions {
-            bind,
-            enable,
-            tls_cert: None,
-            tls_key: None,
-            auth_token,
-        },
-    )
+  install_background_service_with_options(
+    data_dir,
+    ServiceOptions {
+      bind,
+      enable,
+      tls_cert: None,
+      tls_key: None,
+      auth_token,
+    },
+  )
 }
 
 pub fn install_background_service_with_options(
-    data_dir: &Path,
-    opts: ServiceOptions,
+  data_dir: &Path,
+  opts: ServiceOptions,
 ) -> anyhow::Result<()> {
-    let plan = plan_service_install(data_dir, opts)?;
+  let plan = plan_service_install(data_dir, opts)?;
 
-    if cfg!(target_os = "macos") {
-        install_launchd(&plan)
-    } else {
-        install_systemd(&plan)
-    }
+  if cfg!(target_os = "macos") {
+    install_launchd(&plan)
+  } else {
+    install_systemd(&plan)
+  }
 }
 
 fn plan_service_install(
-    data_dir: &Path,
-    opts: ServiceOptions,
+  data_dir: &Path,
+  opts: ServiceOptions,
 ) -> anyhow::Result<ServiceInstallPlan> {
-    let mut extra_args = Vec::new();
-    if let Some(ref cert) = opts.tls_cert {
-        extra_args.push("--tls-cert".to_string());
-        extra_args.push(cert.display().to_string());
-    }
-    if let Some(ref key) = opts.tls_key {
-        extra_args.push("--tls-key".to_string());
-        extra_args.push(key.display().to_string());
-    }
+  let mut extra_args = Vec::new();
+  if let Some(ref cert) = opts.tls_cert {
+    extra_args.push("--tls-cert".to_string());
+    extra_args.push(cert.display().to_string());
+  }
+  if let Some(ref key) = opts.tls_key {
+    extra_args.push("--tls-key".to_string());
+    extra_args.push(key.display().to_string());
+  }
 
-    Ok(ServiceInstallPlan {
-        binary_path: std::env::current_exe()?.to_string_lossy().to_string(),
-        bind_addr: opts.bind.to_string(),
-        data_dir: data_dir.to_string_lossy().to_string(),
-        extra_args,
-        auth_token: opts
-            .auth_token
-            .as_deref()
-            .map(str::trim)
-            .filter(|token| !token.is_empty())
-            .map(ToString::to_string)
-            .or_else(read_token_from_hook_config),
-        enable: opts.enable,
-    })
+  Ok(ServiceInstallPlan {
+    binary_path: std::env::current_exe()?.to_string_lossy().to_string(),
+    bind_addr: opts.bind.to_string(),
+    data_dir: data_dir.to_string_lossy().to_string(),
+    extra_args,
+    auth_token: opts
+      .auth_token
+      .as_deref()
+      .map(str::trim)
+      .filter(|token| !token.is_empty())
+      .map(ToString::to_string)
+      .or_else(read_token_from_hook_config),
+    enable: opts.enable,
+  })
 }
 
 fn install_launchd(plan: &ServiceInstallPlan) -> anyhow::Result<()> {
-    let domain = launchd_domain();
-    let label = "com.orbitdock.server";
-    stop_existing_launchd_service(plan, &domain, label)?;
+  let domain = launchd_domain();
+  let label = "com.orbitdock.server";
+  stop_existing_launchd_service(plan, &domain, label)?;
 
-    let service_environment = resolve_service_environment();
-    let mut environment_variables = vec![("PATH".to_string(), service_environment.path)];
-    if let Some(codex_bin) = service_environment.codex_bin {
-        environment_variables.push(("ORBITDOCK_CODEX_PATH".to_string(), codex_bin));
-    }
-    if let Some(claude_bin) = service_environment.claude_bin {
-        environment_variables.push(("CLAUDE_BIN".to_string(), claude_bin));
-    }
-    if let Some(token) = plan.auth_token.as_deref() {
-        environment_variables.push(("ORBITDOCK_AUTH_TOKEN".to_string(), token.to_string()));
-    }
-    let plist = render_launchd_plist(plan, &environment_variables);
+  let service_environment = resolve_service_environment();
+  let mut environment_variables = vec![("PATH".to_string(), service_environment.path)];
+  if let Some(codex_bin) = service_environment.codex_bin {
+    environment_variables.push(("ORBITDOCK_CODEX_PATH".to_string(), codex_bin));
+  }
+  if let Some(claude_bin) = service_environment.claude_bin {
+    environment_variables.push(("CLAUDE_BIN".to_string(), claude_bin));
+  }
+  if let Some(token) = plan.auth_token.as_deref() {
+    environment_variables.push(("ORBITDOCK_AUTH_TOKEN".to_string(), token.to_string()));
+  }
+  let plist = render_launchd_plist(plan, &environment_variables);
 
-    let agents_dir = dirs::home_dir()
-        .expect("HOME not found")
-        .join("Library/LaunchAgents");
-    std::fs::create_dir_all(&agents_dir)?;
+  let agents_dir = dirs::home_dir()
+    .expect("HOME not found")
+    .join("Library/LaunchAgents");
+  std::fs::create_dir_all(&agents_dir)?;
 
-    let plist_path = agents_dir.join("com.orbitdock.server.plist");
-    write_service_file(&plist_path, &plist)?;
-    validate_launchd_plist(&plist_path)?;
-    println!("  Wrote {}", plist_path.display());
+  let plist_path = agents_dir.join("com.orbitdock.server.plist");
+  write_service_file(&plist_path, &plist)?;
+  validate_launchd_plist(&plist_path)?;
+  println!("  Wrote {}", plist_path.display());
 
-    if plan.enable {
-        let bootstrap = std::process::Command::new("launchctl")
-            .args(["bootstrap", &domain, &plist_path.to_string_lossy()])
-            .output()?;
+  if plan.enable {
+    let bootstrap = std::process::Command::new("launchctl")
+      .args(["bootstrap", &domain, &plist_path.to_string_lossy()])
+      .output()?;
 
-        if !bootstrap.status.success() {
-            let stderr = String::from_utf8_lossy(&bootstrap.stderr);
-            anyhow::bail!("launchctl bootstrap failed: {}", stderr.trim());
-        }
-
-        let kickstart_target = format!("{domain}/{label}");
-        let kickstart = std::process::Command::new("launchctl")
-            .args(["kickstart", "-k", &kickstart_target])
-            .output()?;
-
-        if !kickstart.status.success() {
-            let stderr = String::from_utf8_lossy(&kickstart.stderr);
-            anyhow::bail!("launchctl kickstart failed: {}", stderr.trim());
-        }
-
-        wait_for_service_health(Duration::from_secs(5))?;
-        println!("  Service bootstrapped and started");
-    } else {
-        println!();
-        println!("  To enable:");
-        println!(
-            "    launchctl bootstrap {} {}",
-            launchd_domain(),
-            plist_path.display()
-        );
-        println!(
-            "    launchctl kickstart -k {}/com.orbitdock.server",
-            launchd_domain()
-        );
+    if !bootstrap.status.success() {
+      let stderr = String::from_utf8_lossy(&bootstrap.stderr);
+      anyhow::bail!("launchctl bootstrap failed: {}", stderr.trim());
     }
 
+    let kickstart_target = format!("{domain}/{label}");
+    let kickstart = std::process::Command::new("launchctl")
+      .args(["kickstart", "-k", &kickstart_target])
+      .output()?;
+
+    if !kickstart.status.success() {
+      let stderr = String::from_utf8_lossy(&kickstart.stderr);
+      anyhow::bail!("launchctl kickstart failed: {}", stderr.trim());
+    }
+
+    wait_for_service_health(Duration::from_secs(5))?;
+    println!("  Service bootstrapped and started");
+  } else {
     println!();
-    Ok(())
+    println!("  To enable:");
+    println!(
+      "    launchctl bootstrap {} {}",
+      launchd_domain(),
+      plist_path.display()
+    );
+    println!(
+      "    launchctl kickstart -k {}/com.orbitdock.server",
+      launchd_domain()
+    );
+  }
+
+  println!();
+  Ok(())
 }
 
 fn stop_existing_launchd_service(
-    plan: &ServiceInstallPlan,
-    domain: &str,
-    label: &str,
+  plan: &ServiceInstallPlan,
+  domain: &str,
+  label: &str,
 ) -> anyhow::Result<()> {
-    let plist_path = dirs::home_dir()
-        .expect("HOME not found")
-        .join("Library/LaunchAgents/com.orbitdock.server.plist");
-    let target = format!("{domain}/{label}");
+  let plist_path = dirs::home_dir()
+    .expect("HOME not found")
+    .join("Library/LaunchAgents/com.orbitdock.server.plist");
+  let target = format!("{domain}/{label}");
 
-    let _ = std::process::Command::new("launchctl")
-        .args(["bootout", &target])
-        .output();
-    let _ = std::process::Command::new("launchctl")
-        .args(["bootout", domain, &plist_path.to_string_lossy()])
-        .output();
+  let _ = std::process::Command::new("launchctl")
+    .args(["bootout", &target])
+    .output();
+  let _ = std::process::Command::new("launchctl")
+    .args(["bootout", domain, &plist_path.to_string_lossy()])
+    .output();
 
-    wait_for_existing_server_stop(Duration::from_secs(5));
-    remove_stale_pid_file(plan);
-    Ok(())
+  wait_for_existing_server_stop(Duration::from_secs(5));
+  remove_stale_pid_file(plan);
+  Ok(())
 }
 
 fn wait_for_existing_server_stop(timeout: Duration) {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if local_healthcheck_ok() {
-            std::thread::sleep(Duration::from_millis(200));
-            continue;
-        }
-
-        if !server_port_in_use() {
-            break;
-        }
-
-        std::thread::sleep(Duration::from_millis(200));
+  let deadline = Instant::now() + timeout;
+  while Instant::now() < deadline {
+    if local_healthcheck_ok() {
+      std::thread::sleep(Duration::from_millis(200));
+      continue;
     }
+
+    if !server_port_in_use() {
+      break;
+    }
+
+    std::thread::sleep(Duration::from_millis(200));
+  }
 }
 
 fn wait_for_service_health(timeout: Duration) -> anyhow::Result<()> {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if local_healthcheck_ok() {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(250));
+  let deadline = Instant::now() + timeout;
+  while Instant::now() < deadline {
+    if local_healthcheck_ok() {
+      return Ok(());
     }
+    std::thread::sleep(Duration::from_millis(250));
+  }
 
-    anyhow::bail!("service did not become healthy after launchctl bootstrap")
+  anyhow::bail!("service did not become healthy after launchctl bootstrap")
 }
 
 fn local_healthcheck_ok() -> bool {
-    std::process::Command::new("curl")
-        .args([
-            "-s",
-            "--connect-timeout",
-            "1",
-            "--max-time",
-            "2",
-            "http://127.0.0.1:4000/health",
-        ])
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+  std::process::Command::new("curl")
+    .args([
+      "-s",
+      "--connect-timeout",
+      "1",
+      "--max-time",
+      "2",
+      "http://127.0.0.1:4000/health",
+    ])
+    .output()
+    .map(|output| output.status.success())
+    .unwrap_or(false)
 }
 
 fn server_port_in_use() -> bool {
-    std::net::TcpListener::bind("127.0.0.1:4000").is_err()
+  std::net::TcpListener::bind("127.0.0.1:4000").is_err()
 }
 
 fn remove_stale_pid_file(plan: &ServiceInstallPlan) {
-    let pid_path = Path::new(&plan.data_dir).join("orbitdock.pid");
-    let Ok(pid_str) = std::fs::read_to_string(&pid_path) else {
-        return;
-    };
+  let pid_path = Path::new(&plan.data_dir).join("orbitdock.pid");
+  let Ok(pid_str) = std::fs::read_to_string(&pid_path) else {
+    return;
+  };
 
-    let Ok(pid) = pid_str.trim().parse::<u32>() else {
-        let _ = std::fs::remove_file(&pid_path);
-        return;
-    };
+  let Ok(pid) = pid_str.trim().parse::<u32>() else {
+    let _ = std::fs::remove_file(&pid_path);
+    return;
+  };
 
-    if pid == 0 || !process_alive(pid) {
-        let _ = std::fs::remove_file(&pid_path);
-    }
+  if pid == 0 || !process_alive(pid) {
+    let _ = std::fs::remove_file(&pid_path);
+  }
 }
 
 fn process_alive(pid: u32) -> bool {
-    unsafe { libc::kill(pid as i32, 0) == 0 }
+  unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
 fn validate_launchd_plist(plist_path: &Path) -> anyhow::Result<()> {
-    let output = std::process::Command::new("plutil")
-        .args(["-lint", &plist_path.to_string_lossy()])
-        .output()?;
+  let output = std::process::Command::new("plutil")
+    .args(["-lint", &plist_path.to_string_lossy()])
+    .output()?;
 
-    if output.status.success() {
-        return Ok(());
-    }
+  if output.status.success() {
+    return Ok(());
+  }
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let detail = stderr.trim();
-    let fallback = stdout.trim();
-    anyhow::bail!(
-        "launchd plist validation failed: {}",
-        if detail.is_empty() { fallback } else { detail }
-    );
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  let detail = stderr.trim();
+  let fallback = stdout.trim();
+  anyhow::bail!(
+    "launchd plist validation failed: {}",
+    if detail.is_empty() { fallback } else { detail }
+  );
 }
 
 fn launchd_domain() -> String {
-    format!("gui/{}", unsafe { libc::geteuid() })
+  format!("gui/{}", unsafe { libc::geteuid() })
 }
 
 struct ServiceEnvironment {
-    path: String,
-    codex_bin: Option<String>,
-    claude_bin: Option<String>,
+  path: String,
+  codex_bin: Option<String>,
+  claude_bin: Option<String>,
 }
 
 fn render_launchd_plist(
-    plan: &ServiceInstallPlan,
-    environment_variables: &[(String, String)],
+  plan: &ServiceInstallPlan,
+  environment_variables: &[(String, String)],
 ) -> String {
-    let environment_xml = render_launchd_environment_variables(environment_variables);
-    let mut plist = LAUNCHD_TEMPLATE
-        .replace("{{BINARY_PATH}}", &plan.binary_path)
-        .replace("{{BIND_ADDR}}", &plan.bind_addr)
-        .replace("{{DATA_DIR}}", &plan.data_dir)
-        .replace("{{ENVIRONMENT_VARIABLES}}", &environment_xml);
+  let environment_xml = render_launchd_environment_variables(environment_variables);
+  let mut plist = LAUNCHD_TEMPLATE
+    .replace("{{BINARY_PATH}}", &plan.binary_path)
+    .replace("{{BIND_ADDR}}", &plan.bind_addr)
+    .replace("{{DATA_DIR}}", &plan.data_dir)
+    .replace("{{ENVIRONMENT_VARIABLES}}", &environment_xml);
 
-    if !plan.extra_args.is_empty() {
-        let extra_strings = plan
-            .extra_args
-            .iter()
-            .map(|arg| format!("        <string>{}</string>", arg))
-            .collect::<Vec<_>>()
-            .join("\n");
-        plist = plist.replace(
-            &format!("        <string>{}</string>\n    </array>", plan.data_dir),
-            &format!(
-                "        <string>{}</string>\n{}\n    </array>",
-                plan.data_dir, extra_strings
-            ),
-        );
-    }
+  if !plan.extra_args.is_empty() {
+    let extra_strings = plan
+      .extra_args
+      .iter()
+      .map(|arg| format!("        <string>{}</string>", arg))
+      .collect::<Vec<_>>()
+      .join("\n");
+    plist = plist.replace(
+      &format!("        <string>{}</string>\n    </array>", plan.data_dir),
+      &format!(
+        "        <string>{}</string>\n{}\n    </array>",
+        plan.data_dir, extra_strings
+      ),
+    );
+  }
 
-    plist
+  plist
 }
 
 fn resolve_service_environment() -> ServiceEnvironment {
-    let path = resolve_path_for_service();
-    let path_entries = split_path_entries(&path);
-    let codex_bin = resolve_codex_binary_for_service(&path_entries);
-    let claude_bin = resolve_claude_binary_for_service(&path_entries);
-    ServiceEnvironment {
-        path,
-        codex_bin,
-        claude_bin,
-    }
+  let path = resolve_path_for_service();
+  let path_entries = split_path_entries(&path);
+  let codex_bin = resolve_codex_binary_for_service(&path_entries);
+  let claude_bin = resolve_claude_binary_for_service(&path_entries);
+  ServiceEnvironment {
+    path,
+    codex_bin,
+    claude_bin,
+  }
 }
 
 /// Resolve a PATH suitable for the launchd service environment.
@@ -384,299 +384,299 @@ fn resolve_service_environment() -> ServiceEnvironment {
 /// Uses the current process PATH first (captured from the invoking shell).
 /// Falls back to probing the login shell PATH and then to common defaults.
 fn resolve_path_for_service() -> String {
-    if let Some(path_env) = std::env::var_os("PATH") {
-        let entries = std::env::split_paths(&path_env)
-            .map(|path| path.to_string_lossy().to_string())
-            .collect::<Vec<_>>();
-        if let Some(path) = dedup_non_empty(entries) {
-            return path;
-        }
+  if let Some(path_env) = std::env::var_os("PATH") {
+    let entries = std::env::split_paths(&path_env)
+      .map(|path| path.to_string_lossy().to_string())
+      .collect::<Vec<_>>();
+    if let Some(path) = dedup_non_empty(entries) {
+      return path;
     }
+  }
 
-    if let Some(path) = probe_login_shell_path().and_then(|value| normalize_path_env(&value)) {
-        return path;
+  if let Some(path) = probe_login_shell_path().and_then(|value| normalize_path_env(&value)) {
+    return path;
+  }
+
+  let mut entries = Vec::new();
+  for dir in COMMON_PATH_DIRS {
+    entries.push(dir.to_string());
+  }
+
+  if let Some(home) = dirs::home_dir() {
+    for rel in [".local/bin", ".cargo/bin"] {
+      let dir = home.join(rel);
+      if dir.is_dir() {
+        entries.push(dir.to_string_lossy().to_string());
+      }
     }
+  }
 
-    let mut entries = Vec::new();
-    for dir in COMMON_PATH_DIRS {
-        entries.push(dir.to_string());
-    }
-
-    if let Some(home) = dirs::home_dir() {
-        for rel in [".local/bin", ".cargo/bin"] {
-            let dir = home.join(rel);
-            if dir.is_dir() {
-                entries.push(dir.to_string_lossy().to_string());
-            }
-        }
-    }
-
-    dedup_non_empty(entries).unwrap_or_else(|| COMMON_PATH_DIRS.join(":"))
+  dedup_non_empty(entries).unwrap_or_else(|| COMMON_PATH_DIRS.join(":"))
 }
 
 fn resolve_codex_binary_for_service(path_entries: &[String]) -> Option<String> {
-    if let Some(path) = resolve_explicit_binary_env("ORBITDOCK_CODEX_PATH") {
-        return Some(path);
-    }
+  if let Some(path) = resolve_explicit_binary_env("ORBITDOCK_CODEX_PATH") {
+    return Some(path);
+  }
 
-    for candidate in COMMON_CODEX_PATHS {
-        let path = Path::new(candidate);
-        if is_executable_file(path) {
-            return Some(candidate.to_string());
-        }
+  for candidate in COMMON_CODEX_PATHS {
+    let path = Path::new(candidate);
+    if is_executable_file(path) {
+      return Some(candidate.to_string());
     }
+  }
 
-    find_binary_in_path_entries("codex", path_entries)
+  find_binary_in_path_entries("codex", path_entries)
 }
 
 fn resolve_claude_binary_for_service(path_entries: &[String]) -> Option<String> {
-    if let Some(path) = resolve_explicit_binary_env("CLAUDE_BIN") {
-        return Some(path);
-    }
+  if let Some(path) = resolve_explicit_binary_env("CLAUDE_BIN") {
+    return Some(path);
+  }
 
-    if let Some(home) = dirs::home_dir() {
-        let candidate = home.join(".claude/local/claude");
-        if is_executable_file(&candidate) {
-            return Some(candidate.to_string_lossy().to_string());
-        }
+  if let Some(home) = dirs::home_dir() {
+    let candidate = home.join(".claude/local/claude");
+    if is_executable_file(&candidate) {
+      return Some(candidate.to_string_lossy().to_string());
     }
+  }
 
-    find_binary_in_path_entries("claude", path_entries)
+  find_binary_in_path_entries("claude", path_entries)
 }
 
 fn resolve_explicit_binary_env(env_var: &str) -> Option<String> {
-    let value = std::env::var(env_var).ok()?;
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let path = Path::new(trimmed);
-    if is_executable_file(path) {
-        Some(path.to_string_lossy().to_string())
-    } else {
-        None
-    }
+  let value = std::env::var(env_var).ok()?;
+  let trimmed = value.trim();
+  if trimmed.is_empty() {
+    return None;
+  }
+  let path = Path::new(trimmed);
+  if is_executable_file(path) {
+    Some(path.to_string_lossy().to_string())
+  } else {
+    None
+  }
 }
 
 fn find_binary_in_path_entries(binary_name: &str, path_entries: &[String]) -> Option<String> {
-    for entry in path_entries {
-        let candidate = Path::new(entry).join(binary_name);
-        if is_executable_file(&candidate) {
-            return Some(candidate.to_string_lossy().to_string());
-        }
+  for entry in path_entries {
+    let candidate = Path::new(entry).join(binary_name);
+    if is_executable_file(&candidate) {
+      return Some(candidate.to_string_lossy().to_string());
     }
-    None
+  }
+  None
 }
 
 fn split_path_entries(path_env: &str) -> Vec<String> {
-    std::env::split_paths(std::ffi::OsStr::new(path_env))
-        .map(|path| path.to_string_lossy().to_string())
-        .collect::<Vec<_>>()
+  std::env::split_paths(std::ffi::OsStr::new(path_env))
+    .map(|path| path.to_string_lossy().to_string())
+    .collect::<Vec<_>>()
 }
 
 fn normalize_path_env(path_env: &str) -> Option<String> {
-    dedup_non_empty(split_path_entries(path_env))
+  dedup_non_empty(split_path_entries(path_env))
 }
 
 fn probe_login_shell_path() -> Option<String> {
-    let command = format!("printf '{}%s\\n' \"$PATH\"", PATH_PROBE_SENTINEL);
-    let arg_sets = [
-        vec!["-ilc".to_string(), command.clone()],
-        vec!["-lc".to_string(), command.clone()],
-        vec!["-c".to_string(), command],
-    ];
+  let command = format!("printf '{}%s\\n' \"$PATH\"", PATH_PROBE_SENTINEL);
+  let arg_sets = [
+    vec!["-ilc".to_string(), command.clone()],
+    vec!["-lc".to_string(), command.clone()],
+    vec!["-c".to_string(), command],
+  ];
 
-    for shell in candidate_shells() {
-        for args in arg_sets.iter().cloned() {
-            let output = match std::process::Command::new(&shell)
-                .args(args)
-                .stderr(Stdio::null())
-                .output()
-            {
-                Ok(output) => output,
-                Err(_) => continue,
-            };
-            if !output.status.success() {
-                continue;
-            }
-            let text = match String::from_utf8(output.stdout) {
-                Ok(text) => text,
-                Err(_) => continue,
-            };
-            if let Some(path) = extract_probe_path(&text) {
-                return Some(path);
-            }
-        }
+  for shell in candidate_shells() {
+    for args in arg_sets.iter().cloned() {
+      let output = match std::process::Command::new(&shell)
+        .args(args)
+        .stderr(Stdio::null())
+        .output()
+      {
+        Ok(output) => output,
+        Err(_) => continue,
+      };
+      if !output.status.success() {
+        continue;
+      }
+      let text = match String::from_utf8(output.stdout) {
+        Ok(text) => text,
+        Err(_) => continue,
+      };
+      if let Some(path) = extract_probe_path(&text) {
+        return Some(path);
+      }
     }
+  }
 
-    None
+  None
 }
 
 fn extract_probe_path(output: &str) -> Option<String> {
-    let start = output.rfind(PATH_PROBE_SENTINEL)?;
-    let path = &output[start + PATH_PROBE_SENTINEL.len()..];
-    let first_line = path.lines().next()?.trim();
-    if first_line.is_empty() {
-        None
-    } else {
-        Some(first_line.to_string())
-    }
+  let start = output.rfind(PATH_PROBE_SENTINEL)?;
+  let path = &output[start + PATH_PROBE_SENTINEL.len()..];
+  let first_line = path.lines().next()?.trim();
+  if first_line.is_empty() {
+    None
+  } else {
+    Some(first_line.to_string())
+  }
 }
 
 fn candidate_shells() -> Vec<String> {
-    let mut shells = Vec::new();
-    if let Ok(shell) = std::env::var("SHELL") {
-        shells.push(shell);
-    }
-    for fallback in ["/bin/zsh", "/bin/bash", "/bin/sh"] {
-        shells.push(fallback.to_string());
-    }
-    dedup_values(shells)
+  let mut shells = Vec::new();
+  if let Ok(shell) = std::env::var("SHELL") {
+    shells.push(shell);
+  }
+  for fallback in ["/bin/zsh", "/bin/bash", "/bin/sh"] {
+    shells.push(fallback.to_string());
+  }
+  dedup_values(shells)
 }
 
 fn dedup_values(values: Vec<String>) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    let mut deduped = Vec::new();
+  let mut seen = std::collections::HashSet::new();
+  let mut deduped = Vec::new();
 
-    for value in values {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let normalized = trimmed.to_string();
-        if seen.insert(normalized.clone()) {
-            deduped.push(normalized);
-        }
+  for value in values {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+      continue;
     }
+    let normalized = trimmed.to_string();
+    if seen.insert(normalized.clone()) {
+      deduped.push(normalized);
+    }
+  }
 
-    deduped
+  deduped
 }
 
 fn dedup_non_empty(values: Vec<String>) -> Option<String> {
-    let deduped = dedup_values(values);
-    if deduped.is_empty() {
-        None
-    } else {
-        Some(deduped.join(":"))
-    }
+  let deduped = dedup_values(values);
+  if deduped.is_empty() {
+    None
+  } else {
+    Some(deduped.join(":"))
+  }
 }
 
 fn render_launchd_environment_variables(entries: &[(String, String)]) -> String {
-    let mut xml = Vec::new();
-    xml.push("    <key>EnvironmentVariables</key>".to_string());
-    xml.push("    <dict>".to_string());
-    for (key, value) in entries {
-        xml.push(format!("        <key>{}</key>", escape_xml(key)));
-        xml.push(format!("        <string>{}</string>", escape_xml(value)));
-    }
-    xml.push("    </dict>".to_string());
-    xml.join("\n")
+  let mut xml = Vec::new();
+  xml.push("    <key>EnvironmentVariables</key>".to_string());
+  xml.push("    <dict>".to_string());
+  for (key, value) in entries {
+    xml.push(format!("        <key>{}</key>", escape_xml(key)));
+    xml.push(format!("        <string>{}</string>", escape_xml(value)));
+  }
+  xml.push("    </dict>".to_string());
+  xml.join("\n")
 }
 
 fn escape_xml(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
+  value
+    .replace('&', "&amp;")
+    .replace('<', "&lt;")
+    .replace('>', "&gt;")
+    .replace('"', "&quot;")
+    .replace('\'', "&apos;")
 }
 
 fn is_executable_file(path: &Path) -> bool {
-    std::fs::metadata(path)
-        .map(|meta| meta.is_file())
-        .unwrap_or(false)
+  std::fs::metadata(path)
+    .map(|meta| meta.is_file())
+    .unwrap_or(false)
 }
 
 fn install_systemd(plan: &ServiceInstallPlan) -> anyhow::Result<()> {
-    let unit = render_systemd_unit(plan);
+  let unit = render_systemd_unit(plan);
 
-    let systemd_dir = dirs::home_dir()
-        .expect("HOME not found")
-        .join(".config/systemd/user");
-    std::fs::create_dir_all(&systemd_dir)?;
+  let systemd_dir = dirs::home_dir()
+    .expect("HOME not found")
+    .join(".config/systemd/user");
+  std::fs::create_dir_all(&systemd_dir)?;
 
-    let unit_path = systemd_dir.join("orbitdock-server.service");
-    write_service_file(&unit_path, &unit)?;
-    println!("  Wrote {}", unit_path.display());
+  let unit_path = systemd_dir.join("orbitdock-server.service");
+  write_service_file(&unit_path, &unit)?;
+  println!("  Wrote {}", unit_path.display());
 
-    // Reload systemd to pick up new/changed unit file
-    let _ = std::process::Command::new("systemctl")
-        .args(["--user", "daemon-reload"])
-        .output();
+  // Reload systemd to pick up new/changed unit file
+  let _ = std::process::Command::new("systemctl")
+    .args(["--user", "daemon-reload"])
+    .output();
 
-    if plan.enable {
-        let output = std::process::Command::new("systemctl")
-            .args(["--user", "enable", "--now", "orbitdock-server.service"])
-            .output()?;
+  if plan.enable {
+    let output = std::process::Command::new("systemctl")
+      .args(["--user", "enable", "--now", "orbitdock-server.service"])
+      .output()?;
 
-        if output.status.success() {
-            println!("  Service enabled and started");
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            println!("  Warning: systemctl enable failed: {}", stderr.trim());
-        }
+    if output.status.success() {
+      println!("  Service enabled and started");
     } else {
-        println!();
-        println!("  To enable:");
-        println!("    systemctl --user enable --now orbitdock-server.service");
+      let stderr = String::from_utf8_lossy(&output.stderr);
+      println!("  Warning: systemctl enable failed: {}", stderr.trim());
     }
-
+  } else {
     println!();
-    Ok(())
+    println!("  To enable:");
+    println!("    systemctl --user enable --now orbitdock-server.service");
+  }
+
+  println!();
+  Ok(())
 }
 
 fn render_systemd_unit(plan: &ServiceInstallPlan) -> String {
-    let auth_env = plan
-        .auth_token
-        .as_deref()
-        .map(|token| {
-            format!(
-                "Environment=\"ORBITDOCK_AUTH_TOKEN={}\"",
-                escape_systemd_env(token)
-            )
-        })
-        .unwrap_or_default();
+  let auth_env = plan
+    .auth_token
+    .as_deref()
+    .map(|token| {
+      format!(
+        "Environment=\"ORBITDOCK_AUTH_TOKEN={}\"",
+        escape_systemd_env(token)
+      )
+    })
+    .unwrap_or_default();
 
-    let mut unit = SYSTEMD_TEMPLATE
-        .replace("{{BINARY_PATH}}", &plan.binary_path)
-        .replace("{{BIND_ADDR}}", &plan.bind_addr)
-        .replace("{{DATA_DIR}}", &plan.data_dir)
-        .replace("{{AUTH_TOKEN_ENV}}", &auth_env);
+  let mut unit = SYSTEMD_TEMPLATE
+    .replace("{{BINARY_PATH}}", &plan.binary_path)
+    .replace("{{BIND_ADDR}}", &plan.bind_addr)
+    .replace("{{DATA_DIR}}", &plan.data_dir)
+    .replace("{{AUTH_TOKEN_ENV}}", &auth_env);
 
-    if !plan.extra_args.is_empty() {
-        unit = unit.replace(
-            &format!("--data-dir {}", plan.data_dir),
-            &format!("--data-dir {} {}", plan.data_dir, plan.extra_args.join(" ")),
-        );
-    }
+  if !plan.extra_args.is_empty() {
+    unit = unit.replace(
+      &format!("--data-dir {}", plan.data_dir),
+      &format!("--data-dir {} {}", plan.data_dir, plan.extra_args.join(" ")),
+    );
+  }
 
-    unit
+  unit
 }
 
 fn escape_systemd_env(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+  value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn write_service_file(path: &Path, content: &str) -> anyhow::Result<()> {
-    #[cfg(unix)]
-    {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)?;
-        file.write_all(content.as_bytes())?;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-        Ok(())
-    }
+  #[cfg(unix)]
+  {
+    let mut file = std::fs::OpenOptions::new()
+      .write(true)
+      .create(true)
+      .truncate(true)
+      .mode(0o600)
+      .open(path)?;
+    file.write_all(content.as_bytes())?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+  }
 
-    #[cfg(not(unix))]
-    {
-        std::fs::write(path, content)?;
-        Ok(())
-    }
+  #[cfg(not(unix))]
+  {
+    std::fs::write(path, content)?;
+    Ok(())
+  }
 }
 
 /// Read the auth token from the encrypted hook transport config (`hook-forward.json`).
@@ -685,135 +685,135 @@ fn write_service_file(path: &Path, content: &str) -> anyhow::Result<()> {
 /// `install-service --enable` automatically picks up the token provisioned
 /// by `orbitdock init`.
 fn read_token_from_hook_config() -> Option<String> {
-    let config = super::hook_forward::read_transport_config().ok()??;
-    config.auth_token()
+  let config = super::hook_forward::read_transport_config().ok()??;
+  config.auth_token()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn extract_probe_path_prefers_last_probe_output() {
-        let output = "__ORBITDOCK_PATH__/tmp/old\nnoise\n__ORBITDOCK_PATH__/usr/bin:/bin\n";
-        let path = extract_probe_path(output);
-        assert_eq!(path.as_deref(), Some("/usr/bin:/bin"));
-    }
+  #[test]
+  fn extract_probe_path_prefers_last_probe_output() {
+    let output = "__ORBITDOCK_PATH__/tmp/old\nnoise\n__ORBITDOCK_PATH__/usr/bin:/bin\n";
+    let path = extract_probe_path(output);
+    assert_eq!(path.as_deref(), Some("/usr/bin:/bin"));
+  }
 
-    #[test]
-    fn extract_probe_path_rejects_empty_paths() {
-        let output = "__ORBITDOCK_PATH__\n";
-        assert_eq!(extract_probe_path(output), None);
-    }
+  #[test]
+  fn extract_probe_path_rejects_empty_paths() {
+    let output = "__ORBITDOCK_PATH__\n";
+    assert_eq!(extract_probe_path(output), None);
+  }
 
-    #[test]
-    fn dedup_non_empty_removes_blanks_and_duplicates() {
-        let values = vec![
-            "".to_string(),
-            " /usr/bin ".to_string(),
-            "/bin".to_string(),
-            "/usr/bin".to_string(),
-            "   ".to_string(),
-        ];
-        assert_eq!(dedup_non_empty(values).as_deref(), Some("/usr/bin:/bin"));
-    }
+  #[test]
+  fn dedup_non_empty_removes_blanks_and_duplicates() {
+    let values = vec![
+      "".to_string(),
+      " /usr/bin ".to_string(),
+      "/bin".to_string(),
+      "/usr/bin".to_string(),
+      "   ".to_string(),
+    ];
+    assert_eq!(dedup_non_empty(values).as_deref(), Some("/usr/bin:/bin"));
+  }
 
-    #[test]
-    fn normalize_path_env_dedups_empty_segments() {
-        let path = normalize_path_env("/usr/bin::/bin:/usr/bin");
-        assert_eq!(path.as_deref(), Some("/usr/bin:/bin"));
-    }
+  #[test]
+  fn normalize_path_env_dedups_empty_segments() {
+    let path = normalize_path_env("/usr/bin::/bin:/usr/bin");
+    assert_eq!(path.as_deref(), Some("/usr/bin:/bin"));
+  }
 
-    #[test]
-    fn render_launchd_environment_variables_escapes_values() {
-        let xml = render_launchd_environment_variables(&[
-            ("PATH".to_string(), "/usr/bin:/bin".to_string()),
-            (
-                "CLAUDE_BIN".to_string(),
-                "/tmp/claude & \"beta\"".to_string(),
-            ),
-        ]);
-        assert!(xml.contains("<key>EnvironmentVariables</key>"));
-        assert!(xml.contains("<key>PATH</key>"));
-        assert!(xml.contains("<string>/usr/bin:/bin</string>"));
-        assert!(xml.contains("<key>CLAUDE_BIN</key>"));
-        assert!(xml.contains("<string>/tmp/claude &amp; &quot;beta&quot;</string>"));
-    }
+  #[test]
+  fn render_launchd_environment_variables_escapes_values() {
+    let xml = render_launchd_environment_variables(&[
+      ("PATH".to_string(), "/usr/bin:/bin".to_string()),
+      (
+        "CLAUDE_BIN".to_string(),
+        "/tmp/claude & \"beta\"".to_string(),
+      ),
+    ]);
+    assert!(xml.contains("<key>EnvironmentVariables</key>"));
+    assert!(xml.contains("<key>PATH</key>"));
+    assert!(xml.contains("<string>/usr/bin:/bin</string>"));
+    assert!(xml.contains("<key>CLAUDE_BIN</key>"));
+    assert!(xml.contains("<string>/tmp/claude &amp; &quot;beta&quot;</string>"));
+  }
 
-    #[test]
-    fn service_install_plan_trims_auth_token_and_collects_tls_args() {
-        let plan = plan_service_install(
-            Path::new("/tmp/orbitdock"),
-            ServiceOptions {
-                bind: "127.0.0.1:4000".parse().expect("bind"),
-                enable: true,
-                tls_cert: Some(PathBuf::from("/tmp/server.crt")),
-                tls_key: Some(PathBuf::from("/tmp/server.key")),
-                auth_token: Some("  secret-token  ".to_string()),
-            },
-        )
-        .expect("plan service install");
+  #[test]
+  fn service_install_plan_trims_auth_token_and_collects_tls_args() {
+    let plan = plan_service_install(
+      Path::new("/tmp/orbitdock"),
+      ServiceOptions {
+        bind: "127.0.0.1:4000".parse().expect("bind"),
+        enable: true,
+        tls_cert: Some(PathBuf::from("/tmp/server.crt")),
+        tls_key: Some(PathBuf::from("/tmp/server.key")),
+        auth_token: Some("  secret-token  ".to_string()),
+      },
+    )
+    .expect("plan service install");
 
-        assert_eq!(plan.bind_addr, "127.0.0.1:4000");
-        assert_eq!(plan.data_dir, "/tmp/orbitdock");
-        assert_eq!(plan.auth_token.as_deref(), Some("secret-token"));
-        assert_eq!(
-            plan.extra_args,
-            vec![
-                "--tls-cert".to_string(),
-                "/tmp/server.crt".to_string(),
-                "--tls-key".to_string(),
-                "/tmp/server.key".to_string()
-            ]
-        );
-        assert!(plan.enable);
-    }
+    assert_eq!(plan.bind_addr, "127.0.0.1:4000");
+    assert_eq!(plan.data_dir, "/tmp/orbitdock");
+    assert_eq!(plan.auth_token.as_deref(), Some("secret-token"));
+    assert_eq!(
+      plan.extra_args,
+      vec![
+        "--tls-cert".to_string(),
+        "/tmp/server.crt".to_string(),
+        "--tls-key".to_string(),
+        "/tmp/server.key".to_string()
+      ]
+    );
+    assert!(plan.enable);
+  }
 
-    #[test]
-    fn render_launchd_plist_includes_env_and_extra_args() {
-        let plan = ServiceInstallPlan {
-            binary_path: "/usr/local/bin/orbitdock".to_string(),
-            bind_addr: "127.0.0.1:4000".to_string(),
-            data_dir: "/tmp/orbitdock".to_string(),
-            extra_args: vec!["--tls-cert".to_string(), "/tmp/server.crt".to_string()],
-            auth_token: Some("secret-token".to_string()),
-            enable: true,
-        };
+  #[test]
+  fn render_launchd_plist_includes_env_and_extra_args() {
+    let plan = ServiceInstallPlan {
+      binary_path: "/usr/local/bin/orbitdock".to_string(),
+      bind_addr: "127.0.0.1:4000".to_string(),
+      data_dir: "/tmp/orbitdock".to_string(),
+      extra_args: vec!["--tls-cert".to_string(), "/tmp/server.crt".to_string()],
+      auth_token: Some("secret-token".to_string()),
+      enable: true,
+    };
 
-        let plist = render_launchd_plist(
-            &plan,
-            &[
-                ("PATH".to_string(), "/usr/bin:/bin".to_string()),
-                (
-                    "ORBITDOCK_AUTH_TOKEN".to_string(),
-                    "secret-token".to_string(),
-                ),
-            ],
-        );
+    let plist = render_launchd_plist(
+      &plan,
+      &[
+        ("PATH".to_string(), "/usr/bin:/bin".to_string()),
+        (
+          "ORBITDOCK_AUTH_TOKEN".to_string(),
+          "secret-token".to_string(),
+        ),
+      ],
+    );
 
-        assert!(plist.contains("<string>/usr/local/bin/orbitdock</string>"));
-        assert!(plist.contains("<string>127.0.0.1:4000</string>"));
-        assert!(plist.contains("<key>ORBITDOCK_AUTH_TOKEN</key>"));
-        assert!(plist.contains("<string>--tls-cert</string>"));
-        assert!(plist.contains("<string>/tmp/server.crt</string>"));
-    }
+    assert!(plist.contains("<string>/usr/local/bin/orbitdock</string>"));
+    assert!(plist.contains("<string>127.0.0.1:4000</string>"));
+    assert!(plist.contains("<key>ORBITDOCK_AUTH_TOKEN</key>"));
+    assert!(plist.contains("<string>--tls-cert</string>"));
+    assert!(plist.contains("<string>/tmp/server.crt</string>"));
+  }
 
-    #[test]
-    fn render_systemd_unit_includes_auth_env_and_extra_args() {
-        let plan = ServiceInstallPlan {
-            binary_path: "/usr/local/bin/orbitdock".to_string(),
-            bind_addr: "0.0.0.0:4000".to_string(),
-            data_dir: "/tmp/orbitdock".to_string(),
-            extra_args: vec!["--tls-key".to_string(), "/tmp/server.key".to_string()],
-            auth_token: Some("secret-token".to_string()),
-            enable: false,
-        };
+  #[test]
+  fn render_systemd_unit_includes_auth_env_and_extra_args() {
+    let plan = ServiceInstallPlan {
+      binary_path: "/usr/local/bin/orbitdock".to_string(),
+      bind_addr: "0.0.0.0:4000".to_string(),
+      data_dir: "/tmp/orbitdock".to_string(),
+      extra_args: vec!["--tls-key".to_string(), "/tmp/server.key".to_string()],
+      auth_token: Some("secret-token".to_string()),
+      enable: false,
+    };
 
-        let unit = render_systemd_unit(&plan);
+    let unit = render_systemd_unit(&plan);
 
-        assert!(unit.contains("Environment=\"ORBITDOCK_AUTH_TOKEN=secret-token\""));
-        assert!(unit.contains(
+    assert!(unit.contains("Environment=\"ORBITDOCK_AUTH_TOKEN=secret-token\""));
+    assert!(unit.contains(
             "ExecStart=/usr/local/bin/orbitdock start --bind 0.0.0.0:4000 --data-dir /tmp/orbitdock --tls-key /tmp/server.key"
         ));
-    }
+  }
 }

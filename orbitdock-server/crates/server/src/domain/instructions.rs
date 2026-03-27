@@ -3,7 +3,7 @@
 /// Returned by `get_session_instructions` as `system_prompt` for client-initiated
 /// sessions, and merged into `developer_instructions` for headless mission sessions.
 pub fn orbitdock_system_instructions() -> String {
-    r#"## OrbitDock CLI
+  r#"## OrbitDock CLI
 
 You have the `orbitdock` CLI available for inspecting and controlling OrbitDock
 from within this session. Pass `--json` to any command for machine-readable output.
@@ -58,7 +58,7 @@ Use `orbitdock --help` or `orbitdock <command> --help` for full details."#
 /// These are injected by the server at dispatch time regardless of MISSION.md
 /// contents, ensuring agents always know about their tools and the workpad pattern.
 pub fn mission_agent_instructions() -> String {
-    r#"## Mission Tools
+  r#"## Mission Tools
 
 You have OrbitDock mission tools for interacting with the issue tracker.
 Use these instead of raw API calls — they are pre-configured with your

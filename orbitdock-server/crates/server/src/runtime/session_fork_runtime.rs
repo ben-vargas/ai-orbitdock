@@ -10,327 +10,327 @@ use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
 use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
 use crate::infrastructure::persistence::{
-    load_messages_from_transcript_path, PersistCommand, SessionCreateParams,
+  load_messages_from_transcript_path, PersistCommand, SessionCreateParams,
 };
 use crate::runtime::session_fork_policy::{
-    remap_rows_for_fork, select_fork_rows, truncate_rows_before_nth_user_row,
+  remap_rows_for_fork, select_fork_rows, truncate_rows_before_nth_user_row,
 };
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
-    claim_codex_thread_for_direct_session, hydrate_full_row_history,
+  claim_codex_thread_for_direct_session, hydrate_full_row_history,
 };
 
 pub(crate) struct ForkedSessionStart {
-    pub new_session_id: String,
-    pub summary: SessionSummary,
+  pub new_session_id: String,
+  pub summary: SessionSummary,
 }
 
 pub(crate) struct FinalizeCodexForkRequest<'a> {
-    pub source_session_id: &'a str,
-    pub nth_user_message: Option<u32>,
-    pub effective_cwd: &'a str,
-    pub effective_model: Option<&'a str>,
-    pub effective_approval_policy: Option<&'a str>,
-    pub effective_sandbox_mode: Option<&'a str>,
-    pub new_connector: CodexConnector,
-    pub new_thread_id: String,
+  pub source_session_id: &'a str,
+  pub nth_user_message: Option<u32>,
+  pub effective_cwd: &'a str,
+  pub effective_model: Option<&'a str>,
+  pub effective_approval_policy: Option<&'a str>,
+  pub effective_sandbox_mode: Option<&'a str>,
+  pub new_connector: CodexConnector,
+  pub new_thread_id: String,
 }
 
 pub(crate) async fn start_claude_fork_session(
-    state: &Arc<SessionRegistry>,
-    source_session_id: &str,
-    effective_cwd: &str,
-    effective_model: Option<&str>,
-    permission_mode: Option<&str>,
-    allowed_tools: &[String],
-    disallowed_tools: &[String],
+  state: &Arc<SessionRegistry>,
+  source_session_id: &str,
+  effective_cwd: &str,
+  effective_model: Option<&str>,
+  permission_mode: Option<&str>,
+  allowed_tools: &[String],
+  disallowed_tools: &[String],
 ) -> Result<ForkedSessionStart, String> {
-    let new_session_id = orbitdock_protocol::new_session_id();
-    let project_name = effective_cwd.split('/').next_back().map(String::from);
-    let fork_branch = crate::domain::git::repo::resolve_git_branch(effective_cwd).await;
+  let new_session_id = orbitdock_protocol::new_session_id();
+  let project_name = effective_cwd.split('/').next_back().map(String::from);
+  let fork_branch = crate::domain::git::repo::resolve_git_branch(effective_cwd).await;
 
-    let claude_session = ClaudeSession::new(
-        new_session_id.clone(),
-        ClaudeSessionConfig {
-            cwd: effective_cwd,
-            model: effective_model,
-            resume_id: None,
-            permission_mode,
-            allowed_tools,
-            disallowed_tools,
-            effort: None,
-            allow_bypass_permissions: false,
-            extra_env: &[],
-        },
-    )
-    .await
-    .map_err(|error| error.to_string())?;
+  let claude_session = ClaudeSession::new(
+    new_session_id.clone(),
+    ClaudeSessionConfig {
+      cwd: effective_cwd,
+      model: effective_model,
+      resume_id: None,
+      permission_mode,
+      allowed_tools,
+      disallowed_tools,
+      effort: None,
+      allow_bypass_permissions: false,
+      extra_env: &[],
+    },
+  )
+  .await
+  .map_err(|error| error.to_string())?;
 
-    let mut handle = SessionHandle::new(
-        new_session_id.clone(),
-        Provider::Claude,
-        effective_cwd.to_string(),
-    );
-    handle.set_git_branch(fork_branch.clone());
-    handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
-    handle.set_forked_from(source_session_id.to_string());
-    if let Some(model) = effective_model {
-        handle.set_model(Some(model.to_string()));
-    }
+  let mut handle = SessionHandle::new(
+    new_session_id.clone(),
+    Provider::Claude,
+    effective_cwd.to_string(),
+  );
+  handle.set_git_branch(fork_branch.clone());
+  handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
+  handle.set_forked_from(source_session_id.to_string());
+  if let Some(model) = effective_model {
+    handle.set_model(Some(model.to_string()));
+  }
 
-    let summary = handle.summary();
-    let persist_tx = state.persist().clone();
+  let summary = handle.summary();
+  let persist_tx = state.persist().clone();
 
-    let _ = persist_tx
-        .send(PersistCommand::SessionCreate(Box::new(
-            SessionCreateParams {
-                id: new_session_id.clone(),
-                provider: Provider::Claude,
-                control_mode: orbitdock_protocol::SessionControlMode::Direct,
-                project_path: effective_cwd.to_string(),
-                project_name,
-                branch: fork_branch,
-                model: effective_model.map(ToOwned::to_owned),
-                approval_policy: None,
-                sandbox_mode: None,
-                permission_mode: permission_mode.map(ToOwned::to_owned),
-                collaboration_mode: None,
-                multi_agent: None,
-                personality: None,
-                service_tier: None,
-                developer_instructions: None,
-                codex_config_mode: None,
-                codex_config_profile: None,
-                codex_model_provider: None,
-                codex_config_source: None,
-                codex_config_overrides_json: None,
-                forked_from_session_id: Some(source_session_id.to_string()),
-                mission_id: None,
-                issue_identifier: None,
-                allow_bypass_permissions: false,
-                worktree_id: None,
-            },
-        )))
-        .await;
+  let _ = persist_tx
+    .send(PersistCommand::SessionCreate(Box::new(
+      SessionCreateParams {
+        id: new_session_id.clone(),
+        provider: Provider::Claude,
+        control_mode: orbitdock_protocol::SessionControlMode::Direct,
+        project_path: effective_cwd.to_string(),
+        project_name,
+        branch: fork_branch,
+        model: effective_model.map(ToOwned::to_owned),
+        approval_policy: None,
+        sandbox_mode: None,
+        permission_mode: permission_mode.map(ToOwned::to_owned),
+        collaboration_mode: None,
+        multi_agent: None,
+        personality: None,
+        service_tier: None,
+        developer_instructions: None,
+        codex_config_mode: None,
+        codex_config_profile: None,
+        codex_model_provider: None,
+        codex_config_source: None,
+        codex_config_overrides_json: None,
+        forked_from_session_id: Some(source_session_id.to_string()),
+        mission_id: None,
+        issue_identifier: None,
+        allow_bypass_permissions: false,
+        worktree_id: None,
+      },
+    )))
+    .await;
 
-    handle.set_list_tx(state.list_tx());
-    let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
-        claude_session,
-        handle,
-        persist_tx,
-        state.list_tx(),
-        state.clone(),
-    );
-    state.add_session_actor(actor_handle);
-    state.set_claude_action_tx(&new_session_id, action_tx);
+  handle.set_list_tx(state.list_tx());
+  let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
+    claude_session,
+    handle,
+    persist_tx,
+    state.list_tx(),
+    state.clone(),
+  );
+  state.add_session_actor(actor_handle);
+  state.set_claude_action_tx(&new_session_id, action_tx);
 
-    Ok(ForkedSessionStart {
-        new_session_id,
-        summary,
-    })
+  Ok(ForkedSessionStart {
+    new_session_id,
+    summary,
+  })
 }
 
 pub(crate) async fn finalize_codex_fork_session(
-    state: &Arc<SessionRegistry>,
-    request: FinalizeCodexForkRequest<'_>,
+  state: &Arc<SessionRegistry>,
+  request: FinalizeCodexForkRequest<'_>,
 ) -> Result<ForkedSessionStart, String> {
-    let FinalizeCodexForkRequest {
-        source_session_id,
-        nth_user_message,
-        effective_cwd,
-        effective_model,
-        effective_approval_policy,
-        effective_sandbox_mode,
-        new_connector,
-        new_thread_id,
-    } = request;
-    let new_session_id = orbitdock_protocol::new_session_id();
-    let project_name = effective_cwd.split('/').next_back().map(String::from);
-    let fork_branch = crate::domain::git::repo::resolve_git_branch(effective_cwd).await;
+  let FinalizeCodexForkRequest {
+    source_session_id,
+    nth_user_message,
+    effective_cwd,
+    effective_model,
+    effective_approval_policy,
+    effective_sandbox_mode,
+    new_connector,
+    new_thread_id,
+  } = request;
+  let new_session_id = orbitdock_protocol::new_session_id();
+  let project_name = effective_cwd.split('/').next_back().map(String::from);
+  let fork_branch = crate::domain::git::repo::resolve_git_branch(effective_cwd).await;
 
-    let mut handle = SessionHandle::new(
-        new_session_id.clone(),
-        Provider::Codex,
-        effective_cwd.to_string(),
+  let mut handle = SessionHandle::new(
+    new_session_id.clone(),
+    Provider::Codex,
+    effective_cwd.to_string(),
+  );
+  handle.set_git_branch(fork_branch.clone());
+  handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+  handle.set_config(SessionConfigPatch {
+    approval_policy: effective_approval_policy.map(ToOwned::to_owned),
+    sandbox_mode: effective_sandbox_mode.map(ToOwned::to_owned),
+    ..Default::default()
+  });
+  handle.set_forked_from(source_session_id.to_string());
+
+  let source_fork_rows =
+    load_source_fork_rows(state, source_session_id, nth_user_message, &new_session_id).await;
+  let rollout_rows = load_rollout_fork_rows(&new_connector, &new_session_id).await;
+
+  if !source_fork_rows.is_empty() && rollout_rows.len() < source_fork_rows.len() {
+    info!(
+        component = "session",
+        event = "session.fork.rows_source_selected",
+        new_session_id = %new_session_id,
+        source_row_count = source_fork_rows.len(),
+        rollout_row_count = rollout_rows.len(),
+        "Selected source session rows for fork hydration"
     );
-    handle.set_git_branch(fork_branch.clone());
-    handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-    handle.set_config(SessionConfigPatch {
+  }
+
+  let forked_rows = select_fork_rows(source_fork_rows, rollout_rows);
+  if !forked_rows.is_empty() {
+    handle.replace_rows(forked_rows.clone());
+  }
+
+  let summary = handle.summary();
+  let persist_tx = state.persist().clone();
+
+  let _ = persist_tx
+    .send(PersistCommand::SessionCreate(Box::new(
+      SessionCreateParams {
+        id: new_session_id.clone(),
+        provider: Provider::Codex,
+        control_mode: orbitdock_protocol::SessionControlMode::Direct,
+        project_path: effective_cwd.to_string(),
+        project_name,
+        branch: fork_branch,
+        model: effective_model.map(ToOwned::to_owned),
         approval_policy: effective_approval_policy.map(ToOwned::to_owned),
         sandbox_mode: effective_sandbox_mode.map(ToOwned::to_owned),
-        ..Default::default()
-    });
-    handle.set_forked_from(source_session_id.to_string());
-
-    let source_fork_rows =
-        load_source_fork_rows(state, source_session_id, nth_user_message, &new_session_id).await;
-    let rollout_rows = load_rollout_fork_rows(&new_connector, &new_session_id).await;
-
-    if !source_fork_rows.is_empty() && rollout_rows.len() < source_fork_rows.len() {
-        info!(
-            component = "session",
-            event = "session.fork.rows_source_selected",
-            new_session_id = %new_session_id,
-            source_row_count = source_fork_rows.len(),
-            rollout_row_count = rollout_rows.len(),
-            "Selected source session rows for fork hydration"
-        );
-    }
-
-    let forked_rows = select_fork_rows(source_fork_rows, rollout_rows);
-    if !forked_rows.is_empty() {
-        handle.replace_rows(forked_rows.clone());
-    }
-
-    let summary = handle.summary();
-    let persist_tx = state.persist().clone();
-
-    let _ = persist_tx
-        .send(PersistCommand::SessionCreate(Box::new(
-            SessionCreateParams {
-                id: new_session_id.clone(),
-                provider: Provider::Codex,
-                control_mode: orbitdock_protocol::SessionControlMode::Direct,
-                project_path: effective_cwd.to_string(),
-                project_name,
-                branch: fork_branch,
-                model: effective_model.map(ToOwned::to_owned),
-                approval_policy: effective_approval_policy.map(ToOwned::to_owned),
-                sandbox_mode: effective_sandbox_mode.map(ToOwned::to_owned),
-                permission_mode: None,
-                collaboration_mode: None,
-                multi_agent: None,
-                personality: None,
-                service_tier: None,
-                developer_instructions: None,
-                codex_config_mode: None,
-                codex_config_profile: None,
-                codex_model_provider: None,
-                codex_config_source: None,
-                codex_config_overrides_json: None,
-                forked_from_session_id: Some(source_session_id.to_string()),
-                mission_id: None,
-                issue_identifier: None,
-                allow_bypass_permissions: false,
-                worktree_id: None,
-            },
-        )))
-        .await;
-
-    for entry in forked_rows {
-        let _ = persist_tx
-            .send(PersistCommand::RowAppend {
-                session_id: new_session_id.clone(),
-                assigned_sequence: Some(entry.sequence),
-                entry,
-                viewer_present: false,
-                sequence_tx: None,
-            })
-            .await;
-    }
-
-    claim_codex_thread_for_direct_session(
-        state,
-        &persist_tx,
-        &new_session_id,
-        &new_thread_id,
-        "legacy_codex_thread_row_cleanup",
-    )
+        permission_mode: None,
+        collaboration_mode: None,
+        multi_agent: None,
+        personality: None,
+        service_tier: None,
+        developer_instructions: None,
+        codex_config_mode: None,
+        codex_config_profile: None,
+        codex_model_provider: None,
+        codex_config_source: None,
+        codex_config_overrides_json: None,
+        forked_from_session_id: Some(source_session_id.to_string()),
+        mission_id: None,
+        issue_identifier: None,
+        allow_bypass_permissions: false,
+        worktree_id: None,
+      },
+    )))
     .await;
 
-    let codex_session = CodexSession {
+  for entry in forked_rows {
+    let _ = persist_tx
+      .send(PersistCommand::RowAppend {
         session_id: new_session_id.clone(),
-        connector: new_connector,
-    };
-    handle.set_list_tx(state.list_tx());
-    let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
-        codex_session,
-        handle,
-        persist_tx,
-        state.clone(),
-    );
-    state.add_session_actor(actor_handle);
-    state.set_codex_action_tx(&new_session_id, action_tx);
+        assigned_sequence: Some(entry.sequence),
+        entry,
+        viewer_present: false,
+        sequence_tx: None,
+      })
+      .await;
+  }
 
-    Ok(ForkedSessionStart {
-        new_session_id,
-        summary,
-    })
+  claim_codex_thread_for_direct_session(
+    state,
+    &persist_tx,
+    &new_session_id,
+    &new_thread_id,
+    "legacy_codex_thread_row_cleanup",
+  )
+  .await;
+
+  let codex_session = CodexSession {
+    session_id: new_session_id.clone(),
+    connector: new_connector,
+  };
+  handle.set_list_tx(state.list_tx());
+  let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
+    codex_session,
+    handle,
+    persist_tx,
+    state.clone(),
+  );
+  state.add_session_actor(actor_handle);
+  state.set_codex_action_tx(&new_session_id, action_tx);
+
+  Ok(ForkedSessionStart {
+    new_session_id,
+    summary,
+  })
 }
 
 async fn load_source_fork_rows(
-    state: &Arc<SessionRegistry>,
-    source_session_id: &str,
-    nth_user_message: Option<u32>,
-    new_session_id: &str,
+  state: &Arc<SessionRegistry>,
+  source_session_id: &str,
+  nth_user_message: Option<u32>,
+  new_session_id: &str,
 ) -> Vec<ConversationRowEntry> {
-    let Some(source_actor) = state.get_session(source_session_id) else {
-        return Vec::new();
-    };
+  let Some(source_actor) = state.get_session(source_session_id) else {
+    return Vec::new();
+  };
 
-    match source_actor.retained_state().await {
-        Ok(source_state) => {
-            let full_source_rows = hydrate_full_row_history(
-                source_session_id,
-                source_state.rows,
-                Some(source_state.total_row_count),
-            )
-            .await;
-            remap_rows_for_fork(
-                truncate_rows_before_nth_user_row(&full_source_rows, nth_user_message),
-                new_session_id,
-            )
-        }
-        Err(_) => {
-            warn!(
-                component = "session",
-                event = "session.fork.source_state_unavailable",
-                source_session_id = %source_session_id,
-                new_session_id = %new_session_id,
-                "Failed to read source session state for fork hydration"
-            );
-            Vec::new()
-        }
+  match source_actor.retained_state().await {
+    Ok(source_state) => {
+      let full_source_rows = hydrate_full_row_history(
+        source_session_id,
+        source_state.rows,
+        Some(source_state.total_row_count),
+      )
+      .await;
+      remap_rows_for_fork(
+        truncate_rows_before_nth_user_row(&full_source_rows, nth_user_message),
+        new_session_id,
+      )
     }
+    Err(_) => {
+      warn!(
+          component = "session",
+          event = "session.fork.source_state_unavailable",
+          source_session_id = %source_session_id,
+          new_session_id = %new_session_id,
+          "Failed to read source session state for fork hydration"
+      );
+      Vec::new()
+    }
+  }
 }
 
 async fn load_rollout_fork_rows(
-    connector: &CodexConnector,
-    new_session_id: &str,
+  connector: &CodexConnector,
+  new_session_id: &str,
 ) -> Vec<ConversationRowEntry> {
-    let Some(rollout_path) = connector.rollout_path().await else {
-        return Vec::new();
-    };
+  let Some(rollout_path) = connector.rollout_path().await else {
+    return Vec::new();
+  };
 
-    match load_messages_from_transcript_path(&rollout_path, new_session_id).await {
-        Ok(rows) if !rows.is_empty() => {
-            info!(
-                component = "session",
-                event = "session.fork.rows_loaded",
-                new_session_id = %new_session_id,
-                row_count = rows.len(),
-                "Loaded forked conversation history"
-            );
-            rows
-        }
-        Ok(_) => {
-            debug!(
-                component = "session",
-                event = "session.fork.no_rows",
-                new_session_id = %new_session_id,
-                "Forked thread rollout has no parseable rows"
-            );
-            Vec::new()
-        }
-        Err(error) => {
-            warn!(
-                component = "session",
-                event = "session.fork.rows_load_failed",
-                new_session_id = %new_session_id,
-                error = %error,
-                "Failed to load forked conversation history"
-            );
-            Vec::new()
-        }
+  match load_messages_from_transcript_path(&rollout_path, new_session_id).await {
+    Ok(rows) if !rows.is_empty() => {
+      info!(
+          component = "session",
+          event = "session.fork.rows_loaded",
+          new_session_id = %new_session_id,
+          row_count = rows.len(),
+          "Loaded forked conversation history"
+      );
+      rows
     }
+    Ok(_) => {
+      debug!(
+          component = "session",
+          event = "session.fork.no_rows",
+          new_session_id = %new_session_id,
+          "Forked thread rollout has no parseable rows"
+      );
+      Vec::new()
+    }
+    Err(error) => {
+      warn!(
+          component = "session",
+          event = "session.fork.rows_load_failed",
+          new_session_id = %new_session_id,
+          error = %error,
+          "Failed to load forked conversation history"
+      );
+      Vec::new()
+    }
+  }
 }

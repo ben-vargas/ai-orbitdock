@@ -8,104 +8,104 @@ use crate::output::Output;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct ServerRoleResponse {
-    is_primary: bool,
+  is_primary: bool,
 }
 
 #[derive(Debug, Serialize)]
 struct SetServerRoleRequest {
-    is_primary: bool,
+  is_primary: bool,
 }
 
 #[derive(Debug, Serialize)]
 struct ServerStatusJsonResponse {
-    kind: &'static str,
-    health: HealthResponse,
+  kind: &'static str,
+  health: HealthResponse,
 }
 
 #[derive(Debug, Serialize)]
 struct ServerRoleJsonResponse {
-    ok: bool,
-    action: &'static str,
-    is_primary: bool,
-    role: &'static str,
+  ok: bool,
+  action: &'static str,
+  is_primary: bool,
+  role: &'static str,
 }
 
 pub async fn run(action: &ServerAction, rest: &RestClient, output: &Output) -> i32 {
-    match action {
-        ServerAction::Status => status(rest, output).await,
-        ServerAction::Role { primary, secondary } => {
-            if *primary {
-                set_role(rest, output, true).await
-            } else if *secondary {
-                set_role(rest, output, false).await
-            } else {
-                // Show current role — not available via REST, just show health
-                status(rest, output).await
-            }
-        }
+  match action {
+    ServerAction::Status => status(rest, output).await,
+    ServerAction::Role { primary, secondary } => {
+      if *primary {
+        set_role(rest, output, true).await
+      } else if *secondary {
+        set_role(rest, output, false).await
+      } else {
+        // Show current role — not available via REST, just show health
+        status(rest, output).await
+      }
     }
+  }
 }
 
 async fn status(rest: &RestClient, output: &Output) -> i32 {
-    match rest.get::<HealthResponse>("/health").await.into_result() {
-        Ok(health) => {
-            if output.json {
-                output.print_json_pretty(&ServerStatusJsonResponse {
-                    kind: "server_status",
-                    health,
-                });
-            } else {
-                let version = health.version.as_deref().unwrap_or("unknown");
-                let style = console::Style::new().green().bold();
-                println!(
-                    "{} Server status: {} (version: {})",
-                    style.apply_to("●"),
-                    health.status,
-                    version
-                );
-            }
-            EXIT_SUCCESS
-        }
-        Err((code, err)) => {
-            output.print_error(&err);
-            code
-        }
+  match rest.get::<HealthResponse>("/health").await.into_result() {
+    Ok(health) => {
+      if output.json {
+        output.print_json_pretty(&ServerStatusJsonResponse {
+          kind: "server_status",
+          health,
+        });
+      } else {
+        let version = health.version.as_deref().unwrap_or("unknown");
+        let style = console::Style::new().green().bold();
+        println!(
+          "{} Server status: {} (version: {})",
+          style.apply_to("●"),
+          health.status,
+          version
+        );
+      }
+      EXIT_SUCCESS
     }
+    Err((code, err)) => {
+      output.print_error(&err);
+      code
+    }
+  }
 }
 
 async fn set_role(rest: &RestClient, output: &Output, is_primary: bool) -> i32 {
-    let body = SetServerRoleRequest { is_primary };
-    match rest
-        .put_json::<_, ServerRoleResponse>("/api/server/role", &body)
-        .await
-        .into_result()
-    {
-        Ok(resp) => {
-            if output.json {
-                let role = if resp.is_primary {
-                    "primary"
-                } else {
-                    "secondary"
-                };
-                output.print_json_pretty(&ServerRoleJsonResponse {
-                    ok: true,
-                    action: "server_role_set",
-                    is_primary: resp.is_primary,
-                    role,
-                });
-            } else {
-                let role = if resp.is_primary {
-                    "primary"
-                } else {
-                    "secondary"
-                };
-                println!("Server role set to: {role}");
-            }
-            EXIT_SUCCESS
-        }
-        Err((code, err)) => {
-            output.print_error(&err);
-            code
-        }
+  let body = SetServerRoleRequest { is_primary };
+  match rest
+    .put_json::<_, ServerRoleResponse>("/api/server/role", &body)
+    .await
+    .into_result()
+  {
+    Ok(resp) => {
+      if output.json {
+        let role = if resp.is_primary {
+          "primary"
+        } else {
+          "secondary"
+        };
+        output.print_json_pretty(&ServerRoleJsonResponse {
+          ok: true,
+          action: "server_role_set",
+          is_primary: resp.is_primary,
+          role,
+        });
+      } else {
+        let role = if resp.is_primary {
+          "primary"
+        } else {
+          "secondary"
+        };
+        println!("Server role set to: {role}");
+      }
+      EXIT_SUCCESS
     }
+    Err((code, err)) => {
+      output.print_error(&err);
+      code
+    }
+  }
 }

@@ -20,76 +20,63 @@ use super::message_groups::{classify_client_message, MessageGroup};
 /// parent future small enough for the default 2 MiB thread stack in debug
 /// builds.
 pub(crate) fn handle_client_message<'a>(
-    msg: ClientMessage,
-    client_tx: &'a mpsc::Sender<OutboundMessage>,
-    state: &'a Arc<SessionRegistry>,
-    subscriptions: &'a mut ConnectionSubscriptions,
-    conn_id: u64,
+  msg: ClientMessage,
+  client_tx: &'a mpsc::Sender<OutboundMessage>,
+  state: &'a Arc<SessionRegistry>,
+  subscriptions: &'a mut ConnectionSubscriptions,
+  conn_id: u64,
 ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-    Box::pin(async move {
-        debug!(
-            component = "websocket",
-            event = "ws.message.received",
-            connection_id = conn_id,
-            message = ?msg,
-            "Received client message"
-        );
+  Box::pin(async move {
+    debug!(
+        component = "websocket",
+        event = "ws.message.received",
+        connection_id = conn_id,
+        message = ?msg,
+        "Received client message"
+    );
 
-        match classify_client_message(&msg) {
-            MessageGroup::Subscribe => {
-                crate::transport::websocket::handlers::subscribe::handle(
-                    msg,
-                    client_tx,
-                    state,
-                    subscriptions,
-                    conn_id,
-                )
-                .await;
-            }
+    match classify_client_message(&msg) {
+      MessageGroup::Subscribe => {
+        crate::transport::websocket::handlers::subscribe::handle(
+          msg,
+          client_tx,
+          state,
+          subscriptions,
+          conn_id,
+        )
+        .await;
+      }
 
-            MessageGroup::SessionCrud => {
-                crate::transport::websocket::handlers::session_crud::handle(
-                    msg, client_tx, state, conn_id,
-                )
-                .await;
-            }
+      MessageGroup::SessionCrud => {
+        crate::transport::websocket::handlers::session_crud::handle(msg, client_tx, state, conn_id)
+          .await;
+      }
 
-            MessageGroup::Messaging => {
-                crate::transport::websocket::handlers::messaging::handle(
-                    msg, client_tx, state, conn_id,
-                )
-                .await;
-            }
+      MessageGroup::Messaging => {
+        crate::transport::websocket::handlers::messaging::handle(msg, client_tx, state, conn_id)
+          .await;
+      }
 
-            MessageGroup::Approvals => {
-                crate::transport::websocket::handlers::approvals::handle(
-                    msg, client_tx, state, conn_id,
-                )
-                .await;
-            }
+      MessageGroup::Approvals => {
+        crate::transport::websocket::handlers::approvals::handle(msg, client_tx, state, conn_id)
+          .await;
+      }
 
-            MessageGroup::Config => {
-                crate::transport::websocket::handlers::config::handle(
-                    msg, client_tx, state, conn_id,
-                )
-                .await;
-            }
+      MessageGroup::Config => {
+        crate::transport::websocket::handlers::config::handle(msg, client_tx, state, conn_id).await;
+      }
 
-            MessageGroup::ClaudeHooks => {
-                crate::transport::websocket::handlers::claude_hooks::handle(msg, client_tx, state)
-                    .await;
-            }
+      MessageGroup::ClaudeHooks => {
+        crate::transport::websocket::handlers::claude_hooks::handle(msg, client_tx, state).await;
+      }
 
-            MessageGroup::Shell => {
-                crate::transport::websocket::handlers::shell::handle(
-                    msg, client_tx, state, conn_id,
-                )
-                .await;
-            }
+      MessageGroup::Shell => {
+        crate::transport::websocket::handlers::shell::handle(msg, client_tx, state, conn_id).await;
+      }
 
-            MessageGroup::RestOnly => {
-                crate::transport::websocket::handlers::rest_only::handle(msg, client_tx).await;
-            }
-        }
-    })
+      MessageGroup::RestOnly => {
+        crate::transport::websocket::handlers::rest_only::handle(msg, client_tx).await;
+      }
+    }
+  })
 }

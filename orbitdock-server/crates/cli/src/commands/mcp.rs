@@ -10,168 +10,168 @@ use crate::output::Output;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct McpToolsResponse {
-    session_id: String,
-    tools: HashMap<String, McpTool>,
-    resources: HashMap<String, Vec<McpResource>>,
-    resource_templates: HashMap<String, Vec<McpResourceTemplate>>,
-    auth_statuses: HashMap<String, McpAuthStatus>,
+  session_id: String,
+  tools: HashMap<String, McpTool>,
+  resources: HashMap<String, Vec<McpResource>>,
+  resource_templates: HashMap<String, Vec<McpResourceTemplate>>,
+  auth_statuses: HashMap<String, McpAuthStatus>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct AcceptedResponse {
-    accepted: bool,
+  accepted: bool,
 }
 
 #[derive(Debug, Serialize)]
 struct McpToolsSummary {
-    session_id: String,
-    server_count: usize,
-    tool_count: usize,
-    resource_count: usize,
-    resource_template_count: usize,
-    auth_server_count: usize,
+  session_id: String,
+  server_count: usize,
+  tool_count: usize,
+  resource_count: usize,
+  resource_template_count: usize,
+  auth_server_count: usize,
 }
 
 #[derive(Debug, Serialize)]
 struct McpToolsJsonResponse {
-    kind: &'static str,
-    summary: McpToolsSummary,
-    tools: McpToolsResponse,
+  kind: &'static str,
+  summary: McpToolsSummary,
+  tools: McpToolsResponse,
 }
 
 #[derive(Debug, Serialize)]
 struct McpRefreshJsonResponse {
-    ok: bool,
-    action: &'static str,
-    session_id: String,
-    accepted: bool,
+  ok: bool,
+  action: &'static str,
+  session_id: String,
+  accepted: bool,
 }
 
 fn auth_status_str(status: &McpAuthStatus) -> &'static str {
-    match status {
-        McpAuthStatus::Unsupported => "unsupported",
-        McpAuthStatus::NotLoggedIn => "not_logged_in",
-        McpAuthStatus::BearerToken => "bearer_token",
-        McpAuthStatus::OAuth => "oauth",
-    }
+  match status {
+    McpAuthStatus::Unsupported => "unsupported",
+    McpAuthStatus::NotLoggedIn => "not_logged_in",
+    McpAuthStatus::BearerToken => "bearer_token",
+    McpAuthStatus::OAuth => "oauth",
+  }
 }
 
 fn build_mcp_tools_json_response(resp: McpToolsResponse) -> McpToolsJsonResponse {
-    let server_count = resp
-        .tools
-        .keys()
-        .chain(resp.resources.keys())
-        .chain(resp.resource_templates.keys())
-        .chain(resp.auth_statuses.keys())
-        .collect::<std::collections::BTreeSet<_>>()
-        .len();
-    let resource_count = resp.resources.values().map(Vec::len).sum();
-    let resource_template_count = resp.resource_templates.values().map(Vec::len).sum();
-    let tool_count = resp.tools.len();
-    let auth_server_count = resp.auth_statuses.len();
+  let server_count = resp
+    .tools
+    .keys()
+    .chain(resp.resources.keys())
+    .chain(resp.resource_templates.keys())
+    .chain(resp.auth_statuses.keys())
+    .collect::<std::collections::BTreeSet<_>>()
+    .len();
+  let resource_count = resp.resources.values().map(Vec::len).sum();
+  let resource_template_count = resp.resource_templates.values().map(Vec::len).sum();
+  let tool_count = resp.tools.len();
+  let auth_server_count = resp.auth_statuses.len();
 
-    McpToolsJsonResponse {
-        kind: "mcp_tools",
-        summary: McpToolsSummary {
-            session_id: resp.session_id.clone(),
-            server_count,
-            tool_count,
-            resource_count,
-            resource_template_count,
-            auth_server_count,
-        },
-        tools: resp,
-    }
+  McpToolsJsonResponse {
+    kind: "mcp_tools",
+    summary: McpToolsSummary {
+      session_id: resp.session_id.clone(),
+      server_count,
+      tool_count,
+      resource_count,
+      resource_template_count,
+      auth_server_count,
+    },
+    tools: resp,
+  }
 }
 
 pub async fn run(action: &McpAction, rest: &RestClient, output: &Output) -> i32 {
-    match action {
-        McpAction::Tools { session_id } => tools(rest, output, session_id).await,
-        McpAction::Refresh { session_id } => refresh(rest, output, session_id).await,
-    }
+  match action {
+    McpAction::Tools { session_id } => tools(rest, output, session_id).await,
+    McpAction::Refresh { session_id } => refresh(rest, output, session_id).await,
+  }
 }
 
 async fn tools(rest: &RestClient, output: &Output, session_id: &str) -> i32 {
-    let path = format!("/api/sessions/{session_id}/mcp/tools");
-    match rest.get::<McpToolsResponse>(&path).await.into_result() {
-        Ok(resp) => {
-            if output.json {
-                output.print_json_pretty(&build_mcp_tools_json_response(resp));
-            } else {
-                let server_count = resp
-                    .tools
-                    .keys()
-                    .chain(resp.resources.keys())
-                    .chain(resp.resource_templates.keys())
-                    .chain(resp.auth_statuses.keys())
-                    .collect::<std::collections::BTreeSet<_>>()
-                    .len();
-                let resource_count: usize = resp.resources.values().map(Vec::len).sum();
-                let template_count: usize = resp.resource_templates.values().map(Vec::len).sum();
-                println!(
+  let path = format!("/api/sessions/{session_id}/mcp/tools");
+  match rest.get::<McpToolsResponse>(&path).await.into_result() {
+    Ok(resp) => {
+      if output.json {
+        output.print_json_pretty(&build_mcp_tools_json_response(resp));
+      } else {
+        let server_count = resp
+          .tools
+          .keys()
+          .chain(resp.resources.keys())
+          .chain(resp.resource_templates.keys())
+          .chain(resp.auth_statuses.keys())
+          .collect::<std::collections::BTreeSet<_>>()
+          .len();
+        let resource_count: usize = resp.resources.values().map(Vec::len).sum();
+        let template_count: usize = resp.resource_templates.values().map(Vec::len).sum();
+        println!(
                     "MCP Tools for {session_id}: {server_count} server(s), {} tool(s), {resource_count} resource(s), {template_count} template(s)",
                     resp.tools.len()
                 );
-                for (key, tool) in &resp.tools {
-                    let desc = tool.description.as_deref().unwrap_or("no description");
-                    println!("  {key}: {} — {desc}", tool.name);
-                }
-                if !resp.auth_statuses.is_empty() {
-                    println!("\nAuth:");
-                    for (server, status) in &resp.auth_statuses {
-                        println!("  [{server}] {}", auth_status_str(status));
-                    }
-                }
-                if !resp.resources.is_empty() {
-                    println!("\nResources:");
-                    for (server, resources) in &resp.resources {
-                        for r in resources {
-                            println!("  [{server}] {} ({})", r.name, r.uri);
-                        }
-                    }
-                }
-                if !resp.resource_templates.is_empty() {
-                    println!("\nResource templates:");
-                    for (server, templates) in &resp.resource_templates {
-                        for template in templates {
-                            println!("  [{server}] {} ({})", template.name, template.uri_template);
-                        }
-                    }
-                }
+        for (key, tool) in &resp.tools {
+          let desc = tool.description.as_deref().unwrap_or("no description");
+          println!("  {key}: {} — {desc}", tool.name);
+        }
+        if !resp.auth_statuses.is_empty() {
+          println!("\nAuth:");
+          for (server, status) in &resp.auth_statuses {
+            println!("  [{server}] {}", auth_status_str(status));
+          }
+        }
+        if !resp.resources.is_empty() {
+          println!("\nResources:");
+          for (server, resources) in &resp.resources {
+            for r in resources {
+              println!("  [{server}] {} ({})", r.name, r.uri);
             }
-            EXIT_SUCCESS
+          }
         }
-        Err((code, err)) => {
-            output.print_error(&err);
-            code
+        if !resp.resource_templates.is_empty() {
+          println!("\nResource templates:");
+          for (server, templates) in &resp.resource_templates {
+            for template in templates {
+              println!("  [{server}] {} ({})", template.name, template.uri_template);
+            }
+          }
         }
+      }
+      EXIT_SUCCESS
     }
+    Err((code, err)) => {
+      output.print_error(&err);
+      code
+    }
+  }
 }
 
 async fn refresh(rest: &RestClient, output: &Output, session_id: &str) -> i32 {
-    let path = format!("/api/sessions/{session_id}/mcp/refresh");
-    let body = serde_json::json!({});
-    match rest
-        .post_json::<_, AcceptedResponse>(&path, &body)
-        .await
-        .into_result()
-    {
-        Ok(resp) => {
-            if output.json {
-                output.print_json_pretty(&McpRefreshJsonResponse {
-                    ok: resp.accepted,
-                    action: "refresh_requested",
-                    session_id: session_id.to_string(),
-                    accepted: resp.accepted,
-                });
-            } else {
-                println!("MCP server refresh requested for session {session_id}.");
-            }
-            EXIT_SUCCESS
-        }
-        Err((code, err)) => {
-            output.print_error(&err);
-            code
-        }
+  let path = format!("/api/sessions/{session_id}/mcp/refresh");
+  let body = serde_json::json!({});
+  match rest
+    .post_json::<_, AcceptedResponse>(&path, &body)
+    .await
+    .into_result()
+  {
+    Ok(resp) => {
+      if output.json {
+        output.print_json_pretty(&McpRefreshJsonResponse {
+          ok: resp.accepted,
+          action: "refresh_requested",
+          session_id: session_id.to_string(),
+          accepted: resp.accepted,
+        });
+      } else {
+        println!("MCP server refresh requested for session {session_id}.");
+      }
+      EXIT_SUCCESS
     }
+    Err((code, err)) => {
+      output.print_error(&err);
+      code
+    }
+  }
 }

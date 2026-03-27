@@ -5,22 +5,22 @@ use serde_json::{json, Value};
 /// A mission tool definition with its JSON Schema input.
 #[derive(Debug, Clone)]
 pub struct MissionToolDef {
-    pub name: String,
-    pub description: String,
-    pub input_schema: Value,
+  pub name: String,
+  pub description: String,
+  pub input_schema: Value,
 }
 
 /// Context injected into every mission tool call.
 #[derive(Debug, Clone)]
 pub struct MissionToolContext {
-    pub issue_id: String,
-    pub issue_identifier: String,
-    pub mission_id: String,
+  pub issue_id: String,
+  pub issue_identifier: String,
+  pub mission_id: String,
 }
 
 /// Returns the canonical list of mission tools.
 pub fn mission_tool_definitions() -> Vec<MissionToolDef> {
-    vec![
+  vec![
         MissionToolDef {
             name: "mission_get_issue".into(),
             description: "Fetch the current issue's details including title, description, status, labels, and URL.".into(),
@@ -157,88 +157,88 @@ pub fn mission_tool_definitions() -> Vec<MissionToolDef> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn all_eight_tools_are_defined() {
-        let tools = mission_tool_definitions();
-        assert_eq!(tools.len(), 8);
+  #[test]
+  fn all_eight_tools_are_defined() {
+    let tools = mission_tool_definitions();
+    assert_eq!(tools.len(), 8);
+  }
+
+  #[test]
+  fn every_tool_has_a_mission_prefix() {
+    for tool in mission_tool_definitions() {
+      assert!(
+        tool.name.starts_with("mission_"),
+        "Tool '{}' should start with 'mission_'",
+        tool.name
+      );
     }
+  }
 
-    #[test]
-    fn every_tool_has_a_mission_prefix() {
-        for tool in mission_tool_definitions() {
-            assert!(
-                tool.name.starts_with("mission_"),
-                "Tool '{}' should start with 'mission_'",
-                tool.name
-            );
-        }
+  #[test]
+  fn tool_names_are_unique() {
+    let tools = mission_tool_definitions();
+    let mut names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+    names.sort();
+    names.dedup();
+    assert_eq!(names.len(), 8, "Duplicate tool names detected");
+  }
+
+  #[test]
+  fn every_schema_is_a_json_object() {
+    for tool in mission_tool_definitions() {
+      assert_eq!(
+        tool.input_schema.get("type").and_then(|v| v.as_str()),
+        Some("object"),
+        "Tool '{}' schema must have type: object",
+        tool.name
+      );
     }
+  }
 
-    #[test]
-    fn tool_names_are_unique() {
-        let tools = mission_tool_definitions();
-        let mut names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
-        names.sort();
-        names.dedup();
-        assert_eq!(names.len(), 8, "Duplicate tool names detected");
+  #[test]
+  fn required_fields_match_properties() {
+    for tool in mission_tool_definitions() {
+      let required = tool
+        .input_schema
+        .get("required")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+      let properties = tool
+        .input_schema
+        .get("properties")
+        .and_then(|v| v.as_object());
+
+      for req in &required {
+        let name = req.as_str().unwrap_or("");
+        assert!(
+          properties.map(|p| p.contains_key(name)).unwrap_or(false),
+          "Tool '{}' lists required field '{}' that doesn't exist in properties",
+          tool.name,
+          name
+        );
+      }
     }
+  }
 
-    #[test]
-    fn every_schema_is_a_json_object() {
-        for tool in mission_tool_definitions() {
-            assert_eq!(
-                tool.input_schema.get("type").and_then(|v| v.as_str()),
-                Some("object"),
-                "Tool '{}' schema must have type: object",
-                tool.name
-            );
-        }
+  #[test]
+  fn expected_tools_present() {
+    let tools = mission_tool_definitions();
+    let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+    let expected = [
+      "mission_get_issue",
+      "mission_post_update",
+      "mission_update_comment",
+      "mission_get_comments",
+      "mission_set_status",
+      "mission_link_pr",
+      "mission_create_followup",
+      "mission_report_blocked",
+    ];
+    for name in expected {
+      assert!(names.contains(&name), "Missing tool: {name}");
     }
-
-    #[test]
-    fn required_fields_match_properties() {
-        for tool in mission_tool_definitions() {
-            let required = tool
-                .input_schema
-                .get("required")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-            let properties = tool
-                .input_schema
-                .get("properties")
-                .and_then(|v| v.as_object());
-
-            for req in &required {
-                let name = req.as_str().unwrap_or("");
-                assert!(
-                    properties.map(|p| p.contains_key(name)).unwrap_or(false),
-                    "Tool '{}' lists required field '{}' that doesn't exist in properties",
-                    tool.name,
-                    name
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn expected_tools_present() {
-        let tools = mission_tool_definitions();
-        let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
-        let expected = [
-            "mission_get_issue",
-            "mission_post_update",
-            "mission_update_comment",
-            "mission_get_comments",
-            "mission_set_status",
-            "mission_link_pr",
-            "mission_create_followup",
-            "mission_report_blocked",
-        ];
-        for name in expected {
-            assert!(names.contains(&name), "Missing tool: {name}");
-        }
-    }
+  }
 }

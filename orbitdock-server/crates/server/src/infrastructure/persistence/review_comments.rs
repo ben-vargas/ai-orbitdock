@@ -1,14 +1,14 @@
 use super::*;
 
 pub async fn list_review_comments(
-    session_id: &str,
-    turn_id: Option<&str>,
+  session_id: &str,
+  turn_id: Option<&str>,
 ) -> Result<Vec<orbitdock_protocol::ReviewComment>, anyhow::Error> {
-    let session_id = session_id.to_string();
-    let turn_id = turn_id.map(ToString::to_string);
-    let db_path = crate::infrastructure::paths::db_path();
+  let session_id = session_id.to_string();
+  let turn_id = turn_id.map(ToString::to_string);
+  let db_path = crate::infrastructure::paths::db_path();
 
-    let comments = tokio::task::spawn_blocking(
+  let comments = tokio::task::spawn_blocking(
         move || -> Result<Vec<orbitdock_protocol::ReviewComment>, anyhow::Error> {
             if !db_path.exists() {
                 return Ok(Vec::new());
@@ -62,16 +62,16 @@ pub async fn list_review_comments(
     )
     .await??;
 
-    Ok(comments)
+  Ok(comments)
 }
 
 pub async fn load_review_comment_by_id(
-    comment_id: &str,
+  comment_id: &str,
 ) -> Result<Option<orbitdock_protocol::ReviewComment>, anyhow::Error> {
-    let comment_id = comment_id.to_string();
-    let db_path = crate::infrastructure::paths::db_path();
+  let comment_id = comment_id.to_string();
+  let db_path = crate::infrastructure::paths::db_path();
 
-    tokio::task::spawn_blocking(
+  tokio::task::spawn_blocking(
         move || -> Result<Option<orbitdock_protocol::ReviewComment>, anyhow::Error> {
             if !db_path.exists() {
                 return Ok(None);
@@ -107,35 +107,35 @@ pub async fn load_review_comment_by_id(
 }
 
 fn decode_review_comment_row(
-    row: &rusqlite::Row<'_>,
+  row: &rusqlite::Row<'_>,
 ) -> Result<orbitdock_protocol::ReviewComment, rusqlite::Error> {
-    let tag_str: Option<String> = row.get(7)?;
-    let status_str: String = row.get(8)?;
+  let tag_str: Option<String> = row.get(7)?;
+  let status_str: String = row.get(8)?;
 
-    let tag = tag_str.and_then(|tag| match tag.as_str() {
-        "clarity" => Some(orbitdock_protocol::ReviewCommentTag::Clarity),
-        "scope" => Some(orbitdock_protocol::ReviewCommentTag::Scope),
-        "risk" => Some(orbitdock_protocol::ReviewCommentTag::Risk),
-        "nit" => Some(orbitdock_protocol::ReviewCommentTag::Nit),
-        _ => None,
-    });
+  let tag = tag_str.and_then(|tag| match tag.as_str() {
+    "clarity" => Some(orbitdock_protocol::ReviewCommentTag::Clarity),
+    "scope" => Some(orbitdock_protocol::ReviewCommentTag::Scope),
+    "risk" => Some(orbitdock_protocol::ReviewCommentTag::Risk),
+    "nit" => Some(orbitdock_protocol::ReviewCommentTag::Nit),
+    _ => None,
+  });
 
-    let status = match status_str.as_str() {
-        "resolved" => orbitdock_protocol::ReviewCommentStatus::Resolved,
-        _ => orbitdock_protocol::ReviewCommentStatus::Open,
-    };
+  let status = match status_str.as_str() {
+    "resolved" => orbitdock_protocol::ReviewCommentStatus::Resolved,
+    _ => orbitdock_protocol::ReviewCommentStatus::Open,
+  };
 
-    Ok(orbitdock_protocol::ReviewComment {
-        id: row.get(0)?,
-        session_id: row.get(1)?,
-        turn_id: row.get(2)?,
-        file_path: row.get(3)?,
-        line_start: row.get(4)?,
-        line_end: row.get(5)?,
-        body: row.get(6)?,
-        tag,
-        status,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-    })
+  Ok(orbitdock_protocol::ReviewComment {
+    id: row.get(0)?,
+    session_id: row.get(1)?,
+    turn_id: row.get(2)?,
+    file_path: row.get(3)?,
+    line_start: row.get(4)?,
+    line_end: row.get(5)?,
+    body: row.get(6)?,
+    tag,
+    status,
+    created_at: row.get(9)?,
+    updated_at: row.get(10)?,
+  })
 }
