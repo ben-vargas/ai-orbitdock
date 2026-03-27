@@ -9,6 +9,8 @@ site/dist/
 # Certificates (NEVER commit these)
 *.p12
 *.cer
+*.provisionprofile
+*.mobileprovision
 
 # Build artifacts
 *.zip
