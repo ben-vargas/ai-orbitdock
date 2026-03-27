@@ -1,12 +1,68 @@
+import Foundation
 @testable import OrbitDock
 import Testing
 
 @MainActor
+struct ServerSetupPlannerTests {
+  @Test func loopbackHostDetectsAllVariants() {
+    #expect(ServerSetupViewPlanner.isLoopbackHost("127.0.0.1"))
+    #expect(ServerSetupViewPlanner.isLoopbackHost("localhost"))
+    #expect(ServerSetupViewPlanner.isLoopbackHost("::1"))
+    #expect(!ServerSetupViewPlanner.isLoopbackHost("10.0.0.5"))
+    #expect(!ServerSetupViewPlanner.isLoopbackHost("orbitdock.example.com"))
+  }
+
+  @Test func buildEndpointRejectsLoopbackOnIOS() throws {
+    // buildEndpoint has a #if os(iOS) guard that rejects loopback hosts.
+    // On macOS this test verifies the loopback path succeeds instead.
+    let result = ServerSetupViewPlanner.buildEndpoint(
+      host: "127.0.0.1",
+      authToken: "tok_test",
+      existingEndpoints: [],
+      defaultPort: 4_000,
+      buildURL: { URL(string: "ws://\($0)") }
+    )
+
+    #if os(iOS)
+      #expect(result == .failure(.loopbackNotReachableFromIOS))
+    #else
+      let endpoints = try result.get()
+      #expect(endpoints.count == 1)
+    #endif
+  }
+
+  @Test func buildLocalEndpointCreatesLocalManaged() throws {
+    let result = ServerSetupViewPlanner.buildLocalEndpoint(
+      authToken: "tok_test",
+      existingEndpoints: [],
+      defaultPort: 4_000
+    )
+
+    let endpoints = try result.get()
+    #expect(endpoints.count == 1)
+    #expect(endpoints[0].isLocalManaged)
+    #expect(endpoints[0].isDefault)
+  }
+
+  @Test func buildEndpointRequiresToken() {
+    let result = ServerSetupViewPlanner.buildEndpoint(
+      host: "10.0.0.5:4000",
+      authToken: "",
+      existingEndpoints: [],
+      defaultPort: 4_000,
+      buildURL: { URL(string: "ws://\($0)") }
+    )
+
+    #expect(result == .failure(ServerSetupConnectError.missingToken))
+  }
+}
+
+@MainActor
 struct ServerSetupVisibilityTests {
-  @Test func showsSetupWhenNotConfiguredAndNoConnectedRuntimes() {
+  @Test func showsSetupWhenNoEndpointsConfigured() {
     let shouldShow = AppWindowPlanner.shouldShowSetup(
       connectedRuntimeCount: 0,
-      installState: .notConfigured
+      hasEndpoints: false
     )
 
     #expect(shouldShow)
@@ -15,127 +71,18 @@ struct ServerSetupVisibilityTests {
   @Test func hidesSetupWhenAnyRuntimeIsConnected() {
     let shouldShow = AppWindowPlanner.shouldShowSetup(
       connectedRuntimeCount: 1,
-      installState: .notConfigured
+      hasEndpoints: true
     )
 
     #expect(!shouldShow)
   }
 
-  @Test func hidesSetupWhenServerStateIsConfiguredButDisconnected() {
+  @Test func hidesSetupWhenEndpointsExistButDisconnected() {
     let shouldShow = AppWindowPlanner.shouldShowSetup(
       connectedRuntimeCount: 0,
-      installState: .installed
+      hasEndpoints: true
     )
 
     #expect(!shouldShow)
   }
 }
-
-#if os(macOS)
-  private func forcedStateLabel(_ state: ServerInstallState?) -> String {
-    guard let state else { return "nil" }
-    switch state {
-      case .notConfigured: return "notConfigured"
-      case .running: return "running"
-      case .installed: return "installed"
-      case .remote: return "remote"
-      case .unknown: return "unknown"
-    }
-  }
-
-  @MainActor
-  struct ServerManagerForcedStateParsingTests {
-    @Test func parsesNotConfiguredAliases() {
-      #expect(forcedStateLabel(ServerManager.parseForcedInstallState("not_configured")) == "notConfigured")
-      #expect(forcedStateLabel(ServerManager.parseForcedInstallState("notconfigured")) == "notConfigured")
-      #expect(forcedStateLabel(ServerManager.parseForcedInstallState("not-configured")) == "notConfigured")
-      #expect(forcedStateLabel(ServerManager.parseForcedInstallState("  NOT_CONFIGURED  ")) == "notConfigured")
-    }
-
-    @Test func parsesKnownStates() {
-      #expect(forcedStateLabel(ServerManager.parseForcedInstallState("running")) == "running")
-      #expect(forcedStateLabel(ServerManager.parseForcedInstallState("installed")) == "installed")
-      #expect(forcedStateLabel(ServerManager.parseForcedInstallState("remote")) == "remote")
-      #expect(forcedStateLabel(ServerManager.parseForcedInstallState("unknown")) == "unknown")
-    }
-
-    @Test func returnsNilForInvalidInput() {
-      #expect(forcedStateLabel(ServerManager.parseForcedInstallState(nil)) == "nil")
-      #expect(forcedStateLabel(ServerManager.parseForcedInstallState("")) == "nil")
-      #expect(forcedStateLabel(ServerManager.parseForcedInstallState("   ")) == "nil")
-      #expect(forcedStateLabel(ServerManager.parseForcedInstallState("garbage")) == "nil")
-    }
-
-    @Test func installStateResolverUsesRemoteOnlyAfterHealthAndLaunchd() {
-      #expect(
-        ServerInstallStateResolver.resolve(
-          isHealthy: true,
-          launchdPlistExists: false,
-          hasRemoteEndpoint: true
-        ) == .running
-      )
-      #expect(
-        ServerInstallStateResolver.resolve(
-          isHealthy: false,
-          launchdPlistExists: true,
-          hasRemoteEndpoint: true
-        ) == .installed
-      )
-      #expect(
-        ServerInstallStateResolver.resolve(
-          isHealthy: false,
-          launchdPlistExists: false,
-          hasRemoteEndpoint: true
-        ) == .remote
-      )
-      #expect(
-        ServerInstallStateResolver.resolve(
-          isHealthy: false,
-          launchdPlistExists: false,
-          hasRemoteEndpoint: false
-        ) == .notConfigured
-      )
-    }
-
-    @Test func parsesBinaryVersionsFromCliOutput() {
-      let stable = OrbitDockBinaryVersion.parse("orbitdock 0.5.0")
-      let nightly = OrbitDockBinaryVersion.parse("orbitdock v0.5.0-nightly.20260326")
-
-      #expect(stable?.major == 0)
-      #expect(stable?.minor == 5)
-      #expect(stable?.patch == 0)
-      #expect(stable?.suffix == nil)
-      #expect(nightly?.suffix == "nightly.20260326")
-    }
-
-    @Test func bundledServerSyncReplacesWhenBundleCoreVersionIsNewer() {
-      let bundled = OrbitDockBinaryVersion.parse("orbitdock 0.5.0")
-      let installed = OrbitDockBinaryVersion.parse("orbitdock 0.4.0")
-
-      #expect(ServerManager.bundledServerSyncDecision(
-        bundledVersion: bundled,
-        installedVersion: installed
-      ) == .replace)
-    }
-
-    @Test func bundledServerSyncReplacesWhenOnlyTheSameCoreBuildDiffers() {
-      let bundled = OrbitDockBinaryVersion.parse("orbitdock 0.5.0-nightly.20260326")
-      let installed = OrbitDockBinaryVersion.parse("orbitdock 0.5.0")
-
-      #expect(ServerManager.bundledServerSyncDecision(
-        bundledVersion: bundled,
-        installedVersion: installed
-      ) == .replace)
-    }
-
-    @Test func bundledServerSyncSkipsDowngradeWhenInstalledCoreVersionIsNewer() {
-      let bundled = OrbitDockBinaryVersion.parse("orbitdock 0.5.0")
-      let installed = OrbitDockBinaryVersion.parse("orbitdock 0.6.0")
-
-      #expect(ServerManager.bundledServerSyncDecision(
-        bundledVersion: bundled,
-        installedVersion: installed
-      ) == .skipDowngrade)
-    }
-  }
-#endif
