@@ -134,7 +134,6 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID || secrets.MACOS_DEVELOPMENT_TEAM || secrets.APPLE_TEAM_ID }}
-          PROVISIONING_PROFILE_SPECIFIER: "Mac Team Direct Provisioning Profile: com.stubbornmule-software.OrbitDock"
           CARGO_PROFILE_RELEASE_LTO: "false"
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: ./scripts/archive-macos-app-release.sh
