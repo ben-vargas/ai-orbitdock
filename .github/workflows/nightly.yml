@@ -117,11 +117,13 @@ jobs:
 
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$PROFILE_PLIST")
           PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$PROFILE_PLIST")
+          PROFILE_IS_XCODE_MANAGED=$(/usr/libexec/PlistBuddy -c 'Print IsXcodeManaged' "$PROFILE_PLIST" 2>/dev/null || echo "false")
           cp "$PROFILE_PATH" "$PP_DIR/$PROFILE_UUID.provisionprofile"
 
           {
             echo "MACOS_PROVISIONING_PROFILE_UUID=$PROFILE_UUID"
             echo "MACOS_PROVISIONING_PROFILE_SPECIFIER=$PROFILE_NAME"
+            echo "MACOS_PROVISIONING_PROFILE_XCODE_MANAGED=$PROFILE_IS_XCODE_MANAGED"
           } >> "$GITHUB_ENV"
 
       - name: Set Xcode version numbers
