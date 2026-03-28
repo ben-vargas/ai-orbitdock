@@ -3,8 +3,26 @@
 //! Pure classification functions (`classify_common_dir`, `parse_worktree_porcelain`)
 //! are separated from async I/O so they can be unit-tested without a git repo.
 
+use std::collections::HashMap;
 use std::process::Stdio;
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::process::Command;
+use tokio::sync::Mutex as AsyncMutex;
+
+static REPO_MUTATION_LOCKS: OnceLock<Mutex<HashMap<String, Arc<AsyncMutex<()>>>>> = OnceLock::new();
+
+fn repo_mutation_locks() -> &'static Mutex<HashMap<String, Arc<AsyncMutex<()>>>> {
+  REPO_MUTATION_LOCKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn repo_mutation_lock(repo_path: &str) -> Arc<AsyncMutex<()>> {
+  let normalized = repo_path.trim().trim_end_matches('/').to_string();
+  let mut locks = repo_mutation_locks().lock().expect("repo mutation locks");
+  locks
+    .entry(normalized)
+    .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+    .clone()
+}
 
 // ---------------------------------------------------------------------------
 // GitInfo — rich resolution result
@@ -213,6 +231,14 @@ pub async fn create_worktree(
   base_ref: Option<&str>,
   cleanup_existing: bool,
 ) -> Result<String, String> {
+  // `git worktree add <path> <remote/ref>` updates `.git/config` to write
+  // upstream tracking metadata. Git uses a repository-global config lock for
+  // that write, so concurrent worktree creation against the same repo can fail
+  // with `could not lock config file .git/config`. Serialize those mutations
+  // per repo while still allowing different repos to proceed in parallel.
+  let repo_lock = repo_mutation_lock(repo_path);
+  let _guard = repo_lock.lock().await;
+
   let mut args = vec!["worktree", "add", "-b", branch, worktree_path];
   if let Some(base) = base_ref {
     args.push(base);
@@ -336,6 +362,25 @@ async fn run_git(args: &[&str], cwd: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use futures::future::join_all;
+  use tempfile::tempdir;
+
+  async fn configure_repo_identity(repo: &str) {
+    run_git_checked(&["config", "user.email", "test@test.com"], repo)
+      .await
+      .expect("git config email");
+    run_git_checked(&["config", "user.name", "Test"], repo)
+      .await
+      .expect("git config name");
+  }
+
+  async fn commit_file(repo: &str, path: &str, contents: &str) {
+    std::fs::write(std::path::Path::new(repo).join(path), contents).expect("write file");
+    run_git_checked(&["add", "."], repo).await.expect("git add");
+    run_git_checked(&["commit", "-m", "init"], repo)
+      .await
+      .expect("git commit");
+  }
 
   // -- classify_common_dir (pure, no git) -----------------------------------
 
@@ -375,6 +420,82 @@ mod tests {
       ),
       "/home/user/dev/my-repo"
     );
+  }
+
+  #[tokio::test]
+  async fn create_worktree_serializes_remote_tracking_setup_per_repo() {
+    let temp = tempdir().expect("tempdir");
+    let origin = temp.path().join("origin.git");
+    let seed = temp.path().join("seed");
+    let repo = temp.path().join("repo");
+
+    run_git_checked(
+      &["init", "--bare", origin.to_string_lossy().as_ref()],
+      temp.path().to_string_lossy().as_ref(),
+    )
+    .await
+    .expect("git init --bare");
+
+    run_git_checked(
+      &[
+        "clone",
+        origin.to_string_lossy().as_ref(),
+        seed.to_string_lossy().as_ref(),
+      ],
+      temp.path().to_string_lossy().as_ref(),
+    )
+    .await
+    .expect("git clone seed");
+    configure_repo_identity(seed.to_string_lossy().as_ref()).await;
+    commit_file(seed.to_string_lossy().as_ref(), "README.md", "hello").await;
+    run_git_checked(&["branch", "-M", "main"], seed.to_string_lossy().as_ref())
+      .await
+      .expect("git branch -M main");
+    run_git_checked(
+      &["push", "-u", "origin", "main"],
+      seed.to_string_lossy().as_ref(),
+    )
+    .await
+    .expect("git push origin main");
+
+    run_git_checked(
+      &[
+        "clone",
+        origin.to_string_lossy().as_ref(),
+        repo.to_string_lossy().as_ref(),
+      ],
+      temp.path().to_string_lossy().as_ref(),
+    )
+    .await
+    .expect("git clone repo");
+    run_git_checked(&["checkout", "main"], repo.to_string_lossy().as_ref())
+      .await
+      .expect("git checkout main");
+
+    let repo_path = repo.to_string_lossy().into_owned();
+    let futures = (0..12).map(|idx| {
+      let repo_path = repo_path.clone();
+      async move {
+        let branch = format!("mission/test-{idx}");
+        let worktree_path = format!("{repo_path}/.orbitdock-worktrees/test-{idx}");
+        create_worktree(
+          &repo_path,
+          &worktree_path,
+          &branch,
+          Some("origin/main"),
+          false,
+        )
+        .await
+      }
+    });
+
+    let results = join_all(futures).await;
+    for result in results {
+      assert!(
+        result.is_ok(),
+        "expected serialized worktree add to succeed: {result:?}"
+      );
+    }
   }
 
   #[test]
