@@ -156,7 +156,6 @@ fn build_upgrade_command(
 
   command
 }
-
 /// POST /api/server/start-upgrade — spawns the existing CLI upgrade flow in a
 /// detached child process so the current server can keep serving until the
 /// upgrader swaps the binary and restarts the service.
@@ -275,7 +274,6 @@ pub async fn start_upgrade(
         format!("failed to start background upgrade: {error}"),
       )
     })?;
-
   info!(
     component = "update",
     event = "api.server.start_upgrade",
