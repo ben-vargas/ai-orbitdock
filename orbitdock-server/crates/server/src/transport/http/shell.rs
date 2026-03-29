@@ -16,7 +16,9 @@ use crate::domain::sessions::transition::Input;
 use crate::infrastructure::shell::{ShellCancelStatus, ShellOutcome, ShellResult};
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::transport::shell_streaming::{ShellStreamPreviewState, SHELL_STREAM_THROTTLE_MS};
+use crate::transport::shell_streaming::{
+  prefer_streamed_shell_output, ShellStreamPreviewState, SHELL_STREAM_THROTTLE_MS,
+};
 
 const DEFAULT_SHELL_TIMEOUT_SECS: u64 = 120;
 
@@ -76,6 +78,7 @@ struct ShellRowState {
   command: Option<String>,
   stdout: Option<String>,
   stderr: Option<String>,
+  output_preview: Option<String>,
   exit_code: Option<i32>,
   duration_ms: u64,
   cwd: Option<String>,
@@ -105,6 +108,7 @@ fn build_shell_row_entry(
       args: vec![],
       stdout: state.stdout,
       stderr: state.stderr,
+      output_preview: state.output_preview,
       exit_code: state.exit_code,
       duration_seconds: (state.duration_ms > 0).then_some(state.duration_ms as f64 / 1000.0),
       cwd: state.cwd,
@@ -122,18 +126,8 @@ fn finalize_shell_result(
     ShellOutcome::Failed | ShellOutcome::TimedOut => true,
     ShellOutcome::Canceled => false,
   };
-  let combined_output = if result.stderr.is_empty() {
-    result.stdout.clone()
-  } else if result.stdout.is_empty() {
-    result.stderr.clone()
-  } else {
-    format!("{}\n{}", result.stdout, result.stderr)
-  };
-  let final_output = if combined_output.is_empty() {
-    streamed_output.unwrap_or_default()
-  } else {
-    combined_output
-  };
+  let final_output =
+    prefer_streamed_shell_output(&result.stdout, &result.stderr, streamed_output.as_deref());
   let outcome = match result.outcome {
     ShellOutcome::Completed => ShellExecutionOutcome::Completed,
     ShellOutcome::Failed => ShellExecutionOutcome::Failed,
@@ -180,6 +174,7 @@ pub async fn execute_shell_endpoint(
       command: Some(command.clone()),
       stdout: None,
       stderr: None,
+      output_preview: None,
       exit_code: None,
       duration_ms: 0,
       cwd: Some(resolved_cwd.clone()),
@@ -241,6 +236,7 @@ pub async fn execute_shell_endpoint(
             command: Some(command_for_task.clone()),
             stdout: preview_state.stdout_preview(),
             stderr: preview_state.stderr_preview(),
+            output_preview: preview_state.combined_preview(),
             exit_code: None,
             duration_ms: 0,
             cwd: Some(resolved_cwd_for_task.clone()),
@@ -284,6 +280,7 @@ pub async fn execute_shell_endpoint(
           command: Some(command_for_task.clone()),
           stdout,
           stderr,
+          output_preview: (!final_output.is_empty()).then_some(final_output.clone()),
           exit_code: result.exit_code,
           duration_ms: result.duration_ms,
           cwd: Some(resolved_cwd_for_task.clone()),

@@ -8,7 +8,9 @@ use orbitdock_protocol::{new_id, ClientMessage, ServerMessage, ShellExecutionOut
 
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::transport::shell_streaming::{ShellStreamPreviewState, SHELL_STREAM_THROTTLE_MS};
+use crate::transport::shell_streaming::{
+  prefer_streamed_shell_output, ShellStreamPreviewState, SHELL_STREAM_THROTTLE_MS,
+};
 use crate::transport::websocket::{send_json, OutboundMessage};
 
 fn shell_render_hints() -> RenderHints {
@@ -36,6 +38,7 @@ struct ShellRowState {
   command: Option<String>,
   stdout: Option<String>,
   stderr: Option<String>,
+  output_preview: Option<String>,
   exit_code: Option<i32>,
   duration_ms: u64,
   cwd: Option<String>,
@@ -65,6 +68,7 @@ fn shell_row_entry(
       args: vec![],
       stdout: state.stdout,
       stderr: state.stderr,
+      output_preview: state.output_preview,
       exit_code: state.exit_code,
       duration_seconds: (state.duration_ms > 0).then_some(state.duration_ms as f64 / 1000.0),
       cwd: state.cwd,
@@ -134,6 +138,7 @@ pub(crate) async fn handle(
           command: Some(cmd_clone.clone()),
           stdout: None,
           stderr: None,
+          output_preview: None,
           exit_code: None,
           duration_ms: 0,
           cwd: Some(resolved_cwd.clone()),
@@ -198,6 +203,7 @@ pub(crate) async fn handle(
                 command: Some(cmd_clone.clone()),
                 stdout: preview_state.stdout_preview(),
                 stderr: preview_state.stderr_preview(),
+                output_preview: preview_state.combined_preview(),
                 exit_code: None,
                 duration_ms: 0,
                 cwd: Some(resolved_cwd.clone()),
@@ -232,18 +238,11 @@ pub(crate) async fn handle(
           crate::infrastructure::shell::ShellOutcome::Canceled => false,
         };
         let _ = is_error; // preserved for future use
-        let combined_output = if result.stderr.is_empty() {
-          result.stdout.clone()
-        } else if result.stdout.is_empty() {
-          result.stderr.clone()
-        } else {
-          format!("{}\n{}", result.stdout, result.stderr)
-        };
-        let final_output = if combined_output.is_empty() {
-          preview_state.combined_preview().unwrap_or_default()
-        } else {
-          combined_output
-        };
+        let final_output = prefer_streamed_shell_output(
+          &result.stdout,
+          &result.stderr,
+          preview_state.combined_preview().as_deref(),
+        );
         let outcome = match result.outcome {
           crate::infrastructure::shell::ShellOutcome::Completed => ShellExecutionOutcome::Completed,
           crate::infrastructure::shell::ShellOutcome::Failed => ShellExecutionOutcome::Failed,
@@ -265,6 +264,7 @@ pub(crate) async fn handle(
               command: Some(cmd_clone.clone()),
               stdout,
               stderr,
+              output_preview: (!final_output.is_empty()).then_some(final_output.clone()),
               exit_code: result.exit_code,
               duration_ms: result.duration_ms,
               cwd: Some(resolved_cwd.clone()),
