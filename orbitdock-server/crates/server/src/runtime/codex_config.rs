@@ -302,19 +302,28 @@ pub async fn resolve_codex_settings(
   })
 }
 
-pub async fn codex_config_catalog(cwd: &str) -> Result<CodexConfigCatalogResponse, String> {
-  let config_response = read_codex_config(cwd).await?;
-  let selection = CodexConfigSelection {
-    config_source: CodexConfigSource::User,
-    config_mode: CodexConfigMode::Inherit,
-    config_profile: None,
-    model_provider: None,
-    overrides: CodexSessionOverrides::default(),
+pub async fn codex_config_catalog(cwd: Option<&str>) -> Result<CodexConfigCatalogResponse, String> {
+  let explicit_cwd = cwd.and_then(normalized_optional_cwd);
+  let resolved_cwd = resolved_codex_context_cwd(explicit_cwd)?;
+  let config_response = read_codex_config(&resolved_cwd).await?;
+
+  let effective_settings = if let Some(explicit_cwd) = explicit_cwd {
+    let selection = CodexConfigSelection {
+      config_source: CodexConfigSource::User,
+      config_mode: CodexConfigMode::Inherit,
+      config_profile: None,
+      model_provider: None,
+      overrides: CodexSessionOverrides::default(),
+    };
+    let effective_config = build_effective_codex_config(explicit_cwd, &selection).await?;
+    Some(effective_settings(&effective_config, &selection))
+  } else {
+    None
   };
-  let effective_config = build_effective_codex_config(cwd, &selection).await?;
+
   Ok(CodexConfigCatalogResponse {
-    cwd: Some(cwd.to_string()),
-    effective_settings: Some(effective_settings(&effective_config, &selection)),
+    cwd: explicit_cwd.map(str::to_string),
+    effective_settings,
     profiles: config_profiles(&config_response.config),
     providers: config_providers(&config_response.config),
     warnings: Vec::new(),
@@ -669,6 +678,33 @@ async fn read_codex_config(cwd: &str) -> Result<ConfigReadResponse, String> {
     },
   )
   .await
+}
+
+fn normalized_optional_cwd(cwd: &str) -> Option<&str> {
+  if cwd.trim().is_empty() {
+    None
+  } else {
+    Some(cwd)
+  }
+}
+
+fn resolved_codex_context_cwd(cwd: Option<&str>) -> Result<String, String> {
+  if let Some(cwd) = cwd {
+    return Ok(cwd.to_string());
+  }
+
+  let home = std::env::var_os("HOME").ok_or_else(|| {
+    "Couldn't resolve a fallback Codex config directory: HOME is not set".to_string()
+  })?;
+  let path = PathBuf::from(home);
+  if path.is_dir() {
+    Ok(path.display().to_string())
+  } else {
+    Err(format!(
+      "Couldn't resolve a fallback Codex config directory: HOME is not a usable directory ({})",
+      path.display()
+    ))
+  }
 }
 
 async fn call_codex_app_server<TParams, TResponse>(
@@ -1262,6 +1298,8 @@ fn dedup_non_empty(entries: Vec<String>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+  use std::ffi::OsString;
+
   use super::*;
 
   #[test]
@@ -1319,5 +1357,62 @@ mod tests {
     assert_eq!(normalized.model_provider, None);
     assert_eq!(normalized.overrides.model, None);
     assert_eq!(normalized.overrides.model_provider, None);
+  }
+
+  #[test]
+  fn normalized_optional_cwd_preserves_literal_paths_with_spaces() {
+    assert_eq!(
+      normalized_optional_cwd(" /tmp/orbit dock "),
+      Some(" /tmp/orbit dock ")
+    );
+  }
+
+  #[test]
+  fn normalized_optional_cwd_rejects_whitespace_only_values() {
+    assert_eq!(normalized_optional_cwd("   \t  "), None);
+  }
+
+  #[test]
+  fn resolved_codex_context_cwd_uses_home_for_global_catalog_requests() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let _guard = EnvVarGuard::set("HOME", Some(temp.path().as_os_str().to_os_string()));
+
+    let resolved = resolved_codex_context_cwd(None).expect("resolve home cwd");
+
+    assert_eq!(resolved, temp.path().display().to_string());
+  }
+
+  #[test]
+  fn resolved_codex_context_cwd_errors_when_home_is_unusable() {
+    let _guard = EnvVarGuard::set("HOME", None);
+
+    let error = resolved_codex_context_cwd(None).expect_err("missing HOME should fail");
+
+    assert!(error.contains("HOME is not set"));
+  }
+
+  struct EnvVarGuard {
+    key: &'static str,
+    previous: Option<OsString>,
+  }
+
+  impl EnvVarGuard {
+    fn set(key: &'static str, value: Option<OsString>) -> Self {
+      let previous = std::env::var_os(key);
+      match value {
+        Some(value) => std::env::set_var(key, value),
+        None => std::env::remove_var(key),
+      }
+      Self { key, previous }
+    }
+  }
+
+  impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+      match self.previous.as_ref() {
+        Some(value) => std::env::set_var(self.key, value),
+        None => std::env::remove_var(self.key),
+      }
+    }
   }
 }

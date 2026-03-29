@@ -159,6 +159,10 @@ pub(crate) fn build_control_deck_snapshot(
       approval_policy: session.approval_policy.clone(),
       approval_policy_details: session.approval_policy_details.clone(),
       sandbox_mode: session.sandbox_mode.clone(),
+      approvals_reviewer: session
+        .codex_config_overrides
+        .as_ref()
+        .and_then(|overrides| overrides.approvals_reviewer),
       permission_mode: session.permission_mode.clone(),
       collaboration_mode: session.collaboration_mode.clone(),
       developer_instructions: session.developer_instructions.clone(),
