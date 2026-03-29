@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use orbitdock_protocol::{CodexApprovalPolicy, CodexConfigMode, ServerMessage};
+use orbitdock_protocol::{
+  CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, ServerMessage,
+};
 
 use orbitdock_protocol::StateChanges;
 
@@ -24,6 +26,7 @@ pub(crate) struct SessionConfigUpdate {
   pub approval_policy: Option<Option<String>>,
   pub approval_policy_details: Option<Option<CodexApprovalPolicy>>,
   pub sandbox_mode: Option<Option<String>>,
+  pub approvals_reviewer: Option<Option<CodexApprovalsReviewer>>,
   pub permission_mode: Option<Option<String>>,
   pub collaboration_mode: Option<Option<String>>,
   pub multi_agent: Option<Option<bool>>,
@@ -132,6 +135,7 @@ pub(crate) async fn update_session_config(
     approval_policy,
     approval_policy_details,
     sandbox_mode,
+    approvals_reviewer,
     permission_mode,
     collaboration_mode,
     multi_agent,
@@ -196,6 +200,9 @@ pub(crate) async fn update_session_config(
     }
     if let Some(value) = sandbox_mode {
       overrides.sandbox_mode = value;
+    }
+    if let Some(value) = approvals_reviewer {
+      overrides.approvals_reviewer = value;
     }
     if let Some(value) = collaboration_mode {
       overrides.collaboration_mode = value;
@@ -349,6 +356,9 @@ pub(crate) async fn update_session_config(
       .send(CodexAction::UpdateConfig {
         approval_policy: approval_policy.flatten(),
         sandbox_mode: sandbox_mode.flatten(),
+        approvals_reviewer: approvals_reviewer
+          .flatten()
+          .map(|value| value.as_str().to_string()),
         permission_mode: permission_mode.flatten(),
         collaboration_mode: collaboration_mode.flatten(),
         multi_agent: multi_agent.flatten(),

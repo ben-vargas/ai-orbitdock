@@ -20,8 +20,8 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use tracing::{info, warn};
 
 use super::config::{
-  collaboration_mode_for_update, parse_personality, parse_service_tier_override,
-  preferred_reasoning_summary, reasoning_summary_for_model,
+  collaboration_mode_for_update, parse_approvals_reviewer, parse_personality,
+  parse_service_tier_override, preferred_reasoning_summary, reasoning_summary_for_model,
 };
 use super::{
   CodexConfigOverrides, CodexConnector, CodexControlPlane, SteerOutcome, UpdateConfigOptions,
@@ -623,6 +623,7 @@ impl CodexConnector {
     let UpdateConfigOptions {
       approval_policy,
       sandbox_mode,
+      approvals_reviewer,
       permission_mode,
       collaboration_mode,
       multi_agent,
@@ -678,6 +679,7 @@ impl CodexConnector {
       let current = self.current_reasoning_effort.lock().await;
       *current
     };
+    let approvals_reviewer = parse_approvals_reviewer(approvals_reviewer);
     let collaboration_mode = collaboration_mode_for_update(
       self.thread_manager.as_ref(),
       collaboration_mode,
@@ -696,7 +698,7 @@ impl CodexConnector {
       model: model.map(ToString::to_string),
       effort: effort.and_then(parse_reasoning_effort).map(Some),
       summary: None,
-      approvals_reviewer: None,
+      approvals_reviewer,
       service_tier: parse_service_tier_override(service_tier),
       collaboration_mode,
       personality: parse_personality(personality),
