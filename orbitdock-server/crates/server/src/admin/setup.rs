@@ -392,24 +392,21 @@ fn run_server_setup(data_dir: &Path) -> anyhow::Result<()> {
 
 fn run_cloudflare_setup(data_dir: &Path) -> anyhow::Result<()> {
   println!();
-  tunnel::ensure_cloudflared()?;
 
   let token = start_service_and_issue_token(data_dir, "127.0.0.1:4000")?;
 
   println!();
-  println!("  Starting Cloudflare tunnel...");
-  let (tunnel_child, tunnel_url) = tunnel::start_tunnel_and_extract_url(4000)?;
+  println!("  Starting Cloudflare tunnel service...");
+  let tunnel_url = tunnel::start_background_cloudflare_tunnel(4000)?;
 
   print_token_banner(Some(&tunnel_url), &token, None);
   prompt_and_install_local_hooks(Some(&token))?;
   print_remote_connection_instructions(
     &tunnel_url,
-    Some("This is a temporary quick tunnel. For a persistent URL, use a named Cloudflare tunnel."),
+    Some("This tunnel runs as a background service and survives after setup exits."),
   );
-  println!("  Leave this terminal open while the tunnel is active.");
+  print_tunnel_stop_instructions();
   println!();
-
-  let _ = tunnel_child.wait_with_output();
 
   Ok(())
 }
@@ -593,6 +590,21 @@ fn print_remote_connection_instructions(url: &str, note: Option<&str>) {
   println!("    # The client will prompt for the token if you do not set ORBITDOCK_AUTH_TOKEN");
   if let Some(note) = note {
     println!("    # {}", note);
+  }
+  println!();
+}
+
+fn print_tunnel_stop_instructions() {
+  println!("  To stop the tunnel service:");
+  #[cfg(target_os = "macos")]
+  {
+    println!(
+      "    launchctl bootout gui/$(id -u)/com.orbitdock.cloudflare-tunnel"
+    );
+  }
+  #[cfg(not(target_os = "macos"))]
+  {
+    println!("    systemctl --user stop orbitdock-cloudflare-tunnel.service");
   }
   println!();
 }
