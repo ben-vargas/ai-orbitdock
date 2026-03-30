@@ -125,6 +125,31 @@ checksum_tool_available() {
   command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1
 }
 
+install_binary_atomically() {
+  local source_binary="$1"
+  local target_binary="$INSTALL_ROOT/bin/orbitdock"
+  local staged_binary
+
+  if ! staged_binary="$(mktemp "$INSTALL_ROOT/bin/.orbitdock.XXXXXX")"; then
+    return 1
+  fi
+
+  if ! cp "$source_binary" "$staged_binary"; then
+    rm -f "$staged_binary"
+    return 1
+  fi
+
+  if ! chmod 755 "$staged_binary"; then
+    rm -f "$staged_binary"
+    return 1
+  fi
+
+  if ! mv -f "$staged_binary" "$target_binary"; then
+    rm -f "$staged_binary"
+    return 1
+  fi
+}
+
 # ── Install from prebuilt binary ──────────────────────────────────────────
 install_from_release() {
   local asset_name url tmp_dir zip_path checksum_url checksum_file asset_list
@@ -196,8 +221,11 @@ install_from_release() {
     return 1
   fi
 
-  cp "$tmp_dir/orbitdock" "$INSTALL_ROOT/bin/orbitdock"
-  chmod 755 "$INSTALL_ROOT/bin/orbitdock"
+  if ! install_binary_atomically "$tmp_dir/orbitdock"; then
+    err "Failed to install binary atomically."
+    rm -rf "$tmp_dir"
+    return 1
+  fi
   rm -rf "$tmp_dir"
   return 0
 }

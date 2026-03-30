@@ -18,6 +18,7 @@ The installer downloads a prebuilt binary for macOS, Linux x86_64, and Linux aar
 
 - Installs `orbitdock` to `~/.orbitdock/bin/`
 - Ensures `~/.orbitdock/bin` is on shell `PATH`
+- Replaces the binary atomically, so existing running servers keep using the old version until restarted
 
 After installing, run `orbitdock setup` to complete configuration.
 
