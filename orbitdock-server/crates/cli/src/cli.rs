@@ -5,7 +5,7 @@ use orbitdock_protocol::WorkspaceProviderKind;
 #[command(
   name = "orbitdock",
   about = "OrbitDock — mission control for AI coding agents",
-  version
+  version = orbitdock_server::VERSION
 )]
 pub struct BinaryCli {
   /// Data directory (default: ~/.orbitdock)

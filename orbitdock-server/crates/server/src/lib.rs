@@ -16,7 +16,10 @@ pub(crate) mod transport;
 use std::path::{Path, PathBuf};
 
 /// Server version, baked in at compile time.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = match option_env!("ORBITDOCK_BUILD_VERSION") {
+  Some(version) => version,
+  None => env!("CARGO_PKG_VERSION"),
+};
 pub use app::{run_server, ManagedSyncRunOptions, ServerRunOptions};
 pub use infrastructure::logging::{ServerLogEvent, ServerLoggingOptions, StderrLogMode};
 

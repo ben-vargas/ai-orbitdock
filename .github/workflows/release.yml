@@ -378,6 +378,7 @@ jobs:
     env:
       CARGO_PROFILE_RELEASE_LTO: "false"
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+      ORBITDOCK_BUILD_VERSION: ${{ needs.metadata.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
