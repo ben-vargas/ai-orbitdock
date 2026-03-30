@@ -72,6 +72,11 @@
 			path = OrbitDockTests;
 			sourceTree = "<group>";
 		};
+		81A2B3C42F9A000100A1B2C3 /* Vendors */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Vendors;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -108,6 +113,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		803067632F7A42BF00AD967E /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				81A2B3C42F9A000100A1B2C3 /* Vendors */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		80BCD0B72F2C834F00D91F91 = {
 			isa = PBXGroup;
 			children = (
@@ -115,6 +128,7 @@
 				80BCD0D02F2C834F00D91F91 /* OrbitDockTests */,
 				800E7CC52F46B778007CADF5 /* OrbitDock iOSTests */,
 				80BCD0C12F2C834F00D91F91 /* Products */,
+				803067632F7A42BF00AD967E /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -136,7 +150,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 800E7CD42F46B778007CADF5 /* Build configuration list for PBXNativeTarget "OrbitDock iOS" */;
 			buildPhases = (
-				80E45A1A2F90000100A1B2C3 /* Build Ghostty VT */,
 				800E7CB22F46B778007CADF5 /* Sources */,
 				800E7CB32F46B778007CADF5 /* Frameworks */,
 				800E7CB42F46B778007CADF5 /* Resources */,
@@ -147,6 +160,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				80BCD0C22F2C834F00D91F91 /* OrbitDock */,
+				81A2B3C42F9A000100A1B2C3 /* Vendors */,
 			);
 			name = "OrbitDock iOS";
 			packageProductDependencies = (
@@ -193,6 +207,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				80BCD0C22F2C834F00D91F91 /* OrbitDock */,
+				81A2B3C42F9A000100A1B2C3 /* Vendors */,
 			);
 			name = OrbitDock;
 			packageProductDependencies = (
@@ -308,34 +323,6 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
-/* Begin PBXShellScriptBuildPhase section */
-		80E45A1A2F90000100A1B2C3 /* Build Ghostty VT */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 0;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/Vendors/ghostty-vt/build.sh",
-			);
-			name = "Build Ghostty VT";
-			outputPaths = (
-				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64/libghostty-vt.a",
-				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64/libhighway.a",
-				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64/libsimdutf.a",
-				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64/libutfcpp.a",
-				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator/libghostty-vt.a",
-				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator/libhighway.a",
-				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator/libsimdutf.a",
-				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator/libutfcpp.a",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nGHOSTTY_VT_SKIP_DESKTOP_OUTPUTS=1 \"$SRCROOT/Vendors/ghostty-vt/build.sh\" --ios\n";
-			showEnvVarsInLog = 0;
-		};
-/* End PBXShellScriptBuildPhase section */
-
 /* Begin PBXSourcesBuildPhase section */
 		800E7CB22F46B778007CADF5 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -410,6 +397,13 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/ios-arm64",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/ios-simulator",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/ios-simulator-arm64",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/macos-arm64",
+				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator";
 				MARKETING_VERSION = 0.7.0;
@@ -469,6 +463,13 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/ios-arm64",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/ios-simulator",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/ios-simulator-arm64",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/macos-arm64",
 				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator";
@@ -707,7 +708,13 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/lib/macos-arm64";
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Vendors/ghostty-vt/lib/macos-arm64",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/ios-arm64",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/ios-simulator",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/ios-simulator-arm64",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/macos-arm64",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 0.7.0;
 				OTHER_LDFLAGS = (
@@ -756,7 +763,13 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/lib/macos-arm64";
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Vendors/ghostty-vt/lib/macos-arm64",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/ios-arm64",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/ios-simulator",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/ios-simulator-arm64",
+					"$(PROJECT_DIR)/Vendors/ghostty-vt/lib/macos-arm64",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 0.7.0;
 				OTHER_LDFLAGS = (

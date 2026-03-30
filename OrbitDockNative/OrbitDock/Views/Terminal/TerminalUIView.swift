@@ -58,6 +58,8 @@
     private let notificationFeedback = UINotificationFeedbackGenerator()
 
     private lazy var _accessoryBar: TerminalAccessoryBar = .init(terminalView: self)
+    @available(iOS 16.0, *)
+    private lazy var editMenuInteraction = UIEditMenuInteraction(delegate: self)
 
     // MARK: - Init
 
@@ -77,6 +79,9 @@
       backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.052, alpha: 1.0)
       isOpaque = true
       clearsContextBeforeDrawing = false
+      if #available(iOS 16.0, *) {
+        addInteraction(editMenuInteraction)
+      }
 
       setupScrollGesture()
       setupZoomGestures()
@@ -434,8 +439,9 @@
     private func showCopyMenu(at point: CGPoint) {
       guard selectionStart != nil else { return }
       becomeFirstResponder()
-      let menu = UIMenuController.shared
-      menu.showMenu(from: self, rect: CGRect(origin: point, size: CGSize(width: 1, height: 1)))
+      guard #available(iOS 16.0, *) else { return }
+      let configuration = UIEditMenuConfiguration(identifier: nil, sourcePoint: point)
+      editMenuInteraction.presentEditMenu(with: configuration)
     }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
@@ -449,6 +455,10 @@
     }
 
     override func copy(_ sender: Any?) {
+      copySelection()
+    }
+
+    private func copySelection() {
       guard let text = selectedText() else { return }
       UIPasteboard.general.string = text
       notificationFeedback.notificationOccurred(.success)
@@ -456,6 +466,10 @@
     }
 
     override func paste(_ sender: Any?) {
+      pasteFromClipboard()
+    }
+
+    private func pasteFromClipboard() {
       guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
       clearSelection()
       insertText(text)
@@ -466,7 +480,9 @@
       selectionEnd = nil
       isSelecting = false
       setNeedsDisplay()
-      UIMenuController.shared.hideMenu()
+      if #available(iOS 16.0, *) {
+        editMenuInteraction.dismissMenu()
+      }
     }
 
     // MARK: - Cursor Blink
@@ -790,5 +806,41 @@
     if flags.contains(.command) { mods |= UInt16(GHOSTTY_MODS_SUPER) }
     if flags.contains(.alphaShift) { mods |= UInt16(GHOSTTY_MODS_CAPS_LOCK) }
     return mods
+  }
+
+  @available(iOS 16.0, *)
+  extension TerminalUIView: UIEditMenuInteractionDelegate {
+    func editMenuInteraction(
+      _ interaction: UIEditMenuInteraction,
+      menuFor configuration: UIEditMenuConfiguration,
+      suggestedActions: [UIMenuElement]
+    ) -> UIMenu? {
+      var actions: [UIMenuElement] = []
+
+      if selectionStart != nil {
+        actions.append(
+          UIAction(
+            title: "Copy",
+            image: UIImage(systemName: "doc.on.doc")
+          ) { [weak self] _ in
+            self?.copySelection()
+          }
+        )
+      }
+
+      if UIPasteboard.general.hasStrings {
+        actions.append(
+          UIAction(
+            title: "Paste",
+            image: UIImage(systemName: "doc.on.clipboard")
+          ) { [weak self] _ in
+            self?.pasteFromClipboard()
+          }
+        )
+      }
+
+      guard !actions.isEmpty else { return nil }
+      return UIMenu(title: "", children: actions)
+    }
   }
 #endif

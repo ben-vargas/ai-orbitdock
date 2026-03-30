@@ -29,6 +29,9 @@ make rust-run-debug
 make cli ARGS='session list'
 ```
 
+The iOS app target links against the checked-in `OrbitDockNative/Vendors/ghostty-vt/lib/...` archives.
+If those prebuilts need to be refreshed, run `OrbitDockNative/Vendors/ghostty-vt/build.sh --ios` manually and check the updated archives in.
+
 Rust workflow policy still applies here: use `make rust-*` targets instead of plain `cargo`.
 Those targets also auto-enable `sccache` when it is installed and keep Rust artifacts under the shared repo cache.
 Shared Make configuration lives at the repo root, and target families are split under `make/*.mk`.

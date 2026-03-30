@@ -117,14 +117,32 @@
 
     private func makeKey(_ title: String, action: @escaping () -> Void) -> AccessoryKeyButton {
       let button = AccessoryKeyButton(action: action)
-      button.setTitle(title, for: .normal)
-      button.titleLabel?.font = .monospacedSystemFont(ofSize: 14, weight: .medium)
-      button.setTitleColor(UIColor.white.withAlphaComponent(0.75), for: .normal)
-      button.setTitleColor(UIColor.white, for: .highlighted)
-      button.backgroundColor = UIColor.white.withAlphaComponent(0.06)
-      button.layer.cornerRadius = 6
-      button.layer.cornerCurve = .continuous
-      button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+      let inactiveTextColor = UIColor.white.withAlphaComponent(0.75)
+      let inactiveBackgroundColor = UIColor.white.withAlphaComponent(0.06)
+      let activeAccentColor = UIColor(red: 0.35, green: 0.85, blue: 0.55, alpha: 1.0)
+      let activeBackgroundColor = activeAccentColor.withAlphaComponent(0.2)
+
+      var config = UIButton.Configuration.plain()
+      config.title = title
+      config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
+      config.baseForegroundColor = inactiveTextColor
+      config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+        var outgoing = incoming
+        outgoing.font = .monospacedSystemFont(ofSize: 14, weight: .medium)
+        return outgoing
+      }
+      config.background.backgroundColor = inactiveBackgroundColor
+      config.background.cornerRadius = 6
+      button.configuration = config
+      button.configurationUpdateHandler = { button in
+        var updated = button.configuration ?? config
+        let active = button.isSelected
+        updated.baseForegroundColor = active ? activeAccentColor : inactiveTextColor
+        updated.background.backgroundColor = active ? activeBackgroundColor : inactiveBackgroundColor
+        updated.background.strokeWidth = active ? 1 : 0
+        updated.background.strokeColor = active ? activeAccentColor.withAlphaComponent(0.4) : nil
+        button.configuration = updated
+      }
       button.translatesAutoresizingMaskIntoConstraints = false
       button.heightAnchor.constraint(equalToConstant: 34).isActive = true
       return button
@@ -132,12 +150,16 @@
 
     private func makeArrowKey(_ systemImage: String, action: @escaping () -> Void) -> AccessoryKeyButton {
       let button = AccessoryKeyButton(action: action)
+      let inactiveBackgroundColor = UIColor.white.withAlphaComponent(0.06)
+
       let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-      button.setImage(UIImage(systemName: systemImage, withConfiguration: config), for: .normal)
-      button.tintColor = UIColor.white.withAlphaComponent(0.75)
-      button.backgroundColor = UIColor.white.withAlphaComponent(0.06)
-      button.layer.cornerRadius = 6
-      button.layer.cornerCurve = .continuous
+      var buttonConfig = UIButton.Configuration.plain()
+      buttonConfig.image = UIImage(systemName: systemImage, withConfiguration: config)
+      buttonConfig.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
+      buttonConfig.baseForegroundColor = UIColor.white.withAlphaComponent(0.75)
+      buttonConfig.background.backgroundColor = inactiveBackgroundColor
+      buttonConfig.background.cornerRadius = 6
+      button.configuration = buttonConfig
       button.translatesAutoresizingMaskIntoConstraints = false
       NSLayoutConstraint.activate([
         button.widthAnchor.constraint(equalToConstant: 38),
@@ -187,19 +209,8 @@
     }
 
     private func updateToggleAppearance(_ button: AccessoryKeyButton, active: Bool) {
-      // Terminal green accent when active
-      let activeColor = UIColor(red: 0.35, green: 0.85, blue: 0.55, alpha: 1.0)
-      UIView.animate(withDuration: 0.15) {
-        button.backgroundColor = active
-          ? activeColor.withAlphaComponent(0.2)
-          : UIColor.white.withAlphaComponent(0.06)
-        button.setTitleColor(
-          active ? activeColor : UIColor.white.withAlphaComponent(0.75),
-          for: .normal
-        )
-        button.layer.borderWidth = active ? 1 : 0
-        button.layer.borderColor = active ? activeColor.withAlphaComponent(0.4).cgColor : nil
-      }
+      button.isSelected = active
+      button.setNeedsUpdateConfiguration()
     }
 
     /// Called by TerminalUIView after consuming modifiers to reset toggle state.
@@ -240,6 +251,7 @@
     override var isHighlighted: Bool {
       didSet {
         alpha = isHighlighted ? 0.6 : 1.0
+        setNeedsUpdateConfiguration()
       }
     }
   }

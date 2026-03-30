@@ -7,8 +7,9 @@
 #   ./build.sh                 # Build for macOS arm64 only
 #   ./build.sh --ios           # Also build for iOS arm64 and a universal iOS simulator archive
 #
-# Xcode invokes the script with GHOSTTY_VT_SKIP_DESKTOP_OUTPUTS=1 so the
-# sandboxed iPhone build only writes the declared iOS outputs.
+# The iOS app target consumes the checked-in archives under lib/.
+# Use GHOSTTY_VT_SKIP_DESKTOP_OUTPUTS=1 when regenerating iOS prebuilts so
+# manual runs avoid rewriting the desktop outputs.
 #
 # Output:
 #   lib/macos-arm64/libghostty-vt.a
