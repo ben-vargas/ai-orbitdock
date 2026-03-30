@@ -116,6 +116,7 @@ pub fn ensure_cloudflared() -> anyhow::Result<String> {
 ///
 /// Returns the child process (still running) and the extracted URL.
 /// The caller is responsible for the child's lifetime.
+#[allow(dead_code)]
 pub fn start_tunnel_and_extract_url(port: u16) -> anyhow::Result<(Child, String)> {
   let cloudflared = find_cloudflared()?;
   let mut child = start_quick_tunnel(&cloudflared, port)?;
@@ -518,8 +519,7 @@ mod tests {
 
   #[test]
   fn extract_url_prefers_tunnel_hosts() {
-    let line =
-      "2024-01-15T12:00:00Z INF tunnel is ready at https://abc-def.trycloudflare.com";
+    let line = "2024-01-15T12:00:00Z INF tunnel is ready at https://abc-def.trycloudflare.com";
     assert_eq!(
       extract_url(line),
       Some("https://abc-def.trycloudflare.com".to_string())

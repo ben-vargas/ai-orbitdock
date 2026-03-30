@@ -41,7 +41,7 @@ orbitdock setup client    # connect to an existing OrbitDock server
 
 **Local** initializes the database, installs Claude Code hooks, and starts the background service.
 
-**Server** asks how clients should reach this machine (Cloudflare Tunnel, Tailscale, reverse proxy, or direct bind), checks prerequisites, starts the service, and prints the real URL and auth token.
+**Server** asks how clients should reach this machine (Cloudflare Tunnel, Tailscale Serve, reverse proxy, or direct bind), checks prerequisites, starts the service, and prints the real URL and auth token.
 
 **Client** prompts for a server URL and auth token, tests the connection, and installs Claude Code hooks.
 

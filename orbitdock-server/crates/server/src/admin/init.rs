@@ -79,9 +79,9 @@ pub fn initialize_data_dir(
     println!();
     if let Some(ip) = &ts_ip {
       println!("  Tailscale detected! Your IP: {}", ip);
-      println!("  For remote access (secure by default):");
-      println!("    orbitdock generate-token");
-      println!("    orbitdock start --bind 0.0.0.0:4000");
+      println!("  For remote access over HTTPS:");
+      println!("    orbitdock setup server");
+      println!("    # choose Tailscale when prompted");
       println!();
     }
 

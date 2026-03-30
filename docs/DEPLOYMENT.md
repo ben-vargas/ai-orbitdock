@@ -180,17 +180,17 @@ orbitdock tunnel --name orbitdock
 
 ### Tailscale
 
-The server auto-detects Tailscale during setup.
+The server auto-detects Tailscale during setup and configures Tailscale Serve to expose OrbitDock over HTTPS.
 
 ```bash
 orbitdock setup server   # choose Tailscale when prompted
-# Prints your Tailscale IP: http://100.x.y.z:4000
+# Prints your Tailscale HTTPS URL: https://<device>.ts.net
 # Auth token is shown during setup
 ```
 
-`0.0.0.0:4000` is the server's bind address, not a client destination.
+`127.0.0.1:4000` is the server's local bind address for Tailscale Serve, not a client destination.
 On the same machine, use `http://127.0.0.1:4000`.
-From another device, use the machine's real LAN, Tailscale, tunnel, or public HTTPS address.
+From another device on the tailnet, use the `https://<device>.ts.net` URL shown during setup.
 
 ### Reverse Proxy (nginx / Caddy)
 

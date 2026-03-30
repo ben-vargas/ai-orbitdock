@@ -43,7 +43,8 @@ impl ExposureMode {
   fn desired_bind(self) -> SocketAddr {
     match self {
       Self::Cloudflare | Self::ReverseProxy => "127.0.0.1:4000".parse().unwrap(),
-      Self::Tailscale | Self::Direct => "0.0.0.0:4000".parse().unwrap(),
+      Self::Tailscale => "127.0.0.1:4000".parse().unwrap(),
+      Self::Direct => "0.0.0.0:4000".parse().unwrap(),
     }
   }
 }
@@ -191,10 +192,119 @@ fn strip_string_tag(line: &str) -> Option<&str> {
   start.strip_suffix("</string>")
 }
 
-// ── Tailscale detection (delegates to init::detect_tailscale_ip) ─────────────
+// ── Tailscale detection -----------------------------------------------------
 
-fn detect_tailscale_url() -> Option<String> {
-  init::detect_tailscale_ip().map(|ip| format!("http://{}:4000", ip))
+fn detect_tailscale_https_url() -> Option<String> {
+  let output = Command::new("tailscale")
+    .args(["status", "--json"])
+    .output()
+    .ok()?;
+
+  if !output.status.success() {
+    return None;
+  }
+
+  tailscale_https_url_from_status_json(&output.stdout)
+}
+
+fn tailscale_https_url_from_status_json(status_json: &[u8]) -> Option<String> {
+  let json: serde_json::Value = serde_json::from_slice(status_json).ok()?;
+  let dns_name = json.get("Self")?.get("DNSName")?.as_str()?;
+  let dns_name = dns_name.trim().trim_end_matches('.');
+  if dns_name.is_empty() {
+    None
+  } else {
+    Some(format!("https://{}", dns_name))
+  }
+}
+
+fn start_tailscale_serve(port: u16) -> anyhow::Result<String> {
+  let target = format!("http://127.0.0.1:{}", port);
+  let mut child = Command::new("tailscale")
+    .args(["serve", "--bg", "--yes", "--https=443", target.as_str()])
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped())
+    .spawn()
+    .map_err(|e| anyhow::anyhow!("tailscale serve failed to start: {}", e))?;
+
+  let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+  loop {
+    if let Some(status) = child
+      .try_wait()
+      .map_err(|e| anyhow::anyhow!("tailscale serve status check failed: {}", e))?
+    {
+      let output = child
+        .wait_with_output()
+        .map_err(|e| anyhow::anyhow!("tailscale serve failed while collecting output: {}", e))?;
+      let stdout = String::from_utf8_lossy(&output.stdout);
+      let stderr = String::from_utf8_lossy(&output.stderr);
+      let combined_output = format!("{}\n{}", stdout.trim(), stderr.trim());
+
+      if !status.success() {
+        let detail = stderr.trim();
+        let fallback = stdout.trim();
+        anyhow::bail!(
+          "tailscale serve failed: {}",
+          if detail.is_empty() { fallback } else { detail }
+        );
+      }
+
+      if combined_output.contains("Serve is not enabled on your tailnet")
+        || combined_output.contains("To enable, visit:")
+      {
+        let consent_url = tailscale_serve_consent_url()
+          .unwrap_or_else(|| "https://login.tailscale.com/f/serve".to_string());
+        anyhow::bail!(
+          "tailscale serve is disabled on this tailnet. Enable Serve here: {}",
+          consent_url
+        );
+      }
+
+      break;
+    }
+
+    if std::time::Instant::now() >= deadline {
+      let _ = child.kill();
+      let consent_url = tailscale_serve_consent_url()
+        .unwrap_or_else(|| "https://login.tailscale.com/f/serve".to_string());
+      let _ = child.wait();
+      anyhow::bail!(
+        "tailscale serve did not become ready in time. If your tailnet requires consent, enable Serve here: {}",
+        consent_url
+      );
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+  }
+
+  let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+  while std::time::Instant::now() < deadline {
+    if let Some(url) = detect_tailscale_https_url() {
+      return Ok(url);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(250));
+  }
+
+  anyhow::bail!(
+    "tailscale serve started, but OrbitDock could not determine the HTTPS URL from `tailscale status --json`"
+  )
+}
+
+fn tailscale_serve_consent_url() -> Option<String> {
+  let output = Command::new("tailscale")
+    .args(["status", "--json"])
+    .output()
+    .ok()?;
+  let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+  let node_id = json.get("Self")?.get("ID")?.as_str()?;
+  if node_id.is_empty() {
+    None
+  } else {
+    Some(format!(
+      "https://login.tailscale.com/f/serve?node={}",
+      node_id
+    ))
+  }
 }
 
 // ── Prompts ─────────────────────────────────────────────────────────────────
@@ -413,10 +523,9 @@ fn run_cloudflare_setup(data_dir: &Path) -> anyhow::Result<()> {
 
 fn run_tailscale_setup(data_dir: &Path) -> anyhow::Result<()> {
   println!();
-  let ts_url = match detect_tailscale_url() {
+  match detect_tailscale_https_url() {
     Some(url) => {
       println!("  Tailscale detected: {}", url);
-      url
     }
     None => {
       println!("  Tailscale not detected.");
@@ -429,15 +538,17 @@ fn run_tailscale_setup(data_dir: &Path) -> anyhow::Result<()> {
       println!("  And re-run: orbitdock setup server");
       return Ok(());
     }
-  };
+  }
 
-  let token = start_service_and_issue_token(data_dir, "0.0.0.0:4000")?;
+  let token = start_service_and_issue_token(data_dir, "127.0.0.1:4000")?;
+  let ts_url = start_tailscale_serve(4000)?;
   print_token_banner(Some(&ts_url), &token, None);
   prompt_and_install_local_hooks(Some(&token))?;
   print_remote_connection_instructions(
     &ts_url,
-    Some("This address comes from Tailscale."),
+    Some("This address comes from Tailscale Serve over HTTPS."),
   );
+  print_tailscale_stop_instructions();
 
   Ok(())
 }
@@ -548,7 +659,12 @@ fn start_service_and_issue_token(data_dir: &Path, bind: &str) -> anyhow::Result<
   println!();
   print!("  Starting background service (bind {})... ", bind);
   io::stdout().flush()?;
-  install_service::install_background_service(data_dir, bind.parse().unwrap(), true, Some(&token))?;
+  install_service::install_background_service(
+    data_dir,
+    bind.parse().unwrap(),
+    true,
+    Some(token.clone()),
+  )?;
   println!("done.");
 
   Ok(token)
@@ -598,14 +714,18 @@ fn print_tunnel_stop_instructions() {
   println!("  To stop the tunnel service:");
   #[cfg(target_os = "macos")]
   {
-    println!(
-      "    launchctl bootout gui/$(id -u)/com.orbitdock.cloudflare-tunnel"
-    );
+    println!("    launchctl bootout gui/$(id -u)/com.orbitdock.cloudflare-tunnel");
   }
   #[cfg(not(target_os = "macos"))]
   {
     println!("    systemctl --user stop orbitdock-cloudflare-tunnel.service");
   }
+  println!();
+}
+
+fn print_tailscale_stop_instructions() {
+  println!("  To stop Tailscale Serve:");
+  println!("    tailscale serve --https=443 off");
   println!();
 }
 
@@ -627,7 +747,7 @@ mod tests {
   fn tailscale_exposure_binds_all_interfaces() {
     assert_eq!(
       ExposureMode::Tailscale.desired_bind().to_string(),
-      "0.0.0.0:4000"
+      "127.0.0.1:4000"
     );
   }
 
@@ -663,5 +783,19 @@ mod tests {
     let content = r#"ExecStart=/Users/test/.orbitdock/bin/orbitdock start --bind 0.0.0.0:4000 --data-dir /Users/test/.orbitdock"#;
     let bind = parse_systemd_bind(content).expect("bind");
     assert_eq!(bind.to_string(), "0.0.0.0:4000");
+  }
+
+  #[test]
+  fn tailscale_status_json_prefers_https_dns_name() {
+    let json = br#"{
+      "Self": {
+        "DNSName": "orbitdock-mac.penguin.ts.net."
+      }
+    }"#;
+
+    assert_eq!(
+      tailscale_https_url_from_status_json(json),
+      Some("https://orbitdock-mac.penguin.ts.net".to_string())
+    );
   }
 }
