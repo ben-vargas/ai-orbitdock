@@ -35,7 +35,7 @@ pub fn start_cloudflare_tunnel(port: u16, name: Option<&str>) -> anyhow::Result<
 
       // cloudflared prints the URL to stderr in a line like:
       // "... https://xxx-yyy.trycloudflare.com ..."
-      if line.contains("trycloudflare.com") || line.contains(".cloudflare") {
+      if is_tunnel_url_line(&line) {
         if let Some(url) = extract_url(&line) {
           println!();
           println!("  ══════════════════════════════════════════");
@@ -131,7 +131,7 @@ pub fn start_tunnel_and_extract_url(port: u16) -> anyhow::Result<(Child, String)
 
   let deadline = Instant::now() + Duration::from_secs(60);
   while let Ok(line) = rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-    if line.contains("trycloudflare.com") || line.contains(".cloudflare") {
+    if is_tunnel_url_line(&line) {
       if let Some(url) = extract_url(&line) {
         return Ok((child, url));
       }
@@ -189,15 +189,26 @@ fn start_named_tunnel(cloudflared: &str, port: u16, name: &str) -> anyhow::Resul
 }
 
 pub(crate) fn extract_url(line: &str) -> Option<String> {
-  // Find HTTPS URLs in the line
+  // Find HTTPS URLs in the line.
+  // This is intentionally strict: Cloudflared logs can include unrelated
+  // Cloudflare links (like website terms), and we only want the tunnel URL.
   for word in line.split_whitespace() {
     let candidate = word
       .trim_matches(|c: char| !c.is_alphanumeric() && c != ':' && c != '/' && c != '.' && c != '-');
-    if candidate.starts_with("https://") {
+    if is_tunnel_url(candidate) {
       return Some(candidate.to_string());
     }
   }
   None
+}
+
+fn is_tunnel_url_line(line: &str) -> bool {
+  line.contains(".trycloudflare.com") || line.contains(".cfargotunnel.com")
+}
+
+fn is_tunnel_url(candidate: &str) -> bool {
+  candidate.starts_with("https://")
+    && (candidate.contains(".trycloudflare.com") || candidate.contains(".cfargotunnel.com"))
 }
 
 #[cfg(test)]
@@ -220,5 +231,22 @@ mod tests {
   #[test]
   fn extract_url_handles_no_url() {
     assert_eq!(extract_url("just some text with no url"), None);
+  }
+
+  #[test]
+  fn extract_url_ignores_cloudflare_terms_links() {
+    let line =
+      "2024-01-15T12:00:00Z INF If you'd like to learn more, visit https://www.cloudflare.com/website-terms/ for details";
+    assert_eq!(extract_url(line), None);
+  }
+
+  #[test]
+  fn extract_url_prefers_tunnel_hosts() {
+    let line =
+      "2024-01-15T12:00:00Z INF tunnel is ready at https://abc-def.trycloudflare.com";
+    assert_eq!(
+      extract_url(line),
+      Some("https://abc-def.trycloudflare.com".to_string())
+    );
   }
 }
