@@ -1,8 +1,7 @@
 //! `orbitdock hook-forward` — internal Claude hook transport.
 //!
 //! Reads a Claude hook JSON payload from stdin, wraps it into an OrbitDock
-//! client message (`type` field), POSTs it to `/api/hook`, and spools on
-//! transient failures. This replaces shell-script transport.
+//! client message (`type` field), and POSTs it to `/api/hook`.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};

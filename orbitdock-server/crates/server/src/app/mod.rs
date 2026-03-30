@@ -28,8 +28,8 @@ use crate::domain::sessions::session::{
 use crate::infrastructure::logging::{init_logging, ServerLoggingOptions};
 use crate::infrastructure::persistence::{
   cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
-  create_persistence_channel, create_sync_channel, create_sync_shutdown_channel,
-  load_sessions_for_startup, PersistCommand, PersistenceWriter, SyncWriter, SyncWriterConfig,
+  create_persistence_channel, create_sync_shutdown_channel, load_sessions_for_startup,
+  PersistCommand, PersistenceWriter, SyncWriter, SyncWriterConfig,
 };
 use crate::runtime::restored_sessions::{
   load_prepared_resume_session, prepare_restored_session_for_direct_resume,
@@ -209,27 +209,30 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     }
   }
 
-  let (sync_tx, sync_shutdown_tx, sync_writer_handle) =
+  let (sync_shutdown_tx, sync_writer_handle) =
     if let Some(sync_options) = options.managed_sync.clone() {
-      let (sync_tx, sync_rx) = create_sync_channel();
       let (shutdown_tx, shutdown_rx) = create_sync_shutdown_channel();
       let sync_writer = SyncWriter::new(
-        sync_rx,
         shutdown_rx,
         SyncWriterConfig::new(
           sync_options.workspace_id,
+          crate::infrastructure::paths::db_path(),
           sync_options.server_url,
           sync_options.auth_token,
         ),
       )?;
       let writer_handle = tokio::spawn(sync_writer.run());
-      (Some(sync_tx), Some(shutdown_tx), Some(writer_handle))
+      (Some(shutdown_tx), Some(writer_handle))
     } else {
-      (None, None, None)
+      (None, None)
     };
 
   let (persist_tx, persist_rx) = create_persistence_channel();
-  let persistence_writer = PersistenceWriter::new(persist_rx, sync_tx);
+  let sync_workspace_id = options
+    .managed_sync
+    .as_ref()
+    .map(|sync_options| sync_options.workspace_id.clone());
+  let persistence_writer = PersistenceWriter::new(persist_rx, sync_workspace_id);
   tokio::spawn(persistence_writer.run());
 
   if persisted_is_primary.is_none() {
@@ -1212,7 +1215,7 @@ mod tests {
       cwd: "/tmp/codex-repo".to_string(),
       transcript_path: Some("/tmp/codex-repo/transcript.jsonl".to_string()),
       model: Some("gpt-5-codex".to_string()),
-      turn_id: "turn-1".to_string(),
+      turn_id: Some("turn-1".to_string()),
       prompt: "Ship it".to_string(),
     })
     .expect("serialize codex spool payload");
