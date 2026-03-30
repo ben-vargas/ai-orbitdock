@@ -270,6 +270,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
       );
 
       let mut backfill_tasks: Vec<(String, String)> = Vec::new();
+      let mut startup_resume_ready: Vec<tokio::sync::oneshot::Receiver<()>> = Vec::new();
 
       for rs in restored {
         let should_restore_live_direct = rs.status.eq_ignore_ascii_case("active")
@@ -283,7 +284,10 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
           let prepared = prepare_restored_session_for_direct_resume(rs, false);
 
           match launch_resumed_session(&state, &session_id, prepared).await {
-            Ok(_) => {
+            Ok(launch) => {
+              if let Some(startup_ready) = launch.startup_ready {
+                startup_resume_ready.push(startup_ready);
+              }
               info!(
                   component = "restore",
                   event = "restore.session.resumed",
@@ -594,6 +598,10 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
             messages = msg_count,
             "Registered session"
         );
+      }
+
+      for startup_ready in startup_resume_ready {
+        let _ = startup_ready.await;
       }
 
       if !backfill_tasks.is_empty() {
@@ -1164,11 +1172,24 @@ fn spawn_spool_replay(state: Arc<SessionRegistry>) {
   });
 }
 
+async fn wait_for_startup_resume_ready(
+  startup_resume_ready: Vec<tokio::sync::oneshot::Receiver<()>>,
+) {
+  for startup_ready in startup_resume_ready {
+    let _ = startup_ready.await;
+  }
+}
+
 #[cfg(test)]
 mod tests {
-  use super::{drain_spool, resolve_workspace_provider_kind};
+  use super::{drain_spool, resolve_workspace_provider_kind, wait_for_startup_resume_ready};
   use crate::support::test_support::{ensure_server_test_data_dir, new_test_session_registry};
   use orbitdock_protocol::{ClientMessage, Provider, WorkspaceProviderKind};
+  use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+  };
+  use tokio::sync::oneshot;
 
   #[test]
   fn workspace_provider_override_wins_over_persisted_value() {
@@ -1244,5 +1265,24 @@ mod tests {
       snapshot.transcript_path.as_deref(),
       Some("/tmp/codex-repo/transcript.jsonl")
     );
+  }
+
+  #[tokio::test]
+  async fn startup_resume_ready_waits_for_every_receiver() {
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let (delayed_tx, delayed_rx) = oneshot::channel();
+    let delayed_fired = Arc::new(AtomicBool::new(false));
+    let delayed_fired_for_task = delayed_fired.clone();
+
+    tokio::spawn(async move {
+      tokio::task::yield_now().await;
+      delayed_fired_for_task.store(true, Ordering::SeqCst);
+      let _ = delayed_tx.send(());
+    });
+
+    let _ = ready_tx.send(());
+    wait_for_startup_resume_ready(vec![ready_rx, delayed_rx]).await;
+
+    assert!(delayed_fired.load(Ordering::SeqCst));
   }
 }

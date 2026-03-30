@@ -7,6 +7,9 @@
 #   ./build.sh                 # Build for macOS arm64 only
 #   ./build.sh --ios           # Also build for iOS arm64 and a universal iOS simulator archive
 #
+# Xcode invokes the script with GHOSTTY_VT_SKIP_DESKTOP_OUTPUTS=1 so the
+# sandboxed iPhone build only writes the declared iOS outputs.
+#
 # Output:
 #   lib/macos-arm64/libghostty-vt.a
 #   lib/ios-arm64/libghostty-vt.a             (if --ios)
@@ -38,7 +41,15 @@ copy_cpp_deps() {
 create_universal_archive() {
   local output_path="$1"
   shift
-  xcrun lipo -create "$@" -output "$output_path"
+  local temp_output_path="/tmp/$(basename "$output_path").$$.lipo"
+  rm -f "$temp_output_path"
+  xcrun lipo -create "$@" -output "$temp_output_path"
+  cp "$temp_output_path" "$output_path"
+  rm -f "$temp_output_path"
+}
+
+should_skip_desktop_outputs() {
+  [ "${GHOSTTY_VT_SKIP_DESKTOP_OUTPUTS:-0}" = "1" ]
 }
 
 if [ -d "$WORK_DIR" ] && [ -d "$WORK_DIR/.git" ]; then
@@ -58,13 +69,15 @@ fi
 echo "==> Building libghostty-vt for macOS arm64..."
 zig build -Demit-lib-vt -Doptimize=ReleaseFast
 
-mkdir -p "$SCRIPT_DIR/lib/macos-arm64"
-cp zig-out/lib/libghostty-vt.a "$SCRIPT_DIR/lib/macos-arm64/"
-copy_cpp_deps ".zig-cache" "$SCRIPT_DIR/lib/macos-arm64"
+if ! should_skip_desktop_outputs; then
+  mkdir -p "$SCRIPT_DIR/lib/macos-arm64"
+  cp zig-out/lib/libghostty-vt.a "$SCRIPT_DIR/lib/macos-arm64/"
+  copy_cpp_deps ".zig-cache" "$SCRIPT_DIR/lib/macos-arm64"
 
-# Copy headers
-rm -rf "$SCRIPT_DIR/include/ghostty"
-cp -r zig-out/include/ghostty "$SCRIPT_DIR/include/"
+  # Copy headers
+  rm -rf "$SCRIPT_DIR/include/ghostty"
+  cp -r zig-out/include/ghostty "$SCRIPT_DIR/include/"
+fi
 
 if [ "${1:-}" = "--ios" ]; then
   echo "==> Building libghostty-vt for iOS arm64..."
@@ -74,8 +87,12 @@ if [ "${1:-}" = "--ios" ]; then
   copy_cpp_deps ".zig-cache" "$SCRIPT_DIR/lib/ios-arm64"
 
   echo "==> Building libghostty-vt for iOS simulator arm64..."
+  SIM_ARM64_OUTPUT_DIR="/tmp/ghostty-vt-sim-arm64-output"
+  SIM_X86_64_OUTPUT_DIR="/tmp/ghostty-vt-sim-x86_64-output"
   rm -rf "$SIM_ARM64_CACHE_DIR" "$SIM_X86_64_CACHE_DIR" "$SIM_GLOBAL_CACHE_DIR"
+  rm -rf "$SIM_ARM64_OUTPUT_DIR" "$SIM_X86_64_OUTPUT_DIR"
   mkdir -p "$SIM_GLOBAL_CACHE_DIR"
+  mkdir -p "$SIM_ARM64_OUTPUT_DIR" "$SIM_X86_64_OUTPUT_DIR"
   if [ -d "$HOME/.cache/zig/p" ]; then
     cp -R "$HOME/.cache/zig/p" "$SIM_GLOBAL_CACHE_DIR/"
   fi
@@ -86,9 +103,8 @@ if [ "${1:-}" = "--ios" ]; then
     -Dcpu=apple_a17 \
     --cache-dir "$SIM_ARM64_CACHE_DIR" \
     --global-cache-dir "$SIM_GLOBAL_CACHE_DIR"
-  mkdir -p "$SCRIPT_DIR/lib/ios-simulator-arm64"
-  cp zig-out/lib/libghostty-vt.a "$SCRIPT_DIR/lib/ios-simulator-arm64/"
-  copy_cpp_deps "$SIM_ARM64_CACHE_DIR" "$SCRIPT_DIR/lib/ios-simulator-arm64"
+  cp zig-out/lib/libghostty-vt.a "$SIM_ARM64_OUTPUT_DIR/libghostty-vt.a"
+  copy_cpp_deps "$SIM_ARM64_CACHE_DIR" "$SIM_ARM64_OUTPUT_DIR"
 
   echo "==> Building libghostty-vt for iOS simulator x86_64..."
   zig build \
@@ -97,30 +113,31 @@ if [ "${1:-}" = "--ios" ]; then
     -Dtarget=x86_64-ios-simulator \
     --cache-dir "$SIM_X86_64_CACHE_DIR" \
     --global-cache-dir "$SIM_GLOBAL_CACHE_DIR"
-  mkdir -p "$SCRIPT_DIR/lib/ios-simulator-x86_64"
-  cp zig-out/lib/libghostty-vt.a "$SCRIPT_DIR/lib/ios-simulator-x86_64/"
-  copy_cpp_deps "$SIM_X86_64_CACHE_DIR" "$SCRIPT_DIR/lib/ios-simulator-x86_64"
+  cp zig-out/lib/libghostty-vt.a "$SIM_X86_64_OUTPUT_DIR/libghostty-vt.a"
+  copy_cpp_deps "$SIM_X86_64_CACHE_DIR" "$SIM_X86_64_OUTPUT_DIR"
 
   echo "==> Creating universal iOS simulator archives..."
   mkdir -p "$SCRIPT_DIR/lib/ios-simulator"
   create_universal_archive \
     "$SCRIPT_DIR/lib/ios-simulator/libghostty-vt.a" \
-    "$SCRIPT_DIR/lib/ios-simulator-arm64/libghostty-vt.a" \
-    "$SCRIPT_DIR/lib/ios-simulator-x86_64/libghostty-vt.a"
+    "$SIM_ARM64_OUTPUT_DIR/libghostty-vt.a" \
+    "$SIM_X86_64_OUTPUT_DIR/libghostty-vt.a"
   create_universal_archive \
     "$SCRIPT_DIR/lib/ios-simulator/libhighway.a" \
-    "$SCRIPT_DIR/lib/ios-simulator-arm64/libhighway.a" \
-    "$SCRIPT_DIR/lib/ios-simulator-x86_64/libhighway.a"
+    "$SIM_ARM64_OUTPUT_DIR/libhighway.a" \
+    "$SIM_X86_64_OUTPUT_DIR/libhighway.a"
   create_universal_archive \
     "$SCRIPT_DIR/lib/ios-simulator/libsimdutf.a" \
-    "$SCRIPT_DIR/lib/ios-simulator-arm64/libsimdutf.a" \
-    "$SCRIPT_DIR/lib/ios-simulator-x86_64/libsimdutf.a"
+    "$SIM_ARM64_OUTPUT_DIR/libsimdutf.a" \
+    "$SIM_X86_64_OUTPUT_DIR/libsimdutf.a"
   create_universal_archive \
     "$SCRIPT_DIR/lib/ios-simulator/libutfcpp.a" \
-    "$SCRIPT_DIR/lib/ios-simulator-arm64/libutfcpp.a" \
-    "$SCRIPT_DIR/lib/ios-simulator-x86_64/libutfcpp.a"
+    "$SIM_ARM64_OUTPUT_DIR/libutfcpp.a" \
+    "$SIM_X86_64_OUTPUT_DIR/libutfcpp.a"
 fi
 
 echo "==> Done. Output:"
 ls -lh "$SCRIPT_DIR/lib/"*/libghostty-vt.a
-echo "Headers: $SCRIPT_DIR/include/ghostty/"
+if ! should_skip_desktop_outputs; then
+  echo "Headers: $SCRIPT_DIR/include/ghostty/"
+fi

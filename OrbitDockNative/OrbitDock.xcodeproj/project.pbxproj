@@ -331,7 +331,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n\"$SRCROOT/Vendors/ghostty-vt/build.sh\" --ios\n";
+			shellScript = "set -euo pipefail\nGHOSTTY_VT_SKIP_DESKTOP_OUTPUTS=1 \"$SRCROOT/Vendors/ghostty-vt/build.sh\" --ios\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */

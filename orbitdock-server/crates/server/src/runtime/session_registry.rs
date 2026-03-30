@@ -500,6 +500,7 @@ impl SessionRegistry {
       .collect()
   }
 
+  #[allow(dead_code)]
   pub fn get_session_list_items(&self) -> Vec<SessionListItem> {
     self
       .get_session_summaries()
@@ -508,6 +509,7 @@ impl SessionRegistry {
       .collect()
   }
 
+  #[allow(dead_code)]
   pub fn get_dashboard_conversations(&self) -> Vec<DashboardConversationItem> {
     let mut conversations: Vec<DashboardConversationItem> = self
       .sessions
@@ -732,6 +734,7 @@ impl SessionRegistry {
     self.dashboard_revision.load(Ordering::Relaxed)
   }
 
+  #[allow(dead_code)]
   pub fn current_dashboard_snapshot(&self) -> DashboardSnapshot {
     let sessions = self.get_session_list_items();
     let conversations = self.get_dashboard_conversations();

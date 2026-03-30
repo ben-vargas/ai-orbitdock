@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::oneshot;
 use tracing::{error, info};
 
 use orbitdock_protocol::{
@@ -22,6 +23,7 @@ use crate::support::session_paths::resolve_claude_resume_cwd;
 
 pub(crate) struct ResumeSessionLaunch {
   pub summary: SessionSummary,
+  pub startup_ready: Option<oneshot::Receiver<()>>,
 }
 
 pub(crate) enum ResumeSessionError {
@@ -69,7 +71,7 @@ pub(crate) async fn launch_resumed_session(
     })
     .await;
 
-  match prepared.provider {
+  let startup_ready = match prepared.provider {
     Provider::Claude => {
       let project = if let Some(ref transcript_path) = prepared.transcript_path {
         resolve_claude_resume_cwd(&prepared.project_path, transcript_path)
@@ -90,7 +92,7 @@ pub(crate) async fn launch_resumed_session(
       };
 
       state.register_claude_thread(&session_id, provider_resume_id.as_str());
-      spawn_claude_resume(
+      let startup_ready = spawn_claude_resume(
         state,
         ClaudeResumeParams {
           session_id: session_id.clone(),
@@ -103,6 +105,7 @@ pub(crate) async fn launch_resumed_session(
         },
       )
       .await;
+      Some(startup_ready)
     }
     Provider::Codex => {
       spawn_codex_resume(
@@ -129,10 +132,14 @@ pub(crate) async fn launch_resumed_session(
         },
       )
       .await;
+      None
     }
-  }
+  };
 
-  Ok(ResumeSessionLaunch { summary })
+  Ok(ResumeSessionLaunch {
+    summary,
+    startup_ready,
+  })
 }
 
 struct ClaudeResumeParams {
@@ -192,7 +199,10 @@ fn codex_resume_selection(request: &CodexResumeRequest) -> CodexConfigSelection 
   .normalized()
 }
 
-async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeParams) {
+async fn spawn_claude_resume(
+  state: &Arc<SessionRegistry>,
+  params: ClaudeResumeParams,
+) -> oneshot::Receiver<()> {
   let ClaudeResumeParams {
     session_id,
     project,
@@ -207,6 +217,7 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
     .await
     .unwrap_or(None);
   let state = state.clone();
+  let (startup_ready_tx, startup_ready_rx) = oneshot::channel();
 
   tokio::spawn(async move {
     let connector_timeout = Duration::from_secs(15);
@@ -276,11 +287,13 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
             "HTTP: Resumed Claude session"
         );
         state.publish_dashboard_snapshot();
+        let _ = startup_ready_tx.send(());
       }
       Ok(Ok(Err(error))) => {
         handle.apply_changes(&direct_resume_failure_changes(Provider::Claude));
         state.add_session(handle);
         state.publish_dashboard_snapshot();
+        let _ = startup_ready_tx.send(());
         error!(
             component = "session",
             event = "session.resume.http.claude_failed",
@@ -293,6 +306,7 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
         handle.apply_changes(&direct_resume_failure_changes(Provider::Claude));
         state.add_session(handle);
         state.publish_dashboard_snapshot();
+        let _ = startup_ready_tx.send(());
         error!(
             component = "session",
             event = "session.resume.http.claude_panicked",
@@ -305,6 +319,7 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
         handle.apply_changes(&direct_resume_failure_changes(Provider::Claude));
         state.add_session(handle);
         state.publish_dashboard_snapshot();
+        let _ = startup_ready_tx.send(());
         error!(
             component = "session",
             event = "session.resume.http.claude_timeout",
@@ -314,9 +329,14 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
       }
     }
   });
+
+  startup_ready_rx
 }
 
-async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRequest) {
+async fn spawn_codex_resume(
+  state: &Arc<SessionRegistry>,
+  request: CodexResumeRequest,
+) -> Option<oneshot::Receiver<()>> {
   let normalized_selection = codex_resume_selection(&request);
   let CodexResumeRequest {
     session_id,
@@ -329,6 +349,7 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
   let session_id = session_id.to_string();
   let persist_tx = state.persist().clone();
   let state = state.clone();
+  let (startup_ready_tx, startup_ready_rx) = oneshot::channel();
 
   tokio::spawn(async move {
     let connector_timeout = Duration::from_secs(15);
@@ -463,11 +484,13 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
             "HTTP: Resumed Codex session"
         );
         state.publish_dashboard_snapshot();
+        let _ = startup_ready_tx.send(());
       }
       Err(error) => {
         handle.apply_changes(&direct_resume_failure_changes(Provider::Codex));
         state.add_session(handle);
         state.publish_dashboard_snapshot();
+        let _ = startup_ready_tx.send(());
         error!(
             component = "session",
             event = "session.resume.http.codex_failed",
@@ -478,6 +501,8 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
       }
     }
   });
+
+  Some(startup_ready_rx)
 }
 
 struct CodexResumeRequest {
