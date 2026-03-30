@@ -163,6 +163,8 @@ Deploy the binary directly on any Linux VM. The server is stateless except for S
 
 Zero-config HTTPS with no firewall changes or certificates.
 
+`orbitdock setup server` uses a background tunnel service here, so the URL survives after setup exits.
+
 **Quick tunnel** (temporary URL, no account needed):
 
 ```bash
@@ -178,9 +180,12 @@ cloudflared tunnel create orbitdock
 orbitdock tunnel --name orbitdock
 ```
 
+Use `orbitdock tunnel` only when you want an ad hoc foreground tunnel and a temporary URL.
+
 ### Tailscale
 
 The server auto-detects Tailscale during setup and configures Tailscale Serve to expose OrbitDock over HTTPS.
+This requires Tailscale Serve to be enabled for the tailnet.
 
 ```bash
 orbitdock setup server   # choose Tailscale when prompted
@@ -191,6 +196,7 @@ orbitdock setup server   # choose Tailscale when prompted
 `127.0.0.1:4000` is the server's local bind address for Tailscale Serve, not a client destination.
 On the same machine, use `http://127.0.0.1:4000`.
 From another device on the tailnet, use the `https://<device>.ts.net` URL shown during setup.
+If Serve is disabled for the tailnet, OrbitDock prints the Tailscale admin enablement link and stops instead of hanging.
 
 ### Reverse Proxy (nginx / Caddy)
 

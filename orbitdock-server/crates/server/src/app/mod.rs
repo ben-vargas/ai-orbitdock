@@ -1172,6 +1172,7 @@ fn spawn_spool_replay(state: Arc<SessionRegistry>) {
   });
 }
 
+#[cfg(test)]
 async fn wait_for_startup_resume_ready(
   startup_resume_ready: Vec<tokio::sync::oneshot::Receiver<()>>,
 ) {

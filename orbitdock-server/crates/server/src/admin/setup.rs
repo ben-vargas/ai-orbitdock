@@ -687,7 +687,7 @@ fn print_token_banner(url: Option<&str>, token: &str, extra: Option<&str>) {
 }
 
 fn prompt_and_install_local_hooks(auth_token: Option<&str>) -> anyhow::Result<()> {
-  let also_local = prompt_yes_no("Will Claude Code also run on this machine? [Y/n]", true)?;
+  let also_local = prompt_yes_no("Run Claude Code on this machine too? [Y/n]", true)?;
   if also_local {
     print!("  Installing Claude Code hooks... ");
     io::stdout().flush()?;
@@ -699,7 +699,7 @@ fn prompt_and_install_local_hooks(auth_token: Option<&str>) -> anyhow::Result<()
 
 fn print_remote_connection_instructions(url: &str, note: Option<&str>) {
   println!();
-  println!("  Connect another machine:");
+  println!("  Connect from another machine:");
   println!("    orbitdock setup client");
   println!("    Server URL: {}", url);
   println!("    Auth token: use the token above");

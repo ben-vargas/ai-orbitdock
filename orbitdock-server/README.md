@@ -63,6 +63,8 @@ Local CLI commands and hooks on the same machine should still use `http://127.0.
 
 Zero-config HTTPS exposure with no firewall changes:
 
+`orbitdock setup server` uses a background tunnel service here, so the URL survives after setup exits.
+
 ```bash
 # Quick tunnel (temporary URL, no account)
 orbitdock tunnel
@@ -70,6 +72,8 @@ orbitdock tunnel
 # Named tunnel (persistent URL, requires cloudflared login)
 orbitdock tunnel --name my-tunnel
 ```
+
+Use `orbitdock tunnel` only when you want an ad hoc foreground tunnel and a temporary URL.
 
 ### Native TLS
 
