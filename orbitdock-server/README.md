@@ -24,6 +24,7 @@ After installing, run `orbitdock setup` to complete configuration.
 Optional flags:
 
 - `--version <tag>` install a specific release tag (for example `v1.2.3`)
+- `--version nightly` install the nightly release tag
 - `--force-source` skip prebuilt download and build from source with Cargo
 - `-y, --yes` accept installer defaults without prompting
 

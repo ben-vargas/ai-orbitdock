@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: install.sh [OPTIONS]"
       echo ""
       echo "Options:"
-      echo "  --version <ver>      Install specific version tag (default: latest)"
+      echo "  --version <ver>      Install a release tag (for example v1.2.3 or nightly)"
       echo "  --force-source       Build from source instead of downloading a prebuilt binary"
       echo "  -y, --yes            Accept installer defaults without prompting"
       echo "  -h, --help           Show this help"
@@ -80,7 +80,9 @@ mkdir -p "$INSTALL_ROOT/bin"
 # ── Helpers ───────────────────────────────────────────────────────────────
 normalize_tag() {
   local raw="$1"
-  if [[ "$raw" == v* ]]; then
+  if [[ "$raw" == latest || "$raw" == nightly ]]; then
+    echo "$raw"
+  elif [[ "$raw" == v* ]]; then
     echo "$raw"
   else
     echo "v$raw"

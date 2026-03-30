@@ -64,7 +64,7 @@ orbitdock install-hooks \
 
 ### Home Server (Raspberry Pi / NAS)
 
-The install script downloads a prebuilt binary for macOS, Linux x86_64, and Linux aarch64 (Raspberry Pi 64-bit). It builds from source as a fallback on unsupported platforms (including 32-bit Pi OS), which requires the [Rust toolchain](https://rustup.rs):
+The install script downloads a prebuilt binary for macOS, Linux x86_64, and Linux aarch64 (Raspberry Pi 64-bit). It builds from source as a fallback on unsupported platforms (including 32-bit Pi OS), which requires the [Rust toolchain](https://rustup.rs). You can also target the nightly release with `--version nightly`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
