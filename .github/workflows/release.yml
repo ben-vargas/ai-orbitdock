@@ -424,6 +424,7 @@ jobs:
     permissions:
       contents: write
     env:
+      GH_REPO: ${{ github.repository }}
       VERSION: ${{ needs.metadata.outputs.version }}
       TAG_NAME: ${{ needs.metadata.outputs.tag }}
       RELEASE_TITLE: ${{ needs.metadata.outputs.release_title }}
