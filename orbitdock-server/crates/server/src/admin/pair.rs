@@ -1,4 +1,4 @@
-//! `orbitdock pair` — generate a connection URL + QR code for clients.
+//! `orbitdock pair` — generate a connection URL for clients.
 
 use crate::infrastructure::auth_tokens;
 
@@ -16,7 +16,7 @@ struct PairingInfo {
   hook_install_command: String,
 }
 
-pub fn print_pairing_details(tunnel_url: Option<&str>, show_qr: bool) -> anyhow::Result<()> {
+pub fn print_pairing_details(tunnel_url: Option<&str>) -> anyhow::Result<()> {
   let token_state = TokenState {
     env_token_prefix: std::env::var("ORBITDOCK_AUTH_TOKEN")
       .ok()
@@ -31,7 +31,7 @@ pub fn print_pairing_details(tunnel_url: Option<&str>, show_qr: bool) -> anyhow:
   let base_url = detect_base_url(tunnel_url)?;
   let info = build_pairing_info(&base_url, &token_state);
 
-  render_pairing_details(&info, show_qr)
+  render_pairing_details(&info)
 }
 
 fn detect_base_url(tunnel_url: Option<&str>) -> anyhow::Result<String> {
@@ -101,43 +101,36 @@ fn build_pairing_info(base_url: &str, token_state: &TokenState) -> PairingInfo {
   }
 }
 
-fn render_pairing_details(info: &PairingInfo, show_qr: bool) -> anyhow::Result<()> {
-  let has_env_token = info.token_summary.ends_with("...");
-
+fn render_pairing_details(info: &PairingInfo) -> anyhow::Result<()> {
   println!();
   println!("  OrbitDock Pairing");
   println!("  ─────────────────");
   println!();
   println!("  Server:  {}", info.base_url);
-  println!("  Token:   {}", info.token_summary);
   println!("  TLS:     {}", if info.uses_tls { "yes" } else { "no" });
+  println!("  Token:   {}", info.token_summary);
   println!();
   println!("  Connection URL:");
-  println!("  {}", info.pair_url);
-  if info.requires_separate_token {
-    println!("  Note: token is intentionally not embedded in the URL.");
-    println!("        Enter the auth token separately in client settings.");
-  }
-
-  if show_qr {
-    println!();
-    match render_qr(&info.pair_url) {
-      Ok(qr_string) => {
-        println!("{}", qr_string);
-      }
-      Err(e) => {
-        println!("  (QR generation failed: {})", e);
-      }
-    }
-  }
-
+  println!("    {}", info.pair_url);
   println!();
-  println!("  To connect from another machine (hooks only):");
+  println!("  Connect another machine:");
+  println!("    orbitdock setup client");
+  println!("    Server URL: {}", info.base_url);
+  if info.requires_separate_token {
+    println!("    Auth token: enter it when prompted");
+  } else {
+    println!("    Auth token: not required");
+  }
+  println!();
+  println!("  Install hooks on this machine, if needed:");
   println!("    {}", info.hook_install_command);
   if info.requires_separate_token {
-    println!("    # You will be prompted for the auth token.");
     println!("    # Or set ORBITDOCK_AUTH_TOKEN first.");
-    if !has_env_token {
+    if std::env::var("ORBITDOCK_AUTH_TOKEN")
+      .ok()
+      .map(|s| !s.trim().is_empty())
+      != Some(true)
+    {
       println!("    # Create a new token if you don't already have one:");
       println!("    orbitdock generate-token");
     }
@@ -145,19 +138,6 @@ fn render_pairing_details(info: &PairingInfo, show_qr: bool) -> anyhow::Result<(
   println!();
 
   Ok(())
-}
-
-fn render_qr(data: &str) -> anyhow::Result<String> {
-  use qrcode::QrCode;
-
-  let code = QrCode::new(data.as_bytes())?;
-  let string = code
-    .render::<char>()
-    .quiet_zone(true)
-    .module_dimensions(2, 1)
-    .build();
-
-  Ok(string)
 }
 
 #[cfg(test)]

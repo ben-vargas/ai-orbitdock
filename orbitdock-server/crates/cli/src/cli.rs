@@ -210,12 +210,12 @@ pub enum BinaryCommand {
     name: Option<String>,
   },
 
-  /// Generate a connection URL and QR code for pairing clients
+  /// Generate a connection URL for pairing clients
   Pair {
     #[arg(long)]
     tunnel_url: Option<String>,
 
-    #[arg(long)]
+    #[arg(long, hide = true)]
     no_qr: bool,
   },
 

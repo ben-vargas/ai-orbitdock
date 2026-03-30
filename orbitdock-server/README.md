@@ -82,13 +82,13 @@ orbitdock start \
 
 ### Client Pairing
 
-Generate a connection URL and QR code:
+Generate a connection URL for clients:
 
 ```bash
 orbitdock pair --tunnel-url https://your-tunnel.trycloudflare.com
 ```
 
-If auth is enabled, enter the token separately in the client. Pairing URLs and QR codes intentionally exclude it.
+If auth is enabled, enter the token separately in the client. The connection URL intentionally excludes it.
 
 For the full deployment guide covering all topologies, security, and operations, see [DEPLOYMENT.md](../docs/DEPLOYMENT.md).
 
@@ -148,7 +148,7 @@ orbitdock [--data-dir PATH] <command>
 | `auth local-token` | Print the decrypted local auth token (from `hook-forward.json`) |
 | `doctor` | Run diagnostics and check system health |
 | `tunnel` | Expose the server via Cloudflare Tunnel |
-| `pair` | Generate a connection URL and QR code for clients |
+| `pair` | Generate a connection URL for clients |
 
 ### Client commands
 
@@ -617,5 +617,4 @@ Produces `${CARGO_TARGET_DIR:-target}/darwin-arm64/orbitdock` for Apple Silicon.
 | `serde` / `serde_json` | JSON serialization |
 | `codex-core` | Direct Codex integration |
 | `axum-server` | TLS support via rustls |
-| `qrcode` | QR code generation for `pair` command |
 | `tracing` | Structured logging |

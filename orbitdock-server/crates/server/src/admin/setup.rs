@@ -14,7 +14,7 @@ use std::process::Command;
 use crate::infrastructure::auth_tokens;
 use crate::infrastructure::paths;
 
-use super::{init, install_hooks, install_service, pair, status, tunnel};
+use super::{init, install_hooks, install_service, status, tunnel};
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -402,15 +402,12 @@ fn run_cloudflare_setup(data_dir: &Path) -> anyhow::Result<()> {
 
   print_token_banner(Some(&tunnel_url), &token, None);
   prompt_and_install_local_hooks(Some(&token))?;
-  print_client_instructions(&tunnel_url);
-  let _ = pair::print_pairing_details(Some(&tunnel_url), true);
-
-  println!("  This is a temporary quick tunnel.");
-  println!("  For a persistent URL, use a named Cloudflare tunnel:");
-  println!("    cloudflared tunnel create orbitdock");
-  println!("    orbitdock tunnel --name orbitdock");
+  print_remote_connection_instructions(
+    &tunnel_url,
+    Some("This is a temporary quick tunnel. For a persistent URL, use a named Cloudflare tunnel."),
+  );
+  println!("  Leave this terminal open while the tunnel is active.");
   println!();
-  println!("  Press Ctrl+C to stop the tunnel.");
 
   let _ = tunnel_child.wait_with_output();
 
@@ -440,8 +437,10 @@ fn run_tailscale_setup(data_dir: &Path) -> anyhow::Result<()> {
   let token = start_service_and_issue_token(data_dir, "0.0.0.0:4000")?;
   print_token_banner(Some(&ts_url), &token, None);
   prompt_and_install_local_hooks(Some(&token))?;
-  print_client_instructions(&ts_url);
-  let _ = pair::print_pairing_details(Some(&ts_url), true);
+  print_remote_connection_instructions(
+    &ts_url,
+    Some("This address comes from Tailscale."),
+  );
 
   Ok(())
 }
@@ -547,13 +546,15 @@ fn test_remote_health(url: &str) -> anyhow::Result<()> {
 
 fn start_service_and_issue_token(data_dir: &Path, bind: &str) -> anyhow::Result<String> {
   println!();
-  print!("  Starting background service (bind {})... ", bind);
-  io::stdout().flush()?;
-  install_service::install_background_service(data_dir, bind.parse().unwrap(), true, None)?;
-  println!("done.");
+  let token = status::issue_auth_token(data_dir)?;
 
   println!();
-  status::issue_auth_token(data_dir)
+  print!("  Starting background service (bind {})... ", bind);
+  io::stdout().flush()?;
+  install_service::install_background_service(data_dir, bind.parse().unwrap(), true, Some(&token))?;
+  println!("done.");
+
+  Ok(token)
 }
 
 fn print_token_banner(url: Option<&str>, token: &str, extra: Option<&str>) {
@@ -583,12 +584,16 @@ fn prompt_and_install_local_hooks(auth_token: Option<&str>) -> anyhow::Result<()
   Ok(())
 }
 
-fn print_client_instructions(url: &str) {
+fn print_remote_connection_instructions(url: &str, note: Option<&str>) {
   println!();
   println!("  Connect another machine:");
   println!("    orbitdock setup client");
   println!("    Server URL: {}", url);
   println!("    Auth token: use the token above");
+  println!("    # The client will prompt for the token if you do not set ORBITDOCK_AUTH_TOKEN");
+  if let Some(note) = note {
+    println!("    # {}", note);
+  }
   println!();
 }
 

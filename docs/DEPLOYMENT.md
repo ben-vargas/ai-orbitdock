@@ -278,18 +278,17 @@ Only expose port 4000 (or your chosen port). The server doesn't need outbound ac
 ### macOS App
 
 Settings → Servers → Add Endpoint → Enter your server URL and auth token.
-If auth is enabled, the token is entered separately here. Pairing URLs and QR codes never embed it.
+If auth is enabled, the token is entered separately here. The connection URL never embeds it.
 
 ### iOS App
 
-Use the `pair` command to generate a QR code:
+Use the `pair` command to generate a connection URL:
 
 ```bash
 orbitdock pair --tunnel-url https://your-tunnel.trycloudflare.com
 ```
 
-Scan the QR code from the iOS app's server settings.
-If auth is enabled, enter the token separately after scanning. The QR code only contains the server URL.
+Enter the server URL and auth token separately in the iOS app's server settings.
 
 ### Developer Machine (hooks only)
 

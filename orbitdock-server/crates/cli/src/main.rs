@@ -101,8 +101,8 @@ fn main() -> anyhow::Result<()> {
     Some(Command::Tunnel { port, name }) => {
       return orbitdock_server::admin::start_cloudflare_tunnel(*port, name.as_deref());
     }
-    Some(Command::Pair { tunnel_url, no_qr }) => {
-      return orbitdock_server::admin::print_pairing_details(tunnel_url.as_deref(), !*no_qr);
+    Some(Command::Pair { tunnel_url, .. }) => {
+      return orbitdock_server::admin::print_pairing_details(tunnel_url.as_deref());
     }
     Some(Command::Setup { path }) => {
       let setup_path = path.map(|p| match p {
