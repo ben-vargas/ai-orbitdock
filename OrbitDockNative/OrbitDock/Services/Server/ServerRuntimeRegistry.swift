@@ -935,8 +935,13 @@ final class ServerRuntimeRegistry {
       }
       return .success
     } catch {
-      if let message = compatibilityStopMessage(for: error, surface: "dashboard bootstrap") {
-        runtime.connection.failCompatibility(message: message)
+      if let requestError = error as? ServerRequestError,
+         requestError.isIncompatibleClientUpgradeRequired,
+         case let .httpStatus(_, _, message) = requestError,
+         let message,
+         !message.isEmpty
+      {
+        runtime.connection.failConnection(message: message)
         return .stop
       }
       netLog(
@@ -969,8 +974,13 @@ final class ServerRuntimeRegistry {
       }
       return .success
     } catch {
-      if let message = compatibilityStopMessage(for: error, surface: "missions bootstrap") {
-        runtime.connection.failCompatibility(message: message)
+      if let requestError = error as? ServerRequestError,
+         requestError.isIncompatibleClientUpgradeRequired,
+         case let .httpStatus(_, _, message) = requestError,
+         let message,
+         !message.isEmpty
+      {
+        runtime.connection.failConnection(message: message)
         return .stop
       }
       netLog(
@@ -1056,32 +1066,12 @@ final class ServerRuntimeRegistry {
             !transportError.isDNSResolutionFailure
           case let .httpStatus(status, _, _):
             status >= 500
-          case .incompatibleServer:
-            false
           default:
             false
         }
       default:
         false
     }
-  }
-
-  private func compatibilityStopMessage(for error: Error, surface: String) -> String? {
-    if let requestError = error as? ServerRequestError {
-      switch requestError {
-        case let .httpStatus(status, code, message):
-          if status == 426 {
-            if code == "incompatible_client", let message, !message.isEmpty {
-              return message
-            }
-            return "OrbitDock couldn't complete \(surface) because this app is incompatible with the server."
-          }
-        default:
-          break
-      }
-    }
-
-    return ServerContractGuard.versionMessage(for: error, surface: surface)
   }
 
   private func enabledControlPlanePorts() -> [ServerControlPlanePort] {

@@ -4,8 +4,8 @@ import Testing
 
 @MainActor
 struct SessionStoreReconnectRecoveryTests {
-  fileprivate nonisolated static let fixtureServerVersion = OrbitDockProtocol.releaseVersion
-  fileprivate nonisolated static let fixtureMinimumClientVersion = OrbitDockProtocol.clientVersion
+  fileprivate nonisolated static let fixtureServerVersion = "0.9.0"
+  fileprivate nonisolated static let fixtureMinimumClientVersion = "0.4.0"
 
   @Test func bootstrapFetchIsSingleFlightForTheSameGeneration() async throws {
     let counter = RequestCounter()
@@ -140,6 +140,31 @@ struct SessionStoreReconnectRecoveryTests {
     #expect(store.session("session-1").conversationLoaded == false)
   }
 
+  @Test func missingSessionBootstrapDoesNotFailEndpointConnection() async throws {
+    let connection = SessionStoreConnectionSpy()
+    let store = try makeStore(
+      loader: { request in
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 404,
+          httpVersion: nil,
+          headerFields: ["Content-Type": "application/json"]
+        )!
+        let body = Data(#"{"code":"not_found","error":"Session session-1 not found"}"#.utf8)
+        return (body, response)
+      },
+      connection: connection
+    )
+    store.subscribedSessions.insert("session-1")
+    store.connectionGeneration = 13
+
+    let result = await store.hydrateSessionFromHTTPBootstrap(sessionId: "session-1", generation: 13)
+
+    #expect(result == nil)
+    #expect(connection.failedConnectionMessages.isEmpty)
+    #expect(store.session("session-1").conversationLoaded == false)
+  }
+
   private func makeStore(
     loader: @escaping ServerClients.DataLoader,
     connection: any SessionStoreConnection
@@ -233,7 +258,7 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
   private(set) var subscribeCalls: [SubscribeCall] = []
   private(set) var appliedSessionLists: [[ServerSessionListItem]] = []
   private(set) var appliedDashboardConversations: [[ServerDashboardConversationItem]] = []
-  private(set) var failedCompatibilityMessages: [String] = []
+  private(set) var failedConnectionMessages: [String] = []
 
   func addListener(_ listener: @escaping (ServerEvent) -> Void) -> ServerConnectionListenerToken {
     unsafeBitCast(UUID(), to: ServerConnectionListenerToken.self)
@@ -259,8 +284,8 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
     subscribeCalls.removeAll()
   }
 
-  func failCompatibility(message: String) {
-    failedCompatibilityMessages.append(message)
+  func failConnection(message: String) {
+    failedConnectionMessages.append(message)
   }
 
   func applySessionsList(_ sessions: [ServerSessionListItem]) {
