@@ -1,6 +1,7 @@
 import Foundation
 
 enum OrbitDockProtocol {
+  static let clientCompatibility = "server_authoritative_session_v1"
   static let releaseVersion: String = {
     Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
       ?? "0.0.0"
@@ -117,6 +118,13 @@ enum ServerContractGuard {
         switch requestError {
           case let .incompatibleServer(versionError):
             return userFacingMessage(for: versionError, surface: surface)
+          case let .httpStatus(status, code, message):
+            guard status == 426 else { return nil }
+            // Compatibility middleware reports upgrade guidance via HTTP 426.
+            if code == "incompatible_client", let message, !message.isEmpty {
+              return message
+            }
+            return "OrbitDock couldn't complete \(surface) because this app is incompatible with the server."
           default:
             return nil
         }

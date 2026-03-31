@@ -59,13 +59,22 @@ impl SessionActorHandle {
 
   /// Send a command to the actor (fire-and-forget).
   pub async fn send(&self, cmd: SessionCommand) {
-    if self.command_tx.send(cmd).await.is_err() {
+    if self.send_checked(cmd).await.is_err() {
       warn!(
           component = "session_actor",
           session_id = %self.id,
           "Actor channel closed, command dropped"
       );
     }
+  }
+
+  /// Send a command to the actor and return an error when delivery fails.
+  pub async fn send_checked(&self, cmd: SessionCommand) -> Result<(), String> {
+    self
+      .command_tx
+      .send(cmd)
+      .await
+      .map_err(|error| error.to_string())
   }
 
   /// Try to send a command without awaiting (for non-async contexts).

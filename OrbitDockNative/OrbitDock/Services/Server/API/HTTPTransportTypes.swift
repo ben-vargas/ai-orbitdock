@@ -37,7 +37,7 @@ struct HTTPResponse: Sendable {
 enum HTTPTransportError: LocalizedError, Equatable, Sendable {
   case cancelled
   case timedOut
-  case unreachable(String)
+  case unreachable(URLError.Code?, String)
   case serverUnreachable
   case transport(String)
   case invalidResponse
@@ -50,12 +50,30 @@ enum HTTPTransportError: LocalizedError, Equatable, Sendable {
         case .timedOut:
           self = .timedOut
         case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
-          self = .unreachable(urlError.localizedDescription)
+          self = .unreachable(urlError.code, urlError.localizedDescription)
         default:
           self = .transport(urlError.localizedDescription)
       }
     } else {
       self = .transport(error.localizedDescription)
+    }
+  }
+
+  var urlErrorCode: URLError.Code? {
+    switch self {
+      case let .unreachable(code, _):
+        code
+      default:
+        nil
+    }
+  }
+
+  var isDNSResolutionFailure: Bool {
+    switch urlErrorCode {
+      case .cannotFindHost, .dnsLookupFailed:
+        true
+      default:
+        false
     }
   }
 
@@ -65,7 +83,7 @@ enum HTTPTransportError: LocalizedError, Equatable, Sendable {
         "Request cancelled."
       case .timedOut:
         "Request timed out."
-      case let .unreachable(message):
+      case let .unreachable(_, message):
         message
       case let .transport(message):
         message

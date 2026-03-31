@@ -47,23 +47,163 @@ struct ServerConnectionTransportTests {
     #expect(readiness.dashboardReady)
     #expect(readiness.missionsReady == false)
   }
+
+  @Test func executeFallsBackToLegacyHeadersAfterIncompatibleClient426() async throws {
+    let incompatible = HTTPResponse(
+      statusCode: 426,
+      headers: ["Content-Type": "application/json"],
+      body: Data(#"{"code":"incompatible_client","error":"Update OrbitDock."}"#.utf8)
+    )
+    let success = HTTPResponse(
+      statusCode: 200,
+      headers: ["Content-Type": "application/json"],
+      body: Data(#"{"status":"ok"}"#.utf8)
+    )
+    let transport = TransportSpy(responses: [incompatible, success, success])
+    let connection = ServerConnection(authToken: nil, transport: transport)
+    let url = try #require(URL(string: "https://example.com/api/dashboard"))
+
+    let first = try await connection.execute(URLRequest(url: url))
+
+    #expect(first.statusCode == 200)
+    #expect(await transport.executeRequestCount() == 2)
+    #expect(
+      await transport.headerValue(
+        for: "X-OrbitDock-Minimum-Server-Version",
+        at: 0
+      ) == OrbitDockProtocol.minimumServerVersion
+    )
+    #expect(
+      await transport.headerValue(
+        for: "X-OrbitDock-Minimum-Server-Version",
+        at: 1
+      ) == nil
+    )
+    #expect(
+      await transport.headerValue(
+        for: "X-OrbitDock-Client-Compatibility",
+        at: 1
+      ) == OrbitDockProtocol.clientCompatibility
+    )
+
+    let second = try await connection.execute(URLRequest(url: url))
+
+    #expect(second.statusCode == 200)
+    #expect(await transport.executeRequestCount() == 3)
+    #expect(
+      await transport.headerValue(
+        for: "X-OrbitDock-Minimum-Server-Version",
+        at: 2
+      ) == nil
+    )
+  }
+
+  @Test func executeCachesIncompatibleClientAfterLegacyFallbackFailure() async throws {
+    let incompatible = HTTPResponse(
+      statusCode: 426,
+      headers: ["Content-Type": "application/json"],
+      body: Data(#"{"code":"incompatible_client","error":"Update OrbitDock to a compatible build."}"#.utf8)
+    )
+    let transport = TransportSpy(responses: [incompatible, incompatible])
+    let connection = ServerConnection(authToken: nil, transport: transport)
+    let url = try #require(URL(string: "https://example.com/api/dashboard"))
+
+    let first = try await connection.execute(URLRequest(url: url))
+
+    #expect(first.statusCode == 426)
+    #expect(await transport.executeRequestCount() == 2)
+    #expect(
+      await transport.headerValue(
+        for: "X-OrbitDock-Minimum-Server-Version",
+        at: 1
+      ) == nil
+    )
+
+    do {
+      _ = try await connection.execute(URLRequest(url: url))
+      Issue.record("Expected cached incompatible-client error on subsequent request.")
+    } catch let error as ServerRequestError {
+      guard case let .httpStatus(status, code, message) = error else {
+        Issue.record("Expected HTTP status error, got \(error)")
+        return
+      }
+      #expect(status == 426)
+      #expect(code == "incompatible_client")
+      #expect(message == "Update OrbitDock to a compatible build.")
+    }
+
+    #expect(await transport.executeRequestCount() == 2)
+  }
+
+  @Test func dnsResolutionFailureRequiresManualReconnect() async throws {
+    let transport = TransportSpy(
+      response: HTTPResponse(
+        statusCode: 200,
+        headers: [:],
+        body: Data()
+      ),
+      disconnectOnConnect: EndpointTransport.DisconnectFailure(
+        transportError: .unreachable(.cannotFindHost, "Host lookup failed"),
+        urlErrorCode: .cannotFindHost
+      )
+    )
+    let connection = ServerConnection(authToken: nil, transport: transport)
+    let url = try #require(URL(string: "wss://does-not-resolve.invalid/ws"))
+
+    connection.connect(to: url)
+    await drainMainActorTasks()
+
+    #expect(connection.requiresManualReconnect)
+    #expect(await transport.connectRequestCount() == 1)
+
+    connection.reconnectIfNeeded()
+    await drainMainActorTasks()
+
+    #expect(await transport.connectRequestCount() == 1)
+
+    connection.disconnect()
+    connection.connect(to: url)
+    await drainMainActorTasks()
+
+    #expect(await transport.connectRequestCount() == 2)
+  }
+
+  private func drainMainActorTasks(iterations: Int = 40) async {
+    for _ in 0..<iterations {
+      await Task.yield()
+    }
+  }
 }
 
 private actor TransportSpy: ServerConnectionTransport {
-  private let response: HTTPResponse
+  private var queuedResponses: [HTTPResponse]
+  private let disconnectOnConnect: EndpointTransport.DisconnectFailure?
   private var executedRequests: [URLRequest] = []
+  private var connectRequests: [URL] = []
 
-  init(response: HTTPResponse) {
-    self.response = response
+  init(response: HTTPResponse, disconnectOnConnect: EndpointTransport.DisconnectFailure? = nil) {
+    self.queuedResponses = [response]
+    self.disconnectOnConnect = disconnectOnConnect
+  }
+
+  init(responses: [HTTPResponse], disconnectOnConnect: EndpointTransport.DisconnectFailure? = nil) {
+    self.queuedResponses = responses
+    self.disconnectOnConnect = disconnectOnConnect
   }
 
   func connect(
     to url: URL,
     clientVersion: String,
-    minimumServerVersion: String,
+    clientCompatibility: String,
+    minimumServerVersion: String?,
     generation: UInt64,
     onEvent: @escaping EndpointTransport.EventHandler
-  ) async {}
+  ) async {
+    connectRequests.append(url)
+    if let disconnectOnConnect {
+      await onEvent(.disconnected(generation: generation, failure: disconnectOnConnect))
+    }
+  }
 
   func disconnect() async {}
 
@@ -73,7 +213,13 @@ private actor TransportSpy: ServerConnectionTransport {
 
   func execute(_ request: URLRequest) async throws -> HTTPResponse {
     executedRequests.append(request)
-    return response
+    if queuedResponses.count > 1 {
+      return queuedResponses.removeFirst()
+    }
+    if let response = queuedResponses.first {
+      return response
+    }
+    return HTTPResponse(statusCode: 500, headers: [:], body: Data())
   }
 
   func sendText(_ text: String) async {}
@@ -84,5 +230,14 @@ private actor TransportSpy: ServerConnectionTransport {
 
   func lastExecutedURL() -> URL? {
     executedRequests.last?.url
+  }
+
+  func connectRequestCount() -> Int {
+    connectRequests.count
+  }
+
+  func headerValue(for field: String, at index: Int) -> String? {
+    guard executedRequests.indices.contains(index) else { return nil }
+    return executedRequests[index].value(forHTTPHeaderField: field)
   }
 }

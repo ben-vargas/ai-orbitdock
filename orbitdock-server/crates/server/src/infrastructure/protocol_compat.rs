@@ -277,7 +277,7 @@ mod tests {
   #[test]
   fn version_gate_rejects_older_client_version() {
     let mut headers = HeaderMap::new();
-    headers.insert(HTTP_HEADER_CLIENT_VERSION, "0.6.9".parse().unwrap());
+    headers.insert(HTTP_HEADER_CLIENT_VERSION, "0.3.9".parse().unwrap());
 
     let gate = version_gate_from_headers(&headers);
 
@@ -334,7 +334,7 @@ mod tests {
   #[test]
   fn modern_contract_cannot_claim_legacy_floor() {
     let mut headers = HeaderMap::new();
-    headers.insert(HTTP_HEADER_CLIENT_VERSION, "0.6.9".parse().unwrap());
+    headers.insert(HTTP_HEADER_CLIENT_VERSION, "0.3.9".parse().unwrap());
     headers.insert(
       HTTP_HEADER_CLIENT_COMPATIBILITY,
       SERVER_COMPATIBILITY.parse().unwrap(),

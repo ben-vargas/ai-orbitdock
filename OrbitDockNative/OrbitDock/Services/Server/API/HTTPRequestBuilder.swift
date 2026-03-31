@@ -27,6 +27,10 @@ struct HTTPRequestBuilder: Sendable {
     }
     request.setValue(OrbitDockProtocol.clientVersion, forHTTPHeaderField: "X-OrbitDock-Client-Version")
     request.setValue(
+      OrbitDockProtocol.clientCompatibility,
+      forHTTPHeaderField: "X-OrbitDock-Client-Compatibility"
+    )
+    request.setValue(
       OrbitDockProtocol.minimumServerVersion,
       forHTTPHeaderField: "X-OrbitDock-Minimum-Server-Version"
     )

@@ -23,7 +23,7 @@ pub const VERSION: &str = match option_env!("ORBITDOCK_BUILD_VERSION") {
 
 /// Oldest client version this server binary will accept.
 /// Keep this explicit so compatibility behavior stays predictable across builds.
-pub const MINIMUM_CLIENT_VERSION: &str = "0.7.0";
+pub const MINIMUM_CLIENT_VERSION: &str = "0.4.0";
 
 pub use app::{run_server, ManagedSyncRunOptions, ServerRunOptions};
 pub use infrastructure::logging::{ServerLogEvent, ServerLoggingOptions, StderrLogMode};

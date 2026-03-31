@@ -75,6 +75,29 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
   let _ = persist_tx.send(cmd).await;
 }
 
+async fn apply_delta_and_broadcast(
+  handle: &mut SessionHandle,
+  persist_tx: &mpsc::Sender<PersistCommand>,
+  changes: StateChanges,
+  persist_op: Option<PersistOp>,
+) {
+  let mut changes = changes;
+  // Derive steerable from work_status so clients never compute it locally.
+  if let Some(ws) = changes.work_status {
+    changes.steerable = Some(ws == WorkStatus::Working);
+  }
+
+  let session_id = handle.id().to_string();
+  handle.apply_changes(&changes);
+  if let Some(op) = persist_op {
+    execute_persist_op(op, persist_tx).await;
+  }
+  handle.broadcast(ServerMessage::SessionDelta {
+    session_id,
+    changes: Box::new(changes),
+  });
+}
+
 async fn persist_and_broadcast_mark_read(
   handle: &mut SessionHandle,
   persist_tx: &mpsc::Sender<PersistCommand>,
@@ -256,22 +279,18 @@ pub async fn handle_session_command(
 
     // -- Compound operations --
     SessionCommand::ApplyDelta {
-      mut changes,
+      changes,
       persist_op,
     } => {
-      // Derive steerable from work_status so clients never compute it locally.
-      if let Some(ws) = changes.work_status {
-        changes.steerable = Some(ws == WorkStatus::Working);
-      }
-      let session_id = handle.id().to_string();
-      handle.apply_changes(&changes);
-      if let Some(op) = persist_op {
-        execute_persist_op(op, persist_tx).await;
-      }
-      handle.broadcast(ServerMessage::SessionDelta {
-        session_id,
-        changes,
-      });
+      apply_delta_and_broadcast(handle, persist_tx, *changes, persist_op).await;
+    }
+    SessionCommand::ApplyDeltaAndWait {
+      changes,
+      persist_op,
+      reply,
+    } => {
+      apply_delta_and_broadcast(handle, persist_tx, *changes, persist_op).await;
+      let _ = reply.send(());
     }
     SessionCommand::EndLocally => {
       let session_id = handle.id().to_string();

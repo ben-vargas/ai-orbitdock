@@ -24,6 +24,10 @@ struct HTTPRequestBuilderTests {
     #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
     #expect(request.value(forHTTPHeaderField: "X-OrbitDock-Client-Version") == OrbitDockProtocol.clientVersion)
     #expect(
+      request.value(forHTTPHeaderField: "X-OrbitDock-Client-Compatibility")
+        == OrbitDockProtocol.clientCompatibility
+    )
+    #expect(
       request.value(forHTTPHeaderField: "X-OrbitDock-Minimum-Server-Version")
         == OrbitDockProtocol.minimumServerVersion
     )

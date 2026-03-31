@@ -148,6 +148,11 @@ enum ServerEvent: Sendable {
 /// app-facing state, handshake validation, and typed event fanout.
 @MainActor
 final class ServerConnection {
+  private enum ProtocolHeaderMode: Equatable {
+    case modern
+    case legacy
+  }
+
   private struct RetryHint {
     let minimumDelay: TimeInterval
     let waitingMessage: String
@@ -165,6 +170,7 @@ final class ServerConnection {
   private(set) var hasReceivedInitialDashboardSnapshot = false
   private(set) var hasReceivedInitialMissionsSnapshot = false
   private(set) var hasSubscribedDashboardStream = false
+  private(set) var requiresManualReconnect = false
 
   /// Event listeners. Multiple consumers can register.
   var onEvent: ((ServerEvent) -> Void)?
@@ -196,7 +202,8 @@ final class ServerConnection {
   private var reconnectTask: Task<Void, Never>?
   private var connectionGeneration: UInt64 = 0
   private var reconnectRetryHint: RetryHint?
-  private var consecutiveDNSFailures: Int = 0
+  private var protocolHeaderMode: ProtocolHeaderMode = .modern
+  private var compatibilityFailureMessage: String?
 
   private static let handshakeTimeout: TimeInterval = 10
   private static let stableConnectionThreshold: TimeInterval = 30
@@ -218,12 +225,44 @@ final class ServerConnection {
   /// Execute an HTTP request through the endpoint transport.
   /// HTTP reachability is independent from dashboard bootstrap state.
   func execute(_ request: URLRequest) async throws -> HTTPResponse {
-    return try await transport.execute(request)
+    if let compatibilityFailureMessage {
+      throw ServerRequestError.httpStatus(
+        426,
+        code: "incompatible_client",
+        message: compatibilityFailureMessage
+      )
+    }
+
+    var preparedRequest = request
+    applyProtocolHeaders(to: &preparedRequest, mode: protocolHeaderMode)
+    let response = try await transport.execute(preparedRequest)
+
+    guard shouldFallbackToLegacy(from: response) else {
+      cacheCompatibilityFailureIfNeeded(from: response)
+      return response
+    }
+
+    netLog(
+      .warning,
+      cat: .api,
+      "Falling back to legacy compatibility headers after HTTP 426"
+    )
+    protocolHeaderMode = .legacy
+
+    var legacyRequest = request
+    applyProtocolHeaders(to: &legacyRequest, mode: .legacy)
+    let legacyResponse = try await transport.execute(legacyRequest)
+    cacheCompatibilityFailureIfNeeded(from: legacyResponse)
+    return legacyResponse
   }
 
   // MARK: - WebSocket connection
 
   func connect(to url: URL) {
+    if serverURL != url {
+      protocolHeaderMode = .modern
+      compatibilityFailureMessage = nil
+    }
     serverURL = url
     switch connectionStatus {
       case .disconnected, .failed:
@@ -238,6 +277,10 @@ final class ServerConnection {
 
   func reconnectIfNeeded() {
     guard serverURL != nil else { return }
+    guard !requiresManualReconnect else {
+      netLog(.debug, cat: .ws, "Automatic reconnect paused until user requests reconnect")
+      return
+    }
     switch connectionStatus {
       case .connected:
         guard reconnectTask == nil else { return }
@@ -265,7 +308,8 @@ final class ServerConnection {
     teardownConnectionTasks()
     circuitBreaker.reset()
     reconnectRetryHint = nil
-    consecutiveDNSFailures = 0
+    requiresManualReconnect = false
+    compatibilityFailureMessage = nil
     lastConnectedAt = nil
     latestSessionListItems = []
     latestDashboardConversationItems = []
@@ -281,7 +325,8 @@ final class ServerConnection {
     pruneStaleConnectionProbe(for: failureGeneration)
     teardownConnectionTasks()
     reconnectRetryHint = nil
-    consecutiveDNSFailures = 0
+    requiresManualReconnect = true
+    compatibilityFailureMessage = message
     lastConnectedAt = nil
     setStatus(.failed(message))
     netLog(.error, cat: .ws, "Connection marked incompatible", data: [
@@ -370,7 +415,10 @@ final class ServerConnection {
       await transport.connect(
         to: serverURL,
         clientVersion: OrbitDockProtocol.clientVersion,
-        minimumServerVersion: OrbitDockProtocol.minimumServerVersion,
+        clientCompatibility: OrbitDockProtocol.clientCompatibility,
+        minimumServerVersion: protocolHeaderMode == .modern
+          ? OrbitDockProtocol.minimumServerVersion
+          : nil,
         generation: generation,
         onEvent: { [weak self] event in
           guard let self else { return }
@@ -395,7 +443,7 @@ final class ServerConnection {
     handshakeTimeoutTask = nil
     lastConnectedAt = Date()
     reconnectRetryHint = nil
-    consecutiveDNSFailures = 0
+    requiresManualReconnect = false
     netLog(.info, cat: .ws, "Connection complete", data: ["url": serverURL?.absoluteString ?? "nil"])
     setStatus(.connected)
     Task { [weak self] in
@@ -533,6 +581,7 @@ final class ServerConnection {
 
     if let diagnosis, diagnosis.shouldReconnect == false {
       reconnectRetryHint = nil
+      requiresManualReconnect = true
       setStatus(.failed(diagnosis.message))
       netLog(.error, cat: .ws, "Connection failed without retry", data: [
         "message": diagnosis.message,
@@ -548,11 +597,12 @@ final class ServerConnection {
     ])
 
     if let diagnosis {
+      requiresManualReconnect = false
       reconnectRetryHint = diagnosis.retryHint
       setStatus(.failed(diagnosis.message))
     } else {
-      consecutiveDNSFailures = 0
       reconnectRetryHint = nil
+      requiresManualReconnect = false
       setStatus(.disconnected)
     }
     scheduleReconnect(expectedGeneration: reconnectGeneration)
@@ -568,40 +618,38 @@ final class ServerConnection {
 
     switch failure.urlErrorCode {
       case .cannotFindHost, .dnsLookupFailed:
-        consecutiveDNSFailures += 1
-        let delay = min(15 * pow(2, Double(max(consecutiveDNSFailures - 1, 0))), 300)
         return DisconnectDiagnosis(
-          message: "Could not resolve the server hostname. Check the endpoint URL and DNS.",
-          shouldReconnect: true,
-          retryHint: RetryHint(
-            minimumDelay: delay,
-            waitingMessage: "DNS lookup still failing"
-          )
+          message: "Could not resolve the server hostname. Check the endpoint URL, then reconnect.",
+          shouldReconnect: false,
+          retryHint: nil
         )
       case .cannotConnectToHost:
-        consecutiveDNSFailures = 0
         return DisconnectDiagnosis(
           message: "Reached the host but could not open a connection. Verify the server is running and reachable.",
           shouldReconnect: true,
           retryHint: nil
         )
       case .notConnectedToInternet:
-        consecutiveDNSFailures = 0
         return DisconnectDiagnosis(
           message: "No network connection available.",
           shouldReconnect: true,
           retryHint: nil
         )
       case .badServerResponse:
-        consecutiveDNSFailures = 0
         return await diagnoseHandshakeFailure(expectedGeneration: generation)
       default:
         break
     }
 
-    consecutiveDNSFailures = 0
     switch failure.transportError {
-      case .unreachable:
+      case let .unreachable(code, _):
+        if code == .cannotFindHost || code == .dnsLookupFailed {
+          return DisconnectDiagnosis(
+            message: "Could not resolve the server hostname. Check the endpoint URL, then reconnect.",
+            shouldReconnect: false,
+            retryHint: nil
+          )
+        }
         return DisconnectDiagnosis(
           message: failure.transportError.errorDescription
             ?? "Server is currently unreachable.",
@@ -634,7 +682,7 @@ final class ServerConnection {
         path: "/api/server/meta",
         method: "GET"
       )
-      let response = try await transport.execute(request)
+      let response = try await execute(request)
       guard isCurrentGeneration(generation) else { return nil }
 
       switch response.statusCode {
@@ -723,6 +771,42 @@ final class ServerConnection {
     components.query = nil
     components.fragment = nil
     return components.url
+  }
+
+  private func applyProtocolHeaders(to request: inout URLRequest, mode: ProtocolHeaderMode) {
+    request.setValue(OrbitDockProtocol.clientVersion, forHTTPHeaderField: "X-OrbitDock-Client-Version")
+    request.setValue(
+      OrbitDockProtocol.clientCompatibility,
+      forHTTPHeaderField: "X-OrbitDock-Client-Compatibility"
+    )
+    switch mode {
+      case .modern:
+        request.setValue(
+          OrbitDockProtocol.minimumServerVersion,
+          forHTTPHeaderField: "X-OrbitDock-Minimum-Server-Version"
+        )
+      case .legacy:
+        request.setValue(nil, forHTTPHeaderField: "X-OrbitDock-Minimum-Server-Version")
+    }
+  }
+
+  private func shouldFallbackToLegacy(from response: HTTPResponse) -> Bool {
+    guard protocolHeaderMode == .modern else { return false }
+    guard response.statusCode == 426 else { return false }
+    guard let apiError = decodeAPIError(from: response.body) else { return false }
+    return apiError.code == "incompatible_client"
+  }
+
+  private func cacheCompatibilityFailureIfNeeded(from response: HTTPResponse) {
+    guard let message = incompatibleClientMessage(from: response) else { return }
+    compatibilityFailureMessage = message
+  }
+
+  private func incompatibleClientMessage(from response: HTTPResponse) -> String? {
+    guard response.statusCode == 426 else { return nil }
+    guard let apiError = decodeAPIError(from: response.body) else { return nil }
+    guard apiError.code == "incompatible_client" else { return nil }
+    return apiError.error
   }
 
   private func scheduleReconnect(expectedGeneration generation: UInt64) {
@@ -836,7 +920,7 @@ final class ServerConnection {
     pruneStaleConnectionProbe(for: reconnectGeneration)
     teardownConnectionTasks()
     reconnectRetryHint = nil
-    consecutiveDNSFailures = 0
+    requiresManualReconnect = true
     lastConnectedAt = nil
 
     let message = (error as? LocalizedError)?.errorDescription

@@ -4,7 +4,8 @@ protocol ServerConnectionTransport: Sendable {
   func connect(
     to url: URL,
     clientVersion: String,
-    minimumServerVersion: String,
+    clientCompatibility: String,
+    minimumServerVersion: String?,
     generation: UInt64,
     onEvent: @escaping EndpointTransport.EventHandler
   ) async
@@ -61,7 +62,8 @@ actor EndpointTransport: ServerConnectionTransport {
   func connect(
     to url: URL,
     clientVersion: String,
-    minimumServerVersion: String,
+    clientCompatibility: String,
+    minimumServerVersion: String?,
     generation: UInt64,
     onEvent: @escaping EventHandler
   ) async {
@@ -75,10 +77,8 @@ actor EndpointTransport: ServerConnectionTransport {
       request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
     }
     request.setValue(clientVersion, forHTTPHeaderField: "X-OrbitDock-Client-Version")
-    request.setValue(
-      minimumServerVersion,
-      forHTTPHeaderField: "X-OrbitDock-Minimum-Server-Version"
-    )
+    request.setValue(clientCompatibility, forHTTPHeaderField: "X-OrbitDock-Client-Compatibility")
+    request.setValue(minimumServerVersion, forHTTPHeaderField: "X-OrbitDock-Minimum-Server-Version")
 
     let socket = wsSession.webSocketTask(with: request)
     socket.maximumMessageSize = Self.maxInboundBytes

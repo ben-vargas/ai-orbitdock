@@ -120,4 +120,19 @@ struct ServerCompatibilityContractsTests {
       try response.validateServerVersionHeaders()
     }
   }
+
+  @Test func contractGuardSurfacesHttp426IncompatibleClientMessage() {
+    let error = ServerRequestError.httpStatus(
+      426,
+      code: "incompatible_client",
+      message: "Update OrbitDock to a build compatible with server 0.8.0."
+    )
+
+    let message = ServerContractGuard.versionMessage(
+      for: error,
+      surface: "dashboard bootstrap"
+    )
+
+    #expect(message == "Update OrbitDock to a build compatible with server 0.8.0.")
+  }
 }

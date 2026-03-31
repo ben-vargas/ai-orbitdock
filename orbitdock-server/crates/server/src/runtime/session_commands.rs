@@ -104,6 +104,14 @@ pub enum SessionCommand {
     persist_op: Option<PersistOp>,
   },
 
+  /// Apply a StateChanges delta, optionally persist, broadcast, and notify the
+  /// caller once processing is complete.
+  ApplyDeltaAndWait {
+    changes: Box<StateChanges>,
+    persist_op: Option<PersistOp>,
+    reply: oneshot::Sender<()>,
+  },
+
   /// Mark session ended locally: status=Ended, work_status=Ended, broadcast delta.
   EndLocally,
 
