@@ -71,6 +71,8 @@ on:
     secrets:
       OPENAI_API_KEY:
         required: false
+      RELEASE_PUSH_TOKEN:
+        required: false
 
 permissions:
   contents: write
@@ -103,6 +105,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.RELEASE_PUSH_TOKEN || github.token }}
 
       - name: Compute versions and tags
         id: compute
@@ -265,8 +268,15 @@ jobs:
         env:
           VERSION: ${{ steps.compute.outputs.version }}
           CHANNEL: ${{ steps.compute.outputs.channel }}
+          ACTOR: ${{ github.triggering_actor || github.actor }}
+          RELEASE_PUSH_TOKEN: ${{ secrets.RELEASE_PUSH_TOKEN }}
         run: |
           set -euo pipefail
+
+          if [[ -z "${RELEASE_PUSH_TOKEN:-}" ]]; then
+            echo "error: RELEASE_PUSH_TOKEN is required so release commits/pushes run as your account." >&2
+            exit 1
+          fi
 
           update_workspace_version() {
             local target_version="$1"
@@ -346,8 +356,8 @@ jobs:
             exit 0
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "$ACTOR"
+          git config user.email "${ACTOR}@users.noreply.github.com"
 
           git add orbitdock-server/Cargo.toml orbitdock-server/Cargo.lock
           git commit \
