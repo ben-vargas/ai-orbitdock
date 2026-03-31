@@ -43,9 +43,9 @@ enum ControlDeckPresentationBuilder {
 
   private static func placeholder(for mode: ControlDeckMode) -> String {
     switch mode {
-      case .compose: "Message the session\u{2026}"
-      case .steer: "Steer the session\u{2026}"
-      case .approval: "Respond to approval\u{2026}"
+      case .compose: "Signal the deck\u{2026}"
+      case .steer: "Adjust trajectory…"
+      case .approval: "Approve orbiting move…"
       case .disabled: "Session ended"
     }
   }
@@ -57,7 +57,7 @@ enum ControlDeckPresentationBuilder {
   private static func sendTint(for mode: ControlDeckMode) -> String {
     switch mode {
       case .compose: "accent"
-      case .steer: "feedbackCaution"
+      case .steer: "feedbackWarning"
       case .approval: "accent"
       case .disabled: "textQuaternary"
     }
@@ -112,7 +112,7 @@ enum ControlDeckPresentationBuilder {
   private static func lifecycleTint(_ lifecycle: ControlDeckLifecycle) -> String {
     switch lifecycle {
       case .open: "feedbackPositive"
-      case .resumable: "feedbackCaution"
+      case .resumable: "feedbackWarning"
       case .ended: "statusEnded"
     }
   }

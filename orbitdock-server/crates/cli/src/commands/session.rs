@@ -1324,6 +1324,18 @@ async fn end_session(config: &ClientConfig, output: &Output, session_id: &str) -
         }
         return EXIT_SUCCESS;
       }
+      Ok(Some(ServerMessage::SessionDelta { changes, .. })) => {
+        let ended = matches!(changes.status, Some(SessionStatus::Ended))
+          || matches!(changes.work_status, Some(WorkStatus::Ended));
+        if ended {
+          if output.json {
+            output.print_json(&serde_json::json!({"ended": true, "reason": "user_requested"}));
+          } else {
+            println!("Session ended: user_requested");
+          }
+          return EXIT_SUCCESS;
+        }
+      }
       Ok(Some(ServerMessage::Error { code, message, .. })) => {
         output.print_error(&CliError::new(code, message));
         return EXIT_SERVER_ERROR;

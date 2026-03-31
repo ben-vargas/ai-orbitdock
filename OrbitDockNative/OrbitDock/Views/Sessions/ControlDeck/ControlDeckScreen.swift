@@ -19,6 +19,7 @@ struct ControlDeckScreen: View {
   var terminalTitle: String?
   var sessionDisplayStatus: SessionDisplayStatus = .ended
   var currentTool: String?
+  var onFocusStateChange: ((Bool) -> Void)?
   var onToggleTerminal: (() -> Void)?
 
   @State private var viewModel = ControlDeckViewModel()
@@ -55,7 +56,7 @@ struct ControlDeckScreen: View {
   }
 
   private var isSessionWorking: Bool {
-    sessionStore.session(sessionId).workStatus == .working
+    sessionSnapshot.workStatus == .working
   }
 
   private var isApprovalMode: Bool {
@@ -84,6 +85,10 @@ struct ControlDeckScreen: View {
     return available
   }
 
+  private var sessionSnapshot: SessionObservable {
+    sessionStore.session(sessionId)
+  }
+
   var body: some View {
     Group {
       if viewModel.isLoading, viewModel.snapshot == nil {
@@ -108,28 +113,28 @@ struct ControlDeckScreen: View {
     .onChange(of: viewModel.skills) { _, _ in
       syncSelectedSkillsFromText(draft.text)
     }
-    .onChange(of: sessionStore.session(sessionId).pendingApproval?.id) { _, _ in
+    .onChange(of: sessionSnapshot.pendingApproval?.id) { _, _ in
       viewModel.syncApproval()
     }
-    .onChange(of: sessionStore.session(sessionId).approvalVersion) { _, _ in
+    .onChange(of: sessionSnapshot.approvalVersion) { _, _ in
       viewModel.syncApproval()
     }
-    .onChange(of: sessionStore.session(sessionId).workStatus) { _, _ in
+    .onChange(of: sessionSnapshot.workStatus) { _, _ in
       viewModel.syncApproval()
     }
-    .onChange(of: sessionStore.session(sessionId).acceptsUserInput) { _, _ in
+    .onChange(of: sessionSnapshot.acceptsUserInput) { _, _ in
       viewModel.syncApproval()
     }
-    .onChange(of: sessionStore.session(sessionId).steerable) { _, _ in
+    .onChange(of: sessionSnapshot.steerable) { _, _ in
       viewModel.syncApproval()
     }
-    .onChange(of: sessionStore.session(sessionId).projectPath) { _, _ in
+    .onChange(of: sessionSnapshot.projectPath) { _, _ in
       viewModel.syncApproval()
     }
-    .onChange(of: sessionStore.session(sessionId).currentCwd) { _, _ in
+    .onChange(of: sessionSnapshot.currentCwd) { _, _ in
       viewModel.syncApproval()
     }
-    .onChange(of: sessionStore.session(sessionId).branch) { _, _ in
+    .onChange(of: sessionSnapshot.branch) { _, _ in
       viewModel.syncApproval()
     }
     .onChange(of: dictationController.liveTranscript) { _, transcript in
@@ -340,8 +345,10 @@ struct ControlDeckScreen: View {
     switch event {
       case .began:
         focusState.isFocused = true
+        onFocusStateChange?(true)
       case .ended(userInitiated: _):
         focusState.isFocused = false
+        onFocusStateChange?(false)
     }
   }
 

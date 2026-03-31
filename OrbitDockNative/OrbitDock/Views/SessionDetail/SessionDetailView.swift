@@ -20,6 +20,7 @@ struct SessionDetailView: View {
   }
 
   @State var viewModel = SessionDetailViewModel()
+  @State private var isDirectControlDeckFocused = false
 
   @AppStorage("chatViewMode") var chatViewMode: ChatViewMode = .focused
   @AppStorage("sessionDetail.showWorkerPanel") var showWorkerPanel = false
@@ -351,6 +352,7 @@ struct SessionDetailView: View {
         terminalTitle: controlDeckTerminalSession?.title,
         sessionDisplayStatus: screenPresentation.displayStatus,
         currentTool: currentTool,
+        onFocusStateChange: { isDirectControlDeckFocused = $0 },
         onToggleTerminal: {
           if let session = controlDeckTerminalSession {
             handleTerminalStripTap(session: session)
@@ -364,7 +366,10 @@ struct SessionDetailView: View {
     )
     .overlay(
       RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-        .strokeBorder(Color.panelBorder, lineWidth: 1)
+        .strokeBorder(
+          directSessionControlDeckBorderColor,
+          lineWidth: directSessionControlDeckBorderWidth
+        )
     )
     .padding(.horizontal, Spacing.sm)
     .padding(.bottom, Spacing.xs)
@@ -377,6 +382,20 @@ struct SessionDetailView: View {
       }
     }
     #endif
+  }
+
+  private var directSessionControlDeckBorderColor: Color {
+    if screenPresentation.displayStatus == .working {
+      return Color.feedbackWarning.opacity(OpacityTier.vivid)
+    }
+    if isDirectControlDeckFocused {
+      return Color.accent.opacity(0.5)
+    }
+    return Color.panelBorder
+  }
+
+  private var directSessionControlDeckBorderWidth: CGFloat {
+    isDirectControlDeckFocused || screenPresentation.displayStatus == .working ? 1.25 : 1
   }
 
   @ViewBuilder

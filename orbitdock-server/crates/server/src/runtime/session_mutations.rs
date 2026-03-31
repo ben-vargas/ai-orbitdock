@@ -403,19 +403,24 @@ pub(crate) async fn end_session(state: &Arc<SessionRegistry>, session_id: &str) 
     })
     .await;
 
+  // Emit an authoritative local ended delta before any potential runtime teardown,
+  // so detail/composer/conversation subscribers observe the state transition.
+  if let Some(actor) = actor.as_ref() {
+    actor.send(SessionCommand::EndLocally).await;
+  }
+
   if is_passive_rollout {
-    if let Some(actor) = actor {
-      actor.send(SessionCommand::EndLocally).await;
+    state.broadcast_to_list(ServerMessage::SessionEnded {
+      session_id: session_id.to_string(),
+      reason: "user_requested".to_string(),
+    });
+  } else {
+    if state.remove_session(session_id).is_some() {
+      state.broadcast_to_list(ServerMessage::SessionEnded {
+        session_id: session_id.to_string(),
+        reason: "user_requested".to_string(),
+      });
     }
-    state.broadcast_to_list(ServerMessage::SessionEnded {
-      session_id: session_id.to_string(),
-      reason: "user_requested".to_string(),
-    });
-  } else if state.remove_session(session_id).is_some() {
-    state.broadcast_to_list(ServerMessage::SessionEnded {
-      session_id: session_id.to_string(),
-      reason: "user_requested".to_string(),
-    });
   }
 
   canceled_shells
@@ -523,4 +528,72 @@ pub(crate) async fn end_failed_direct_session(state: &Arc<SessionRegistry>, sess
     session_id: session_id.to_string(),
     reason: "connector_failed".into(),
   });
+}
+
+#[cfg(test)]
+mod tests {
+  use std::sync::Arc;
+
+  use orbitdock_protocol::{
+    CodexIntegrationMode, Provider, ServerMessage, SessionStatus, WorkStatus,
+  };
+  use tokio::sync::{mpsc, oneshot};
+  use tokio::time::{timeout, Duration};
+
+  use super::end_session;
+  use crate::domain::sessions::session::SessionHandle;
+  use crate::runtime::session_commands::{SessionCommand, SubscribeResult};
+  use crate::runtime::session_registry::SessionRegistry;
+  use crate::support::test_support::ensure_server_test_data_dir;
+
+  #[tokio::test]
+  async fn ending_direct_session_emits_local_ended_delta_before_removal() {
+    ensure_server_test_data_dir();
+    let (persist_tx, _persist_rx) = mpsc::channel(32);
+    let state = Arc::new(SessionRegistry::new_with_primary(persist_tx, true));
+
+    let session_id = "direct-end-test";
+    let mut handle = SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      "/tmp/direct-end-test".to_string(),
+    );
+    handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+    handle.set_status(SessionStatus::Active);
+    handle.set_work_status(WorkStatus::Waiting);
+    handle.refresh_snapshot();
+
+    let actor = state.add_session(handle);
+
+    let (reply_tx, reply_rx) = oneshot::channel();
+    actor
+      .send(SessionCommand::Subscribe {
+        since_revision: None,
+        reply: reply_tx,
+      })
+      .await;
+    let mut rx = match reply_rx.await.expect("subscribe response should arrive") {
+      SubscribeResult::Replay { rx, .. } | SubscribeResult::ResyncRequired { rx } => rx,
+    };
+
+    let _ = end_session(&state, session_id).await;
+
+    let msg = timeout(Duration::from_secs(2), rx.recv())
+      .await
+      .expect("session should emit a local ended delta before teardown")
+      .expect("session delta channel should remain open");
+
+    match msg {
+      ServerMessage::SessionDelta { changes, .. } => {
+        assert_eq!(changes.status, Some(SessionStatus::Ended));
+        assert_eq!(changes.work_status, Some(WorkStatus::Ended));
+      }
+      other => panic!("expected SessionDelta with ended state, got {other:?}"),
+    }
+
+    assert!(
+      state.get_session(session_id).is_none(),
+      "direct session should be removed from runtime after local ended delta"
+    );
+  }
 }

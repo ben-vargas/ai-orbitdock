@@ -139,7 +139,7 @@ struct ControlDeckView: View {
         case .none: return Color.panelBorder
       }
     }
-    if isWorkingHighlight { return Color.feedbackCaution.opacity(OpacityTier.vivid) }
+    if isWorkingHighlight { return Color.feedbackWarning.opacity(OpacityTier.vivid) }
     return focusState.isFocused ? Color.accent.opacity(0.5) : Color.panelBorder
   }
 
@@ -157,11 +157,15 @@ struct ControlDeckView: View {
 
   @ViewBuilder
   private var containerOverlay: some View {
-    RoundedRectangle(cornerRadius: chromeStyle == .embedded ? Radius.lg : Radius.xl, style: .continuous)
-      .strokeBorder(
-        borderColor,
-        lineWidth: isWorkingHighlight ? 1.25 : (hasBorderHighlight ? 1.25 : 1)
-      )
+    if chromeStyle == .embedded {
+      EmptyView()
+    } else {
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .strokeBorder(
+          borderColor,
+          lineWidth: isWorkingHighlight ? 1.25 : (hasBorderHighlight ? 1.25 : 1)
+        )
+    }
   }
 
   // MARK: - Compose Content

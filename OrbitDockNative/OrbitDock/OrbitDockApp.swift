@@ -36,6 +36,18 @@ struct OrbitDockApp: App {
     #endif
   }
 
+  #if os(macOS)
+  private static func recommendedSettingsWindowSize() -> CGSize {
+    let fallbackSize = CGSize(width: 1_520, height: 960)
+    let visibleFrame = NSScreen.main?.visibleFrame ?? .init(x: 0, y: 0, width: 1_440, height: 900)
+    let width = min(max(1_220, visibleFrame.width * 0.86), 1_800)
+    let height = min(max(770, visibleFrame.height * 0.82), 1_100)
+
+    guard width.isFinite && height.isFinite else { return fallbackSize }
+    return CGSize(width: width, height: height)
+  }
+  #endif
+
   var body: some Scene {
     #if os(macOS)
       WindowGroup {
@@ -60,6 +72,8 @@ struct OrbitDockApp: App {
           .environment(appRuntime.notificationCoordinator)
           .preferredColorScheme(.dark)
       }
+      .defaultSize(OrbitDockApp.recommendedSettingsWindowSize())
+      .windowResizability(.contentMinSize)
 
       MenuBarExtra {
         MenuBarView()

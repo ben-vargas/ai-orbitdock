@@ -33,7 +33,7 @@ struct ControlDeckStatusBar: View {
 
   private var minimumBarHeight: CGFloat {
     #if os(iOS)
-      44
+      isCompactIOS ? 38 : 42
     #else
       28
     #endif
@@ -41,7 +41,7 @@ struct ControlDeckStatusBar: View {
 
   private var actionButtonSize: CGFloat {
     #if os(iOS)
-      44
+      isCompactIOS ? 32 : 34
     #else
       26
     #endif
@@ -49,7 +49,7 @@ struct ControlDeckStatusBar: View {
 
   private var sendButtonSize: CGFloat {
     #if os(iOS)
-      44
+      isCompactIOS ? 34 : 36
     #else
       28
     #endif
@@ -106,14 +106,6 @@ struct ControlDeckStatusBar: View {
 
   private var sendCluster: some View {
     HStack(spacing: isCompactIOS ? Spacing.xs : Spacing.sm_) {
-      #if os(macOS)
-        if canSubmit, !isSubmitting {
-          Text("\u{2318}\u{21A9}")
-            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
-        }
-      #endif
-
       sendButton
     }
   }
@@ -122,36 +114,24 @@ struct ControlDeckStatusBar: View {
   private var sendButton: some View {
     if isSessionWorking, !canSubmit {
       Button(action: { onInterrupt?() }) {
-        HStack(spacing: isCompactIOS ? 0 : Spacing.gap) {
-          Image(systemName: "stop.fill")
-            .font(.system(size: TypeScale.caption, weight: .bold))
-          if !isCompactIOS {
-            Text("Stop")
-              .font(.system(size: TypeScale.micro, weight: .semibold))
-          }
-        }
-        .foregroundStyle(Color.statusError)
-        .frame(minWidth: sendButtonSize, minHeight: sendButtonSize)
-        .padding(.horizontal, isCompactIOS ? 0 : Spacing.sm_)
-        .background(Color.statusError.opacity(OpacityTier.light), in: Capsule())
+        Image(systemName: "stop.fill")
+          .font(.system(size: TypeScale.caption, weight: .bold))
+          .frame(width: sendButtonSize, height: sendButtonSize)
+          .foregroundStyle(Color.statusError)
+          .background(Color.statusError.opacity(OpacityTier.light), in: Circle())
       }
       .buttonStyle(.plain)
+      .accessibilityLabel("Stop")
     } else if canResume {
       Button(action: { onResume?() }) {
-        HStack(spacing: isCompactIOS ? 0 : Spacing.gap) {
-          Image(systemName: "play.fill")
-            .font(.system(size: TypeScale.caption, weight: .bold))
-          if !isCompactIOS {
-            Text("Resume")
-              .font(.system(size: TypeScale.micro, weight: .semibold))
-          }
-        }
-        .foregroundStyle(Color.feedbackCaution)
-        .frame(minWidth: sendButtonSize, minHeight: sendButtonSize)
-        .padding(.horizontal, isCompactIOS ? 0 : Spacing.sm_)
-        .background(Color.feedbackCaution.opacity(OpacityTier.light), in: Capsule())
+        Image(systemName: "play.fill")
+          .font(.system(size: TypeScale.caption, weight: .bold))
+          .frame(width: sendButtonSize, height: sendButtonSize)
+          .foregroundStyle(Color.feedbackWarning)
+          .background(Color.feedbackWarning.opacity(OpacityTier.light), in: Circle())
       }
       .buttonStyle(.plain)
+      .accessibilityLabel("Resume")
     } else {
       Button(action: { onSubmit?() }) {
         Group {
@@ -170,12 +150,14 @@ struct ControlDeckStatusBar: View {
       }
       .buttonStyle(.plain)
       .disabled(!canSubmit || isSubmitting)
+      .accessibilityLabel("Send")
     }
   }
 
   private var resolvedSendTint: Color {
     switch sendTint {
       case "accent": .accent
+      case "feedbackWarning": .feedbackWarning
       case "feedbackCaution": .feedbackCaution
       case "feedbackPositive": .feedbackPositive
       default: .accent
@@ -263,13 +245,18 @@ struct ControlDeckStatusBar: View {
   ) -> some View {
     Button(action: action) {
       Image(systemName: icon)
-        .font(.system(size: isCompactIOS ? IconScale.lg : IconScale.lg, weight: .semibold))
+        .font(.system(size: isCompactIOS ? TypeScale.caption : TypeScale.subhead, weight: .semibold))
         .foregroundStyle(isEnabled ? tint : Color.textQuaternary)
         .frame(width: actionButtonSize, height: actionButtonSize)
-        .contentShape(Rectangle())
+        .background(
+          (isEnabled ? tint : Color.backgroundTertiary).opacity(isEnabled ? OpacityTier.light : 0.08),
+          in: Circle()
+        )
+        .contentShape(Circle())
     }
     .buttonStyle(.plain)
     .disabled(!isEnabled)
+    .accessibilityLabel(Text(icon))
   }
 
   private var divider: some View {
@@ -428,6 +415,7 @@ struct ControlDeckStatusBar: View {
     switch name {
       case "accent": .accent
       case "feedbackPositive": .feedbackPositive
+      case "feedbackWarning": .feedbackWarning
       case "feedbackCaution": .feedbackCaution
       case "statusPermission": .statusPermission
       case "statusEnded": .statusEnded
