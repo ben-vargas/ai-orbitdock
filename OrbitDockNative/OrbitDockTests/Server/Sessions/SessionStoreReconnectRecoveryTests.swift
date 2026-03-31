@@ -4,8 +4,8 @@ import Testing
 
 @MainActor
 struct SessionStoreReconnectRecoveryTests {
-  fileprivate nonisolated static let fixtureServerVersion = "0.4.0"
-  fileprivate nonisolated static let fixtureServerCompatibility = "server_authoritative_session_v1"
+  fileprivate nonisolated static let fixtureServerVersion = OrbitDockProtocol.releaseVersion
+  fileprivate nonisolated static let fixtureMinimumClientVersion = OrbitDockProtocol.clientVersion
 
   @Test func bootstrapFetchIsSingleFlightForTheSameGeneration() async throws {
     let counter = RequestCounter()
@@ -52,6 +52,48 @@ struct SessionStoreReconnectRecoveryTests {
     #expect(connection.subscribeCalls.first(where: { $0.surface == .composer })?.sinceRevision == 13)
     #expect(connection.subscribeCalls.first(where: { $0.surface == .conversation })?.sinceRevision == 13)
     #expect(store.recoveredSessionGenerations["session-1"] == 4)
+  }
+
+  @Test func recoverySubscribesOnlyRequestedSurfaces() async throws {
+    let counter = RequestCounter()
+    let connection = SessionStoreConnectionSpy()
+    let store = try makeStore(
+      loader: { request in try await counter.loader(request) }, connection: connection
+    )
+    store.subscribedSessions.insert("session-1")
+    store.subscribedSessionSurfaces["session-1"] = [.composer]
+    store.connectionGeneration = 5
+
+    await store.ensureSessionRecovery("session-1", generation: 5)
+
+    #expect(connection.subscribeCalls.count == 1)
+    #expect(connection.subscribeCalls.first?.surface == .composer)
+    #expect(connection.subscribeCalls.first?.sinceRevision == 13)
+  }
+
+  @Test func addingSurfaceAfterRecoveryResubscribesWithoutReconnect() async throws {
+    let counter = RequestCounter()
+    let connection = SessionStoreConnectionSpy()
+    let store = try makeStore(
+      loader: { request in try await counter.loader(request) }, connection: connection
+    )
+    store.subscribedSessions.insert("session-1")
+    store.subscribedSessionSurfaces["session-1"] = [.detail]
+    store.connectionGeneration = 6
+
+    await store.ensureSessionRecovery("session-1", generation: 6)
+    #expect(connection.subscribeCalls.count == 1)
+    #expect(connection.subscribeCalls.first?.surface == .detail)
+    #expect(connection.subscribeCalls.first?.sinceRevision == 13)
+
+    connection.clearSubscribeCalls()
+    store.subscribeToSession("session-1", surfaces: [.composer])
+    await store.ensureSessionRecovery("session-1", generation: 6)
+
+    #expect(connection.subscribeCalls.count == 1)
+    #expect(connection.subscribeCalls.first?.surface == .composer)
+    #expect(connection.subscribeCalls.first?.sinceRevision == 13)
+    #expect(store.recoveredSessionGenerations["session-1"] == 6)
   }
 
   @Test func unsubscribeDropsInFlightBootstrapResults() async throws {
@@ -121,8 +163,7 @@ struct SessionStoreReconnectRecoveryTests {
       headerFields: [
         "Content-Type": "application/json",
         "X-OrbitDock-Server-Version": fixtureServerVersion,
-        "X-OrbitDock-Server-Compatibility": fixtureServerCompatibility,
-        "X-OrbitDock-Compatible": "true",
+        "X-OrbitDock-Minimum-Client-Version": fixtureMinimumClientVersion,
       ]
     )!
     return (Data(json.utf8), response)
@@ -213,6 +254,10 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
   }
 
   func unsubscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface) {}
+
+  func clearSubscribeCalls() {
+    subscribeCalls.removeAll()
+  }
 
   func failCompatibility(message: String) {
     failedCompatibilityMessages.append(message)
