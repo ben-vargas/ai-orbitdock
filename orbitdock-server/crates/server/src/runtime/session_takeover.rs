@@ -36,6 +36,7 @@ fn codex_control_plane_from_summary(
     personality: summary.personality.clone(),
     service_tier: summary.service_tier.clone(),
     developer_instructions: summary.developer_instructions.clone(),
+    effort: summary.effort.clone(),
   }
 }
 

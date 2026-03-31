@@ -53,6 +53,7 @@ pub struct CodexControlPlane {
   pub personality: Option<String>,
   pub service_tier: Option<String>,
   pub developer_instructions: Option<String>,
+  pub effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

@@ -973,6 +973,7 @@ async fn build_effective_codex_config(
     personality: selection.overrides.personality.clone(),
     service_tier: selection.overrides.service_tier.clone(),
     developer_instructions: selection.overrides.developer_instructions.clone(),
+    effort: selection.overrides.effort.clone(),
   };
   CodexConnector::build_config_with_runtime_defaults(
     cwd,

@@ -389,6 +389,9 @@ async fn spawn_codex_resume(
           .developer_instructions
           .clone()
       });
+    let effective_effort = effective
+      .and_then(|value| value.effort.clone())
+      .or_else(|| normalized_selection.overrides.effort.clone());
     let effective_model_provider = effective
       .and_then(|value| value.model_provider.clone())
       .or_else(|| normalized_selection.model_provider.clone())
@@ -409,6 +412,7 @@ async fn spawn_codex_resume(
         personality: effective_personality.clone(),
         service_tier: effective_service_tier.clone(),
         developer_instructions: effective_developer_instructions.clone(),
+        effort: effective_effort.clone(),
       };
       let build_session_config = |cp: orbitdock_connector_codex::CodexControlPlane| {
         orbitdock_connector_codex::session::CodexSessionConfig {

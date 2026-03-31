@@ -377,6 +377,13 @@ impl CodexConnector {
       ));
     }
 
+    if let Some(effort) = control_plane.effort.as_deref() {
+      cli_overrides.push((
+        "model_reasoning_effort".to_string(),
+        toml::Value::String(effort.to_string()),
+      ));
+    }
+
     if let Some(reviewer) = control_plane.approvals_reviewer.as_deref() {
       cli_overrides.push((
         "approvals_reviewer".to_string(),
@@ -453,12 +460,16 @@ impl CodexConnector {
     configured_model: Option<String>,
     configured_effort: Option<ReasoningEffort>,
   ) -> Result<(), ConnectorError> {
+    let requested_effort = control_plane
+      .effort
+      .as_deref()
+      .and_then(parse_reasoning_effort_value);
     let collaboration_mode = collaboration_mode_for_update(
       self.thread_manager.as_ref(),
       control_plane.collaboration_mode.as_deref(),
       None,
       configured_model.unwrap_or_else(|| "gpt-5-codex".to_string()),
-      configured_effort,
+      requested_effort.or(configured_effort),
       control_plane.developer_instructions.as_deref(),
     );
     let service_tier = parse_service_tier_override(control_plane.service_tier.as_deref());
@@ -470,6 +481,7 @@ impl CodexConnector {
       && service_tier.is_none()
       && personality.is_none()
       && control_plane.multi_agent.is_none()
+      && requested_effort.is_none()
     {
       return Ok(());
     }
@@ -482,7 +494,7 @@ impl CodexConnector {
         sandbox_policy: None,
         windows_sandbox_level: None,
         model: None,
-        effort: None,
+        effort: requested_effort.map(Some),
         summary: None,
         approvals_reviewer,
         service_tier,
@@ -586,6 +598,18 @@ pub(crate) fn parse_approvals_reviewer(value: Option<&str>) -> Option<ApprovalsR
   match value.map(str::trim).filter(|value| !value.is_empty()) {
     Some("user") => Some(ApprovalsReviewer::User),
     Some("guardian_subagent") => Some(ApprovalsReviewer::GuardianSubagent),
+    _ => None,
+  }
+}
+
+fn parse_reasoning_effort_value(value: &str) -> Option<ReasoningEffort> {
+  match value {
+    "none" => Some(ReasoningEffort::None),
+    "minimal" => Some(ReasoningEffort::Minimal),
+    "low" => Some(ReasoningEffort::Low),
+    "medium" => Some(ReasoningEffort::Medium),
+    "high" => Some(ReasoningEffort::High),
+    "xhigh" => Some(ReasoningEffort::XHigh),
     _ => None,
   }
 }

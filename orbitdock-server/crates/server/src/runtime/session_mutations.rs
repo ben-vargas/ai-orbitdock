@@ -16,6 +16,7 @@ use crate::runtime::session_commands::{PersistOp, SessionCommand, SessionConfigP
 use crate::runtime::session_registry::SessionRegistry;
 use crate::support::session_modes::is_passive_rollout_session;
 
+#[derive(Debug)]
 pub(crate) enum SessionMutationError {
   NotFound(String),
   InvalidCodexConfig(String),
@@ -293,8 +294,10 @@ pub(crate) async fn update_session_config(
     )
   };
 
-  actor
-    .send(SessionCommand::ApplyDelta {
+  let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+  let send_result = actor
+    .send_checked(SessionCommand::ApplyDeltaAndWait {
       changes: Box::new(orbitdock_protocol::StateChanges {
         approval_policy: approval_policy.clone(),
         approval_policy_details: approval_policy_details.clone(),
@@ -336,12 +339,19 @@ pub(crate) async fn update_session_config(
             .and_then(serialize_codex_overrides),
         },
       ))),
+      reply: reply_tx,
     })
     .await;
 
-  if actor.summary().await.is_ok() {
-    state.publish_dashboard_snapshot();
+  if send_result.is_err() {
+    return Err(SessionMutationError::NotFound(session_id.to_string()));
   }
+
+  if reply_rx.await.is_err() {
+    return Err(SessionMutationError::NotFound(session_id.to_string()));
+  }
+
+  state.publish_dashboard_snapshot();
 
   if let Some(Some(ref mode)) = permission_mode {
     if let Some(tx) = state.get_claude_action_tx(session_id) {
@@ -409,18 +419,11 @@ pub(crate) async fn end_session(state: &Arc<SessionRegistry>, session_id: &str) 
     actor.send(SessionCommand::EndLocally).await;
   }
 
-  if is_passive_rollout {
+  if is_passive_rollout || state.remove_session(session_id).is_some() {
     state.broadcast_to_list(ServerMessage::SessionEnded {
       session_id: session_id.to_string(),
       reason: "user_requested".to_string(),
     });
-  } else {
-    if state.remove_session(session_id).is_some() {
-      state.broadcast_to_list(ServerMessage::SessionEnded {
-        session_id: session_id.to_string(),
-        reason: "user_requested".to_string(),
-      });
-    }
   }
 
   canceled_shells
@@ -540,11 +543,11 @@ mod tests {
   use tokio::sync::{mpsc, oneshot};
   use tokio::time::{timeout, Duration};
 
-  use super::end_session;
+  use super::{end_session, update_session_config, SessionConfigUpdate};
   use crate::domain::sessions::session::SessionHandle;
   use crate::runtime::session_commands::{SessionCommand, SubscribeResult};
   use crate::runtime::session_registry::SessionRegistry;
-  use crate::support::test_support::ensure_server_test_data_dir;
+  use crate::support::test_support::{ensure_server_test_data_dir, new_test_session_registry};
 
   #[tokio::test]
   async fn ending_direct_session_emits_local_ended_delta_before_removal() {
@@ -595,5 +598,43 @@ mod tests {
       state.get_session(session_id).is_none(),
       "direct session should be removed from runtime after local ended delta"
     );
+  }
+
+  #[tokio::test]
+  async fn update_session_config_updates_runtime_snapshot_before_handler_returns() {
+    let state = new_test_session_registry(true);
+    let session_id = "control-deck-update-runtime";
+
+    state.add_session(SessionHandle::new(
+      session_id.to_string(),
+      Provider::Claude,
+      "/tmp/control-deck-update-runtime".to_string(),
+    ));
+
+    update_session_config(
+      &state,
+      session_id,
+      SessionConfigUpdate {
+        model: Some(Some("opus-4.1".to_string())),
+        effort: Some(Some("high".to_string())),
+        permission_mode: Some(Some("full".to_string())),
+        collaboration_mode: Some(Some("enabled".to_string())),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("control deck config update should succeed");
+
+    let snapshot = state
+      .get_session(session_id)
+      .expect("session still exists after config update")
+      .summary()
+      .await
+      .expect("summary command should be answered");
+
+    assert_eq!(snapshot.model.as_deref(), Some("opus-4.1"));
+    assert_eq!(snapshot.effort.as_deref(), Some("high"));
+    assert_eq!(snapshot.permission_mode.as_deref(), Some("full"));
+    assert_eq!(snapshot.collaboration_mode.as_deref(), Some("enabled"));
   }
 }

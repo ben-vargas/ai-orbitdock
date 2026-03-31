@@ -90,6 +90,7 @@ pub(crate) async fn start_direct_codex_session(
           personality,
           service_tier,
           developer_instructions,
+          effort: None,
         },
         dynamic_tools_json,
       },

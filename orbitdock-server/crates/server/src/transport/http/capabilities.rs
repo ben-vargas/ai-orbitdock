@@ -217,6 +217,7 @@ fn codex_plugin_context(
       personality: session.personality.clone(),
       service_tier: session.service_tier.clone(),
       developer_instructions: session.developer_instructions.clone(),
+      effort: session.effort.clone(),
     },
   )
 }
