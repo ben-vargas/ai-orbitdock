@@ -179,17 +179,17 @@ jobs:
               stable)
                 tag="v${version}"
                 prerelease="false"
-                release_title="${APP_NAME} v${version}"
+                release_title="🔖 v${version}"
                 ;;
               beta)
                 tag="v${version}"
                 prerelease="true"
-                release_title="${APP_NAME} ${version}"
+                release_title="🔖 v${version}"
                 ;;
               nightly)
                 tag="nightly"
                 prerelease="true"
-                release_title="${APP_NAME} Nightly (${version})"
+                release_title="🔖 v${version}"
                 ;;
               *)
                 echo "error: unsupported channel '$channel'" >&2
@@ -202,7 +202,7 @@ jobs:
                 version="$(bump_version "$base_version" "$bump")"
                 tag="v${version}"
                 prerelease="false"
-                release_title="${APP_NAME} v${version}"
+                release_title="🔖 v${version}"
                 ;;
               beta)
                 beta_base="$(bump_version "$base_version" "$bump")"
@@ -217,7 +217,7 @@ jobs:
                 version="${beta_base}-beta.${next_beta}"
                 tag="v${version}"
                 prerelease="true"
-                release_title="${APP_NAME} ${version}"
+                release_title="🔖 v${version}"
                 ;;
               nightly)
                 date_stamp="$(date -u +%Y%m%d)"
@@ -225,7 +225,7 @@ jobs:
                 version="${base_version}-nightly.${date_stamp}"
                 tag="nightly"
                 prerelease="true"
-                release_title="${APP_NAME} Nightly (${version})"
+                release_title="🔖 v${version}"
                 echo "build_date=${build_date}" >> "$GITHUB_OUTPUT"
                 ;;
               *)
@@ -622,6 +622,8 @@ jobs:
           fi
 
           release_id="$(gh release view "$TAG_NAME" --repo "$GH_REPO" --json id --jq '.id')"
+          upload_url="$(gh release view "$TAG_NAME" --repo "$GH_REPO" --json uploadUrl --jq '.uploadUrl')"
+          upload_url="${upload_url%\{*}"
           draft_value="false"
           if [[ "$PUBLISH_RELEASE" != "true" && "$PUBLISH_RELEASE" != "True" ]]; then
             draft_value="true"
@@ -639,8 +641,18 @@ jobs:
 
           upload_asset() {
             local file="$1"
+            local asset_name existing_asset_id
             [[ -f "$file" ]] || return 0
-            gh release upload "$TAG_NAME" "$file" --repo "$GH_REPO" --clobber
+            asset_name="$(basename "$file")"
+            existing_asset_id="$(gh api "/repos/${GH_REPO}/releases/$release_id/assets" --jq ".[] | select(.name == \"${asset_name}\") | .id" | head -n 1 || true)"
+            if [[ -n "${existing_asset_id:-}" ]]; then
+              gh api --method DELETE "/repos/${GH_REPO}/releases/assets/${existing_asset_id}" >/dev/null
+            fi
+            gh api \
+              --method POST \
+              "${upload_url}?name=${asset_name}" \
+              --header 'Content-Type: application/octet-stream' \
+              --input "$file" >/dev/null
           }
 
           if [[ "$PUBLISH_RELEASE" == "true" || "$PUBLISH_RELEASE" == "True" ]]; then
