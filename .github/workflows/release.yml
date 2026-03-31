@@ -90,7 +90,8 @@ jobs:
       version: ${{ steps.compute.outputs.version }}
       tag: ${{ steps.compute.outputs.tag }}
       build_number: ${{ steps.compute.outputs.build_number }}
-      short_sha: ${{ steps.compute.outputs.short_sha }}
+      short_sha: ${{ steps.finalize_ref.outputs.short_sha }}
+      source_sha: ${{ steps.finalize_ref.outputs.source_sha }}
       build_date: ${{ steps.compute.outputs.build_date }}
       channel: ${{ steps.compute.outputs.channel }}
       release_title: ${{ steps.compute.outputs.release_title }}
@@ -259,6 +260,108 @@ jobs:
           echo "publish_release=$publish_release_value" >> "$GITHUB_OUTPUT"
           echo "build_server_assets=$build_server_value" >> "$GITHUB_OUTPUT"
 
+      - name: Commit server version bump
+        if: ${{ steps.compute.outputs.channel != 'nightly' }}
+        env:
+          VERSION: ${{ steps.compute.outputs.version }}
+          CHANNEL: ${{ steps.compute.outputs.channel }}
+        run: |
+          set -euo pipefail
+
+          update_workspace_version() {
+            local target_version="$1"
+            local file="orbitdock-server/Cargo.toml"
+            local tmp_file
+            tmp_file="$(mktemp)"
+
+            awk -v target="$target_version" '
+              BEGIN {
+                in_workspace_pkg = 0
+                updated = 0
+              }
+              /^\[workspace\.package\]$/ {
+                in_workspace_pkg = 1
+                print
+                next
+              }
+              /^\[/ {
+                in_workspace_pkg = 0
+              }
+              in_workspace_pkg && /^version = "/ && updated == 0 {
+                print "version = \"" target "\""
+                updated = 1
+                next
+              }
+              {
+                print
+              }
+            ' "$file" > "$tmp_file"
+
+            mv "$tmp_file" "$file"
+          }
+
+          update_lock_versions() {
+            local target_version="$1"
+            local file="orbitdock-server/Cargo.lock"
+            local tmp_file
+            tmp_file="$(mktemp)"
+
+            awk -v target="$target_version" '
+              BEGIN {
+                in_package = 0
+                package_name = ""
+              }
+              /^\[\[package\]\]$/ {
+                in_package = 1
+                package_name = ""
+                print
+                next
+              }
+              in_package && /^name = "/ {
+                package_name = $0
+                sub(/^name = "/, "", package_name)
+                sub(/"$/, "", package_name)
+                print
+                next
+              }
+              in_package && /^version = "/ {
+                if (package_name ~ /^orbitdock($|-)/) {
+                  print "version = \"" target "\""
+                  next
+                }
+              }
+              {
+                print
+              }
+            ' "$file" > "$tmp_file"
+
+            mv "$tmp_file" "$file"
+          }
+
+          update_workspace_version "$VERSION"
+          update_lock_versions "$VERSION"
+
+          if git diff --quiet -- orbitdock-server/Cargo.toml orbitdock-server/Cargo.lock; then
+            echo "Server manifests already at ${VERSION}; skipping commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add orbitdock-server/Cargo.toml orbitdock-server/Cargo.lock
+          git commit \
+            -m "🔖 Bump orbitdock-server crates to v${VERSION}" \
+            -m "Automated by release workflow for ${CHANNEL} channel."
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Capture source revision
+        id: finalize_ref
+        run: |
+          set -euo pipefail
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+
   release_notes:
     name: Generate Release Notes
     needs: metadata
@@ -275,6 +378,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ needs.metadata.outputs.source_sha }}
 
       - name: Prepare changelog context
         id: changelog
@@ -382,6 +486,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.source_sha }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -431,6 +537,7 @@ jobs:
       RELEASE_TITLE: ${{ needs.metadata.outputs.release_title }}
       PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
       PUBLISH_RELEASE: ${{ needs.metadata.outputs.publish_release }}
+      RELEASE_SHA: ${{ needs.metadata.outputs.source_sha }}
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -465,13 +572,13 @@ jobs:
               gh api \
                 --method PATCH \
                 "/repos/${GH_REPO}/git/refs/tags/nightly" \
-                -f sha="${{ github.sha }}" \
+                -f sha="${RELEASE_SHA}" \
                 -F force=true >/dev/null 2>&1 || \
               gh api \
                 --method POST \
                 "/repos/${GH_REPO}/git/refs" \
                 -f ref="refs/tags/nightly" \
-                -f sha="${{ github.sha }}" >/dev/null
+                -f sha="${RELEASE_SHA}" >/dev/null
 
               gh release edit nightly \
                 --repo "$GH_REPO" \
@@ -481,7 +588,7 @@ jobs:
             else
               gh release create nightly \
                 --repo "$GH_REPO" \
-                --target "${{ github.sha }}" \
+                --target "${RELEASE_SHA}" \
                 --title "$RELEASE_TITLE" \
                 --notes-file "$notes_file" \
                 --prerelease
@@ -490,7 +597,7 @@ jobs:
             if ! gh release view "$TAG_NAME" --repo "$GH_REPO" >/dev/null 2>&1; then
               gh release create "$TAG_NAME" \
                 --repo "$GH_REPO" \
-                --target "${{ github.sha }}" \
+                --target "${RELEASE_SHA}" \
                 --title "$RELEASE_TITLE" \
                 --notes-file "$notes_file" \
                 $prerelease_flag \
