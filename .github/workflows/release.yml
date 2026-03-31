@@ -463,13 +463,11 @@ jobs:
           if [[ "$TAG_NAME" == "nightly" ]]; then
             if gh release view nightly --repo "$GH_REPO" >/dev/null 2>&1; then
               gh api \
-                --repo "$GH_REPO" \
                 --method PATCH \
                 "/repos/${GH_REPO}/git/refs/tags/nightly" \
                 -f sha="${{ github.sha }}" \
                 -F force=true >/dev/null 2>&1 || \
               gh api \
-                --repo "$GH_REPO" \
                 --method POST \
                 "/repos/${GH_REPO}/git/refs" \
                 -f ref="refs/tags/nightly" \
@@ -517,7 +515,6 @@ jobs:
           fi
 
           gh api \
-            --repo "$GH_REPO" \
             --method PATCH \
             "/repos/${GH_REPO}/releases/$release_id" \
             -F draft="$draft_value" \
