@@ -461,32 +461,37 @@ jobs:
           fi
 
           if [[ "$TAG_NAME" == "nightly" ]]; then
-            if gh release view nightly >/dev/null 2>&1; then
+            if gh release view nightly --repo "$GH_REPO" >/dev/null 2>&1; then
               gh api \
+                --repo "$GH_REPO" \
                 --method PATCH \
-                "/repos/${{ github.repository }}/git/refs/tags/nightly" \
+                "/repos/${GH_REPO}/git/refs/tags/nightly" \
                 -f sha="${{ github.sha }}" \
                 -F force=true >/dev/null 2>&1 || \
               gh api \
+                --repo "$GH_REPO" \
                 --method POST \
-                "/repos/${{ github.repository }}/git/refs" \
+                "/repos/${GH_REPO}/git/refs" \
                 -f ref="refs/tags/nightly" \
                 -f sha="${{ github.sha }}" >/dev/null
 
               gh release edit nightly \
+                --repo "$GH_REPO" \
                 --title "$RELEASE_TITLE" \
                 --notes-file "$notes_file" \
                 --prerelease
             else
               gh release create nightly \
+                --repo "$GH_REPO" \
                 --target "${{ github.sha }}" \
                 --title "$RELEASE_TITLE" \
                 --notes-file "$notes_file" \
                 --prerelease
             fi
           else
-            if ! gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            if ! gh release view "$TAG_NAME" --repo "$GH_REPO" >/dev/null 2>&1; then
               gh release create "$TAG_NAME" \
+                --repo "$GH_REPO" \
                 --target "${{ github.sha }}" \
                 --title "$RELEASE_TITLE" \
                 --notes-file "$notes_file" \
@@ -494,13 +499,14 @@ jobs:
                 $draft_flag
             else
               gh release edit "$TAG_NAME" \
+                --repo "$GH_REPO" \
                 --title "$RELEASE_TITLE" \
                 --notes-file "$notes_file" \
                 $prerelease_flag
             fi
           fi
 
-          release_id="$(gh api "/repos/${{ github.repository }}/releases/tags/$TAG_NAME" --jq '.id')"
+          release_id="$(gh release view "$TAG_NAME" --repo "$GH_REPO" --json id --jq '.id')"
           draft_value="false"
           if [[ "$PUBLISH_RELEASE" != "true" && "$PUBLISH_RELEASE" != "True" ]]; then
             draft_value="true"
@@ -511,15 +517,16 @@ jobs:
           fi
 
           gh api \
+            --repo "$GH_REPO" \
             --method PATCH \
-            "/repos/${{ github.repository }}/releases/$release_id" \
+            "/repos/${GH_REPO}/releases/$release_id" \
             -F draft="$draft_value" \
             -F prerelease="$prerelease_value" >/dev/null
 
           upload_asset() {
             local file="$1"
             [[ -f "$file" ]] || return 0
-            gh release upload "$TAG_NAME" "$file" --clobber
+            gh release upload "$TAG_NAME" "$file" --repo "$GH_REPO" --clobber
           }
 
           if [[ "$PUBLISH_RELEASE" == "true" || "$PUBLISH_RELEASE" == "True" ]]; then
