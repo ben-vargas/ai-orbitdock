@@ -25,6 +25,7 @@ use crate::runtime::session_mutations::{
   SessionConfigUpdate, SessionMutationError,
 };
 use crate::runtime::session_resume::{launch_resumed_session, ResumeSessionError};
+use crate::runtime::session_runtime_helpers::verify_direct_runtime_ready_snapshot;
 use crate::runtime::session_takeover::{
   takeover_passive_session, TakeoverSessionError, TakeoverSessionInputs,
 };
@@ -514,9 +515,18 @@ pub async fn create_session(
         component = "session",
         event = "session.create.http.connector_failed",
         session_id = %session_id,
+        provider = ?body.provider,
         error = %error_message,
         "HTTP: Failed to start direct session connector"
     );
+    return Err(lifecycle_error(
+      StatusCode::SERVICE_UNAVAILABLE,
+      "connector_start_failed",
+      format!(
+        "Failed to start {:?} connector for session {}: {}",
+        body.provider, session_id, error_message
+      ),
+    ));
   }
 
   if let Some(initial_prompt) = &body.initial_prompt {
@@ -724,17 +734,39 @@ pub async fn resume_session(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<ResumeSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  use orbitdock_protocol::SessionStatus;
+  use orbitdock_protocol::{SessionControlMode, SessionStatus};
 
   if let Some(handle) = state.get_session(&session_id) {
     let snap = handle.snapshot();
     if snap.status == SessionStatus::Active {
-      return Err(conflict(
-        "already_active",
-        format!("Session {} is already active", session_id),
-      ));
+      let is_direct_runtime_ready = snap.control_mode != SessionControlMode::Direct
+        || verify_direct_runtime_ready_snapshot(&state, &session_id, snap.provider).is_ok();
+
+      if is_direct_runtime_ready {
+        let summary = handle
+          .summary()
+          .await
+          .map_err(|error| internal("runtime_error", error))?;
+
+        if let Some(ref mission_id) = summary.mission_id {
+          crate::runtime::session_mutations::sync_mission_issue_on_resume(
+            &state,
+            &session_id,
+            mission_id,
+          )
+          .await;
+        }
+
+        return Ok(Json(ResumeSessionResponse {
+          session_id,
+          session: summary,
+        }));
+      }
+
+      state.remove_session(&session_id);
+    } else {
+      state.remove_session(&session_id);
     }
-    state.remove_session(&session_id);
   }
 
   let prepared = match load_prepared_resume_session(&session_id).await {
@@ -1094,7 +1126,11 @@ pub async fn fork_session_to_existing_worktree(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use orbitdock_protocol::CodexApprovalsReviewer;
+  use crate::domain::sessions::session::SessionHandle;
+  use orbitdock_protocol::{
+    CodexApprovalsReviewer, CodexIntegrationMode, SessionLifecycleState, SessionStatus,
+    StateChanges,
+  };
 
   fn codex_request(
     codex_config_mode: Option<CodexConfigMode>,
@@ -1207,5 +1243,48 @@ mod tests {
       update.approvals_reviewer,
       Some(Some(CodexApprovalsReviewer::GuardianSubagent))
     );
+  }
+
+  #[tokio::test]
+  async fn resume_session_returns_ok_when_runtime_session_is_already_active() {
+    let state = crate::support::test_support::new_test_session_registry(true);
+    let session_id = orbitdock_protocol::new_session_id();
+    state.add_session(SessionHandle::new(
+      session_id.clone(),
+      Provider::Codex,
+      "/tmp/orbitdock-resume-idempotent".to_string(),
+    ));
+
+    let Json(response) = resume_session(Path(session_id.clone()), State(state))
+      .await
+      .expect("resume should return active runtime summary");
+
+    assert_eq!(response.session_id, session_id);
+    assert_eq!(response.session.id, response.session_id);
+    assert_eq!(response.session.status, SessionStatus::Active);
+  }
+
+  #[tokio::test]
+  async fn resume_session_falls_back_to_persisted_resume_when_direct_runtime_is_not_ready() {
+    let state = crate::support::test_support::new_test_session_registry(true);
+    let session_id = orbitdock_protocol::new_session_id();
+    let mut handle = SessionHandle::new(
+      session_id.clone(),
+      Provider::Codex,
+      "/tmp/orbitdock-resume-not-ready".to_string(),
+    );
+    handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+    handle.apply_changes(&StateChanges {
+      lifecycle_state: Some(SessionLifecycleState::Resumable),
+      ..Default::default()
+    });
+    state.add_session(handle);
+
+    let (status, Json(error)) = resume_session(Path(session_id), State(state))
+      .await
+      .expect_err("non-ready direct runtime should not short-circuit resume");
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(error.code, "not_found");
   }
 }
