@@ -54,23 +54,38 @@ final class UsageServiceRegistry {
   }
 
   func refreshAll(todayStart: Date? = nil) async {
-    guard let runtime = runtimeRegistry.primaryRuntime
-      ?? runtimeRegistry.activeRuntime
-      ?? runtimeRegistry.runtimes.first(where: { $0.endpoint.isEnabled })
-    else { return }
-    let clients = runtime.clients
+    let resolvedTodayStart = todayStart ?? Calendar.current.startOfDay(for: Date())
+    let todayStartUnix = UInt64(max(resolvedTodayStart.timeIntervalSince1970, 0))
 
-    let todayStartUnix = todayStart.map { UInt64(max($0.timeIntervalSince1970, 0)) }
+    let enabledRuntimes = runtimeRegistry.runtimes.filter { $0.endpoint.isEnabled && $0.isStarted }
+    let runtimes = if enabledRuntimes.isEmpty {
+      [runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime]
+        .compactMap { $0 }
+    } else {
+      enabledRuntimes
+    }
+    guard !runtimes.isEmpty else { return }
 
     summaryLoading = true
     do {
-      summary = try await clients.usage.fetchUsageSummary(todayStartUnix: todayStartUnix)
+      var snapshots: [ServerUsageSummarySnapshotPayload] = []
+      for runtime in runtimes {
+        let snapshot = try await runtime.clients.usage.fetchUsageSummary(todayStartUnix: todayStartUnix)
+        snapshots.append(snapshot)
+      }
+      summary = mergeUsageSummaries(snapshots)
       summaryTodayStartUnix = todayStartUnix
       summaryError = nil
     } catch {
       summaryError = UsageFetchError(message: error.localizedDescription)
     }
     summaryLoading = false
+
+    let usageRuntime = runtimeRegistry.primaryRuntime
+      ?? runtimeRegistry.activeRuntime
+      ?? runtimeRegistry.runtimes.first(where: { $0.endpoint.isEnabled })
+    guard let usageRuntime else { return }
+    let clients = usageRuntime.clients
 
     // Fetch Claude usage
     claudeLoading = true
@@ -105,6 +120,50 @@ final class UsageServiceRegistry {
       codexError = UsageFetchError(message: error.localizedDescription)
     }
     codexLoading = false
+  }
+
+  private func mergeUsageSummaries(_ snapshots: [ServerUsageSummarySnapshotPayload]) -> ServerUsageSummarySnapshotPayload? {
+    guard !snapshots.isEmpty else { return nil }
+
+    func mergeBuckets(_ buckets: [ServerUsageSummaryBucketPayload]) -> ServerUsageSummaryBucketPayload {
+      var sessionCount: UInt64 = 0
+      var totalTokens: UInt64 = 0
+      var inputTokens: UInt64 = 0
+      var outputTokens: UInt64 = 0
+      var cachedTokens: UInt64 = 0
+      var totalCostUSD = 0.0
+      var modelCosts: [String: Double] = [:]
+
+      for bucket in buckets {
+        sessionCount += bucket.sessionCount
+        totalTokens += bucket.totalTokens
+        inputTokens += bucket.inputTokens
+        outputTokens += bucket.outputTokens
+        cachedTokens += bucket.cachedTokens
+        totalCostUSD += bucket.totalCostUSD
+        for modelCost in bucket.costByModel {
+          modelCosts[modelCost.model, default: 0] += modelCost.costUSD
+        }
+      }
+
+      let mergedCosts = modelCosts
+        .map { ServerUsageSummaryModelCostPayload(model: $0.key, costUSD: $0.value) }
+        .sorted { $0.costUSD > $1.costUSD }
+
+      return ServerUsageSummaryBucketPayload(
+        sessionCount: sessionCount,
+        totalTokens: totalTokens,
+        inputTokens: inputTokens,
+        outputTokens: outputTokens,
+        cachedTokens: cachedTokens,
+        totalCostUSD: totalCostUSD,
+        costByModel: mergedCosts
+      )
+    }
+
+    let today = mergeBuckets(snapshots.map(\.today))
+    let allTime = mergeBuckets(snapshots.map(\.allTime))
+    return ServerUsageSummarySnapshotPayload(today: today, allTime: allTime)
   }
 
   // MARK: - Conversion

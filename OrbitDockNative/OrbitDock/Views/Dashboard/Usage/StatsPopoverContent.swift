@@ -255,6 +255,12 @@ struct StatusBarStats {
     guard let summary else {
       return (today: fallbackToday, allTime: fallbackAllTime)
     }
+    // Defensive fallback: if the summary endpoint resolves to an empty dataset
+    // while the dashboard already has session-backed stats, prefer the
+    // dashboard projection so the header/popover does not collapse to zeros.
+    if summary.allTime.sessionCount == 0, fallbackAllTime.sessionCount > 0 {
+      return (today: fallbackToday, allTime: fallbackAllTime)
+    }
     return (
       today: from(summary.today),
       allTime: from(summary.allTime)
