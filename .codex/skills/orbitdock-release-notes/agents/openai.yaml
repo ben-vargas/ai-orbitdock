@@ -1,0 +1,3 @@
+interface:
+  display_name: "OrbitDock Release Notes"
+  short_description: "Release and TestFlight changelogs with GH + git"
