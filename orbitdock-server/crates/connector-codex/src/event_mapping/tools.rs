@@ -253,6 +253,7 @@ fn dynamic_tool_identity_from_name(
     "file_read" => Some((ToolFamily::FileRead, ToolKind::Read, "Read")),
     "file_write" => Some((ToolFamily::FileChange, ToolKind::Write, "Write")),
     "file_edit" => Some((ToolFamily::FileChange, ToolKind::Edit, "Edit")),
+    "plan_write" => Some((ToolFamily::Plan, ToolKind::Write, "Plan")),
     _ => None,
   }
 }
@@ -315,10 +316,17 @@ fn dynamic_tool_result_payload(
     ToolKind::Read => read_content.clone(),
     ToolKind::Write => bytes_written
       .map(|count| {
-        path
-          .as_deref()
-          .map(|value| format!("Wrote {count} bytes to {value}"))
-          .unwrap_or_else(|| format!("Wrote {count} bytes"))
+        if tool_name == "plan_write" {
+          path
+            .as_deref()
+            .map(|value| format!("Saved plan ({count} bytes) to {value}"))
+            .unwrap_or_else(|| format!("Saved plan ({count} bytes)"))
+        } else {
+          path
+            .as_deref()
+            .map(|value| format!("Wrote {count} bytes to {value}"))
+            .unwrap_or_else(|| format!("Wrote {count} bytes"))
+        }
       })
       .or_else(|| output.cloned()),
     ToolKind::Edit => replacements
@@ -916,13 +924,17 @@ pub(crate) fn handle_dynamic_tool_call_response(
     ToolStatus::Failed
   };
 
-  let (family, kind, title) = dynamic_tool_identity_from_output(output.as_ref())
-    .or_else(|| dynamic_tool_identity_from_name(&tool_name))
-    .unwrap_or((
-      ToolFamily::Generic,
-      ToolKind::DynamicToolCall,
-      tool_name.as_str(),
-    ));
+  let identity_from_name = dynamic_tool_identity_from_name(&tool_name);
+  let resolved_identity = if tool_name == "plan_write" {
+    identity_from_name
+  } else {
+    dynamic_tool_identity_from_output(output.as_ref()).or(identity_from_name)
+  };
+  let (family, kind, title) = resolved_identity.unwrap_or((
+    ToolFamily::Generic,
+    ToolKind::DynamicToolCall,
+    tool_name.as_str(),
+  ));
   let (summary, result) =
     dynamic_tool_result_payload(tool_name.as_str(), kind, &arguments, output.as_ref());
 
@@ -1538,6 +1550,34 @@ mod tests {
   }
 
   #[test]
+  fn dynamic_tool_request_maps_plan_write_to_native_write_kind() {
+    let events = handle_dynamic_tool_call_request(DynamicToolCallRequest {
+      call_id: "call-dynamic-plan-write-1".to_string(),
+      turn_id: "turn-dynamic-plan-write-1".to_string(),
+      tool: "plan_write".to_string(),
+      arguments: serde_json::json!({
+        "path": "tooling/plan.md",
+        "content": "# Plan\n"
+      }),
+    });
+    let created = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowCreated(entry) => Some(entry),
+      _ => None,
+    });
+    let entry = created.expect("tool row created");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.family, ToolFamily::Plan);
+    assert_eq!(tool.kind, ToolKind::Write);
+    assert_eq!(tool.status, ToolStatus::Running);
+    assert_eq!(tool.title, "Plan");
+    let display = tool.tool_display.expect("plan write request tool display");
+    assert_eq!(display.summary, "Plan");
+    assert_eq!(display.tool_type, "plan");
+  }
+
+  #[test]
   fn dynamic_tool_response_infers_native_read_kind_from_payload() {
     let events = handle_dynamic_tool_call_response(DynamicToolCallResponseEvent {
       call_id: "call-dynamic-read-1".to_string(),
@@ -1602,6 +1642,74 @@ mod tests {
     assert_eq!(tool.title, "Write");
     let result = tool.result.expect("tool result");
     assert_eq!(result["output"], "ok");
+  }
+
+  #[test]
+  fn dynamic_tool_response_falls_back_to_tool_name_for_plan_write() {
+    let events = handle_dynamic_tool_call_response(DynamicToolCallResponseEvent {
+      call_id: "call-dynamic-plan-write-2".to_string(),
+      turn_id: "turn-dynamic-plan-write-2".to_string(),
+      tool: "plan_write".to_string(),
+      arguments: serde_json::json!({
+        "path": "tooling/plan.md",
+        "content": "# Plan\n"
+      }),
+      success: true,
+      content_items: vec![DynamicToolCallOutputContentItem::InputText {
+        text: "ok".to_string(),
+      }],
+      error: None,
+      duration: Duration::from_millis(6),
+    });
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+    let entry = updated.expect("tool row updated");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.family, ToolFamily::Plan);
+    assert_eq!(tool.kind, ToolKind::Write);
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(tool.title, "Plan");
+    let result = tool.result.expect("tool result");
+    assert_eq!(result["output"], "ok");
+  }
+
+  #[test]
+  fn dynamic_tool_response_prefers_plan_identity_over_write_payload_shape() {
+    let events = handle_dynamic_tool_call_response(DynamicToolCallResponseEvent {
+      call_id: "call-dynamic-plan-write-3".to_string(),
+      turn_id: "turn-dynamic-plan-write-3".to_string(),
+      tool: "plan_write".to_string(),
+      arguments: serde_json::json!({
+        "path": "tooling/plan.md",
+        "content": "# Plan\n"
+      }),
+      success: true,
+      content_items: vec![DynamicToolCallOutputContentItem::InputText {
+        text: "{\"path\":\"/tmp/plan.md\",\"bytes_written\":42}".to_string(),
+      }],
+      error: None,
+      duration: Duration::from_millis(5),
+    });
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+    let entry = updated.expect("tool row updated");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.family, ToolFamily::Plan);
+    assert_eq!(tool.kind, ToolKind::Write);
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(tool.title, "Plan");
+    assert_eq!(
+      tool.summary.as_deref(),
+      Some("Saved plan (42 bytes) to /tmp/plan.md")
+    );
   }
 
   #[test]
