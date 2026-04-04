@@ -10,7 +10,7 @@ use orbitdock_protocol::{
   DashboardSnapshot, MissionsSnapshot, Provider, SessionListItem, SessionSummary,
   WorkspaceProviderKind,
 };
-use rusqlite::Connection;
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -97,7 +97,7 @@ pub struct SessionRegistry {
   /// Active sessions stored as actor handles
   sessions: DashMap<String, SessionActorHandle>,
 
-  /// Connector channels and provider thread ownership maps.
+  /// Connector action channels for active direct runtimes.
   connectors: ConnectorRegistry,
 
   /// Broadcast channel for session list updates
@@ -147,6 +147,46 @@ pub struct SessionRegistry {
 }
 
 impl SessionRegistry {
+  fn open_ownership_db(&self, operation: &'static str) -> Option<Connection> {
+    let conn = match Connection::open(&self.db_path) {
+      Ok(conn) => conn,
+      Err(error) => {
+        warn!(
+          component = "state",
+          event = "state.ownership.db_open_failed",
+          operation = operation,
+          db_path = %self.db_path.display(),
+          error = %error,
+          "Failed to open SQLite database for ownership operation"
+        );
+        return None;
+      }
+    };
+
+    if let Err(error) = conn.busy_timeout(Duration::from_secs(5)) {
+      warn!(
+        component = "state",
+        event = "state.ownership.busy_timeout_config_failed",
+        operation = operation,
+        error = %error,
+        "Failed to configure SQLite busy_timeout for ownership operation"
+      );
+      return None;
+    }
+
+    Some(conn)
+  }
+
+  fn resolve_runtime_owner_session_id(&self, session_id: &str) -> Option<String> {
+    if orbitdock_protocol::is_orbitdock_id(session_id) {
+      return None;
+    }
+
+    self
+      .resolve_claude_thread(session_id)
+      .or_else(|| self.resolve_codex_thread(session_id))
+  }
+
   #[cfg(test)]
   #[allow(dead_code)]
   pub fn new(persist_tx: mpsc::Sender<PersistCommand>) -> Self {
@@ -386,7 +426,11 @@ impl SessionRegistry {
 
   /// Get a Codex action sender (cloned — DashMap refs can't outlive the lookup)
   pub fn get_codex_action_tx(&self, session_id: &str) -> Option<mpsc::Sender<CodexAction>> {
-    self.connectors.get_codex_action_tx(session_id)
+    self.connectors.get_codex_action_tx(session_id).or_else(|| {
+      self
+        .resolve_runtime_owner_session_id(session_id)
+        .and_then(|owner| self.connectors.get_codex_action_tx(&owner))
+    })
   }
 
   /// Store a Claude action sender
@@ -401,7 +445,14 @@ impl SessionRegistry {
 
   /// Get a Claude action sender (cloned)
   pub fn get_claude_action_tx(&self, session_id: &str) -> Option<mpsc::Sender<ClaudeAction>> {
-    self.connectors.get_claude_action_tx(session_id)
+    self
+      .connectors
+      .get_claude_action_tx(session_id)
+      .or_else(|| {
+        self
+          .resolve_runtime_owner_session_id(session_id)
+          .and_then(|owner| self.connectors.get_claude_action_tx(&owner))
+      })
   }
 
   /// Remove a Claude action sender (stale channel cleanup)
@@ -662,7 +713,11 @@ impl SessionRegistry {
 
   /// Get a session actor handle (cheap Clone)
   pub fn get_session(&self, id: &str) -> Option<SessionActorHandle> {
-    self.sessions.get(id).map(|r| r.clone())
+    self.sessions.get(id).map(|r| r.clone()).or_else(|| {
+      self
+        .resolve_runtime_owner_session_id(id)
+        .and_then(|owner| self.sessions.get(&owner).map(|entry| entry.clone()))
+    })
   }
 
   /// Add a session by spawning an actor
@@ -683,13 +738,14 @@ impl SessionRegistry {
   /// Remove a session
   pub fn remove_session(&self, id: &str) -> Option<SessionActorHandle> {
     self.connectors.remove_action_txs(id);
-    self.connectors.remove_session_threads(id);
     self.sessions.remove(id).map(|(_, v)| v)
   }
 
   /// Register codex-core thread ID for a direct session.
-  /// Rejects OrbitDock IDs (`od-` prefix) as a defense-in-depth guard.
-  pub fn register_codex_thread(&self, session_id: &str, thread_id: &str) {
+  ///
+  /// Ownership is DB-driven; this helper writes the mapping to SQLite so hook
+  /// routing and reverse lookups do not depend on in-memory aliases.
+  pub fn register_codex_thread(&self, session_id: &str, thread_id: &str) -> bool {
     if orbitdock_protocol::is_orbitdock_id(thread_id) {
       tracing::error!(
           component = "state",
@@ -698,14 +754,87 @@ impl SessionRegistry {
           thread_id = %thread_id,
           "Rejected OrbitDock ID as codex thread ID"
       );
-      return;
+      return false;
     }
-    self.connectors.register_codex_thread(session_id, thread_id);
+
+    let Some(mut conn) = self.open_ownership_db("register_codex_thread") else {
+      return false;
+    };
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let project_path = self
+      .get_session(session_id)
+      .map(|actor| actor.snapshot().project_path.clone())
+      .unwrap_or_else(|| "/unknown".to_string());
+
+    let tx = match conn.transaction() {
+      Ok(tx) => tx,
+      Err(error) => {
+        warn!(
+          component = "state",
+          event = "state.register_codex_thread.transaction_failed",
+          session_id = %session_id,
+          thread_id = %thread_id,
+          error = %error,
+          "Failed to start SQLite transaction for codex thread registration"
+        );
+        return false;
+      }
+    };
+
+    if let Err(error) = tx.execute(
+      "INSERT OR IGNORE INTO sessions (
+         id, provider, control_mode, codex_integration_mode, status, work_status,
+         project_path, started_at, last_activity_at
+       ) VALUES (?1, 'codex', 'direct', 'direct', 'active', 'waiting', ?2, ?3, ?3)",
+      params![session_id, project_path, now],
+    ) {
+      warn!(
+        component = "state",
+        event = "state.register_codex_thread.insert_failed",
+        session_id = %session_id,
+        thread_id = %thread_id,
+        error = %error,
+        "Failed to ensure direct Codex owner row before thread registration"
+      );
+      return false;
+    }
+
+    if let Err(error) = tx.execute(
+      "UPDATE sessions SET codex_thread_id = ?1 WHERE id = ?2",
+      params![thread_id, session_id],
+    ) {
+      warn!(
+        component = "state",
+        event = "state.register_codex_thread.update_failed",
+        session_id = %session_id,
+        thread_id = %thread_id,
+        error = %error,
+        "Failed to persist Codex thread ownership mapping"
+      );
+      return false;
+    }
+
+    if let Err(error) = tx.commit() {
+      warn!(
+        component = "state",
+        event = "state.register_codex_thread.commit_failed",
+        session_id = %session_id,
+        thread_id = %thread_id,
+        error = %error,
+        "Failed to commit Codex thread ownership mapping transaction"
+      );
+      return false;
+    }
+
+    true
   }
 
   /// Register Claude SDK session ID for a direct session.
-  /// Rejects OrbitDock IDs (`od-` prefix) as a defense-in-depth guard.
-  pub fn register_claude_thread(&self, session_id: &str, sdk_session_id: &str) {
+  ///
+  /// Ownership is DB-driven; this helper writes the mapping to SQLite so hook
+  /// routing and reverse lookups do not depend on in-memory aliases.
+  pub fn register_claude_thread(&self, session_id: &str, sdk_session_id: &str) -> bool {
     if orbitdock_protocol::is_orbitdock_id(sdk_session_id) {
       tracing::error!(
           component = "state",
@@ -714,76 +843,238 @@ impl SessionRegistry {
           sdk_session_id = %sdk_session_id,
           "Rejected OrbitDock ID as Claude SDK session ID"
       );
-      return;
+      return false;
     }
-    self
-      .connectors
-      .register_claude_thread(session_id, sdk_session_id);
+
+    let Some(mut conn) = self.open_ownership_db("register_claude_thread") else {
+      return false;
+    };
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let project_path = self
+      .get_session(session_id)
+      .map(|actor| actor.snapshot().project_path.clone())
+      .unwrap_or_else(|| "/unknown".to_string());
+
+    let tx = match conn.transaction() {
+      Ok(tx) => tx,
+      Err(error) => {
+        warn!(
+          component = "state",
+          event = "state.register_claude_thread.transaction_failed",
+          session_id = %session_id,
+          sdk_session_id = %sdk_session_id,
+          error = %error,
+          "Failed to start SQLite transaction for Claude SDK registration"
+        );
+        return false;
+      }
+    };
+
+    if let Err(error) = tx.execute(
+      "INSERT OR IGNORE INTO sessions (
+         id, provider, control_mode, claude_integration_mode, status, work_status,
+         project_path, started_at, last_activity_at
+       ) VALUES (?1, 'claude', 'direct', 'direct', 'active', 'waiting', ?2, ?3, ?3)",
+      params![session_id, project_path, now],
+    ) {
+      warn!(
+        component = "state",
+        event = "state.register_claude_thread.insert_failed",
+        session_id = %session_id,
+        sdk_session_id = %sdk_session_id,
+        error = %error,
+        "Failed to ensure direct Claude owner row before SDK registration"
+      );
+      return false;
+    }
+
+    if let Err(error) = tx.execute(
+      "UPDATE sessions SET claude_sdk_session_id = ?1 WHERE id = ?2",
+      params![sdk_session_id, session_id],
+    ) {
+      warn!(
+        component = "state",
+        event = "state.register_claude_thread.update_failed",
+        session_id = %session_id,
+        sdk_session_id = %sdk_session_id,
+        error = %error,
+        "Failed to persist Claude SDK ownership mapping"
+      );
+      return false;
+    }
+
+    if let Err(error) = tx.commit() {
+      warn!(
+        component = "state",
+        event = "state.register_claude_thread.commit_failed",
+        session_id = %session_id,
+        sdk_session_id = %sdk_session_id,
+        error = %error,
+        "Failed to commit Claude SDK ownership mapping transaction"
+      );
+      return false;
+    }
+
+    true
   }
 
   /// Resolve a Claude SDK session ID to the owning OrbitDock session ID
   #[allow(dead_code)]
   pub fn resolve_claude_thread(&self, sdk_session_id: &str) -> Option<String> {
-    self.connectors.resolve_claude_thread(sdk_session_id)
+    let conn = self.open_ownership_db("resolve_claude_thread")?;
+    conn
+      .query_row(
+        "SELECT s.id
+           FROM sessions s
+          WHERE s.provider = 'claude'
+            AND s.claude_sdk_session_id = ?1
+            AND COALESCE(s.control_mode, CASE
+                  WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct'
+                    THEN 'direct'
+                  ELSE 'passive'
+                END) = 'direct'
+          ORDER BY CASE s.status WHEN 'active' THEN 0 ELSE 1 END,
+                   COALESCE(s.last_activity_at, s.started_at, '') DESC
+          LIMIT 1",
+        params![sdk_session_id],
+        |row| row.get::<_, String>(0),
+      )
+      .optional()
+      .map_err(|error| {
+        warn!(
+          component = "state",
+          event = "state.resolve_claude_thread.query_failed",
+          sdk_session_id = %sdk_session_id,
+          error = %error,
+          "Failed to resolve Claude SDK session ownership from SQLite"
+        );
+        error
+      })
+      .ok()
+      .flatten()
   }
 
   /// Resolve a Codex thread ID to the owning OrbitDock session ID.
   pub fn resolve_codex_thread(&self, thread_id: &str) -> Option<String> {
-    self.connectors.resolve_codex_thread(thread_id)
+    let conn = self.open_ownership_db("resolve_codex_thread")?;
+    conn
+      .query_row(
+        "SELECT s.id
+           FROM sessions s
+          WHERE s.provider = 'codex'
+            AND s.codex_thread_id = ?1
+            AND COALESCE(s.control_mode, CASE
+                  WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct'
+                    THEN 'direct'
+                  ELSE 'passive'
+                END) = 'direct'
+          ORDER BY CASE s.status WHEN 'active' THEN 0 ELSE 1 END,
+                   COALESCE(s.last_activity_at, s.started_at, '') DESC
+          LIMIT 1",
+        params![thread_id],
+        |row| row.get::<_, String>(0),
+      )
+      .optional()
+      .map_err(|error| {
+        warn!(
+          component = "state",
+          event = "state.resolve_codex_thread.query_failed",
+          thread_id = %thread_id,
+          error = %error,
+          "Failed to resolve Codex thread ownership from SQLite"
+        );
+        error
+      })
+      .ok()
+      .flatten()
   }
 
   /// Find an active direct Claude session for a project that hasn't registered its SDK ID yet.
   /// Used by `ClaudeSessionStart` to eagerly claim the SDK ID before the `init` event arrives.
   pub fn find_unregistered_direct_claude_session(&self, project_path: &str) -> Option<String> {
-    use orbitdock_protocol::{ClaudeIntegrationMode, Provider, SessionStatus};
-
-    // Collect registered session IDs for quick lookup
-    let registered = self.connectors.registered_claude_session_ids();
-
-    self
-      .sessions
-      .iter()
-      .find(|entry| {
-        let snap = entry.value().snapshot();
-        snap.provider == Provider::Claude
-          && snap.claude_integration_mode == Some(ClaudeIntegrationMode::Direct)
-          && snap.status == SessionStatus::Active
-          && snap.project_path == project_path
-          && !registered.contains(&snap.id)
-      })
-      .map(|entry| entry.key().clone())
+    let conn = Connection::open(&self.db_path).ok()?;
+    let candidate: Option<String> = conn
+      .query_row(
+        "SELECT id
+           FROM sessions
+          WHERE provider = 'claude'
+            AND project_path = ?1
+            AND status = 'active'
+            AND COALESCE(control_mode, CASE
+                  WHEN provider = 'claude' AND claude_integration_mode = 'direct'
+                    THEN 'direct'
+                  ELSE 'passive'
+                END) = 'direct'
+            AND claude_sdk_session_id IS NULL
+          ORDER BY COALESCE(last_activity_at, started_at, '') DESC
+          LIMIT 1",
+        params![project_path],
+        |row| row.get(0),
+      )
+      .optional()
+      .ok()
+      .flatten();
+    candidate.filter(|session_id| self.get_session(session_id).is_some())
   }
 
   /// Find an active direct Codex session for a project that hasn't registered
   /// its thread ID yet. Used by Codex SessionStart hooks to claim direct
   /// ownership before a passive shadow is materialized.
   pub fn find_unregistered_direct_codex_session(&self, project_path: &str) -> Option<String> {
-    use orbitdock_protocol::{CodexIntegrationMode, Provider, SessionStatus};
-
-    let registered = self.connectors.registered_codex_session_ids();
-
-    self
-      .sessions
-      .iter()
-      .find(|entry| {
-        let snap = entry.value().snapshot();
-        snap.provider == Provider::Codex
-          && snap.codex_integration_mode == Some(CodexIntegrationMode::Direct)
-          && snap.status == SessionStatus::Active
-          && snap.project_path == project_path
-          && !registered.contains(&snap.id)
-      })
-      .map(|entry| entry.key().clone())
+    let conn = Connection::open(&self.db_path).ok()?;
+    let candidate: Option<String> = conn
+      .query_row(
+        "SELECT id
+           FROM sessions
+          WHERE provider = 'codex'
+            AND project_path = ?1
+            AND status = 'active'
+            AND COALESCE(control_mode, CASE
+                  WHEN provider = 'codex' AND codex_integration_mode = 'direct'
+                    THEN 'direct'
+                  ELSE 'passive'
+                END) = 'direct'
+            AND codex_thread_id IS NULL
+          ORDER BY COALESCE(last_activity_at, started_at, '') DESC
+          LIMIT 1",
+        params![project_path],
+        |row| row.get(0),
+      )
+      .optional()
+      .ok()
+      .flatten();
+    candidate.filter(|session_id| self.get_session(session_id).is_some())
   }
 
   /// Look up the Codex thread ID for a given session ID (reverse lookup)
   pub fn codex_thread_for_session(&self, session_id: &str) -> Option<String> {
-    self.connectors.codex_thread_for_session(session_id)
+    let conn = Connection::open(&self.db_path).ok()?;
+    conn
+      .query_row(
+        "SELECT codex_thread_id FROM sessions WHERE id = ?1",
+        params![session_id],
+        |row| row.get::<_, Option<String>>(0),
+      )
+      .optional()
+      .ok()
+      .flatten()
+      .flatten()
   }
 
   /// Look up the Claude SDK session ID for a given session ID (reverse lookup)
   pub fn claude_sdk_id_for_session(&self, session_id: &str) -> Option<String> {
-    self.connectors.claude_sdk_id_for_session(session_id)
+    let conn = Connection::open(&self.db_path).ok()?;
+    conn
+      .query_row(
+        "SELECT claude_sdk_session_id FROM sessions WHERE id = ?1",
+        params![session_id],
+        |row| row.get::<_, Option<String>>(0),
+      )
+      .optional()
+      .ok()
+      .flatten()
+      .flatten()
   }
 
   /// Subscribe to list updates
@@ -1193,6 +1484,8 @@ mod tests {
     SubagentInfo, SubagentStatus, WorkStatus, WorkspaceProviderKind,
   };
   use rusqlite::Connection;
+  use std::sync::Arc;
+  use std::time::Duration;
   use tokio::sync::mpsc;
 
   #[test]
@@ -1427,5 +1720,97 @@ mod tests {
     assert_eq!(conversation.tool_count, 7);
 
     let _ = std::fs::remove_file(db_path);
+  }
+
+  fn create_ownership_test_db() -> std::path::PathBuf {
+    let db_path = std::env::temp_dir().join(format!(
+      "orbitdock-session-registry-ownership-{}-{}.db",
+      std::process::id(),
+      std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+    ));
+    let _ = std::fs::remove_file(&db_path);
+    let conn = Connection::open(&db_path).expect("open temp ownership db");
+    conn
+      .execute(
+        "CREATE TABLE sessions (
+           id TEXT PRIMARY KEY,
+           provider TEXT,
+           control_mode TEXT,
+           codex_integration_mode TEXT,
+           claude_integration_mode TEXT,
+           status TEXT,
+           work_status TEXT,
+           project_path TEXT,
+           started_at TEXT,
+           last_activity_at TEXT,
+           codex_thread_id TEXT,
+           claude_sdk_session_id TEXT
+         )",
+        [],
+      )
+      .expect("create ownership sessions table");
+    drop(conn);
+    db_path
+  }
+
+  #[test]
+  fn register_codex_thread_succeeds_after_transient_sqlite_lock() {
+    let db_path = create_ownership_test_db();
+    let (persist_tx, _persist_rx) = mpsc::channel(8);
+    let registry = Arc::new(SessionRegistry::new_with_primary_and_db_path(
+      persist_tx,
+      db_path.clone(),
+      true,
+      WorkspaceProviderKind::default(),
+    ));
+
+    let lock_conn = Connection::open(&db_path).expect("open lock connection");
+    lock_conn
+      .execute_batch("BEGIN IMMEDIATE")
+      .expect("acquire write lock");
+
+    let registry_for_thread = registry.clone();
+    let join = std::thread::spawn(move || {
+      registry_for_thread.register_codex_thread("od-lock-owner", "codex-thread-lock")
+    });
+
+    std::thread::sleep(Duration::from_millis(150));
+    lock_conn
+      .execute_batch("COMMIT")
+      .expect("release write lock");
+
+    assert!(join.join().expect("registration thread should join"));
+    assert_eq!(
+      registry.resolve_codex_thread("codex-thread-lock"),
+      Some("od-lock-owner".to_string())
+    );
+
+    let _ = std::fs::remove_file(db_path);
+  }
+
+  #[test]
+  fn register_thread_reports_failure_when_db_is_unavailable() {
+    let missing_dir = std::env::temp_dir().join(format!(
+      "orbitdock-session-registry-missing-{}-{}",
+      std::process::id(),
+      std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+    ));
+    let db_path = missing_dir.join("missing.db");
+    let (persist_tx, _persist_rx) = mpsc::channel(8);
+    let registry = SessionRegistry::new_with_primary_and_db_path(
+      persist_tx,
+      db_path,
+      true,
+      WorkspaceProviderKind::default(),
+    );
+
+    assert!(!registry.register_codex_thread("od-fail-owner", "codex-thread-fail"));
+    assert!(!registry.register_claude_thread("od-fail-owner", "claude-thread-fail"));
   }
 }
