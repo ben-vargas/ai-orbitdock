@@ -125,6 +125,11 @@ struct ControlDeckScreen: View {
         await viewModel.refresh()
       }
     }
+    .onChange(of: viewModel.pendingApproval) { old, new in
+      if old == nil, new != nil {
+        Platform.services.playHaptic(.warning)
+      }
+    }
     .onChange(of: dictationController.liveTranscript) { _, transcript in
       guard dictationController.isRecording else { return }
       updateDictationLivePreview(transcript)
@@ -345,7 +350,6 @@ struct ControlDeckScreen: View {
   // MARK: - Module Actions
 
   private func handleModuleAction(_ module: ControlDeckStatusModule, _ value: String) {
-    print("[ControlDeckTrace] module action sid=\(sessionId) module=\(module.rawValue) value=\(value)")
     netLog(.info, cat: .store, "ControlDeck module action tapped", sid: sessionId, data: [
       "module": module.rawValue,
       "value": value,
@@ -371,7 +375,6 @@ struct ControlDeckScreen: View {
   }
 
   private func handleApprovalReviewerAction(_ reviewer: ServerCodexApprovalsReviewer) {
-    print("[ControlDeckTrace] reviewer action sid=\(sessionId) reviewer=\(reviewer.rawValue)")
     netLog(.info, cat: .store, "ControlDeck approval reviewer action tapped", sid: sessionId, data: [
       "reviewer": reviewer.rawValue,
     ])
@@ -473,15 +476,15 @@ struct ControlDeckScreen: View {
         await viewModel.refresh()
       } catch {
         viewModel.lastError = String(describing: error)
+        // Refresh to pick up server-side state changes (e.g. session moved
+        // to Resumable after connector detached) so the UI reflects reality.
+        await viewModel.refresh()
       }
     }
   }
 
   private func resumeSession() {
     guard !isSubmitting else { return }
-    print(
-      "[ResumeTrace] Screen resume tapped sid=\(sessionId) isSubmitting=\(isSubmitting) isResuming=\(viewModel.isResuming) mode=\(debugModeLabel(viewModel.presentation?.mode)) canResume=\(viewModel.presentation?.canResume ?? false)"
-    )
     netLog(.info, cat: .store, "ControlDeckScreen resume tapped", sid: sessionId, data: [
       "isSubmitting": isSubmitting,
       "isResuming": viewModel.isResuming,
