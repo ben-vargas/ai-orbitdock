@@ -318,10 +318,21 @@ fn print_restart_guidance() {
 }
 
 fn attempt_service_restart() -> anyhow::Result<()> {
+  // The upgrade process runs as a child of the currently-running server.
+  // Service managers (launchctl, systemctl) can only stop processes they
+  // started themselves. If the old server was launched outside the service
+  // manager, the manager has no tracked PID for it. Calling "restart" starts
+  // a fresh instance that immediately fails because the old process still
+  // holds the port.
+  //
+  // Fix: SIGTERM the parent (old server) first so it runs its graceful
+  // shutdown handler, then tell the service manager to start the new binary.
+  signal_parent_to_stop();
+
   if cfg!(target_os = "macos") {
     if let Some(ref p) = service_plist_path() {
       if p.exists() {
-        println!("  Restarting launchd service...");
+        println!("  Starting launchd service...");
         let uid = unsafe { libc::geteuid() };
         let status = std::process::Command::new("launchctl")
           .args([
@@ -331,7 +342,7 @@ fn attempt_service_restart() -> anyhow::Result<()> {
           ])
           .status()?;
         if status.success() {
-          println!("  ✓ Service restarted");
+          println!("  ✓ Service started");
           return Ok(());
         }
         println!("  ⚠ launchctl returned non-zero, you may need to restart manually");
@@ -343,12 +354,12 @@ fn attempt_service_restart() -> anyhow::Result<()> {
   if cfg!(target_os = "linux") {
     if let Some(ref p) = service_unit_path() {
       if p.exists() {
-        println!("  Restarting systemd service...");
+        println!("  Starting systemd service...");
         let status = std::process::Command::new("systemctl")
           .args(["--user", "restart", "orbitdock-server"])
           .status()?;
         if status.success() {
-          println!("  ✓ Service restarted");
+          println!("  ✓ Service started");
           return Ok(());
         }
         println!("  ⚠ systemctl returned non-zero, you may need to restart manually");
@@ -359,4 +370,54 @@ fn attempt_service_restart() -> anyhow::Result<()> {
 
   println!("  No service detected — restart your `orbitdock start` process manually.");
   Ok(())
+}
+
+/// Send SIGTERM to the running OrbitDock server and wait for it to release
+/// its port.
+///
+/// Safety: only signals the process if the PID file confirms it is the
+/// OrbitDock server, preventing accidental kills when the upgrade is
+/// invoked from a user shell rather than spawned by the server.
+fn signal_parent_to_stop() {
+  #[cfg(unix)]
+  {
+    let pid_path = crate::infrastructure::paths::pid_file_path();
+    let server_pid: Option<i32> = std::fs::read_to_string(&pid_path)
+      .ok()
+      .and_then(|s| s.trim().parse().ok());
+
+    let Some(pid) = server_pid else {
+      println!("  No PID file found — skipping server stop");
+      return;
+    };
+
+    if pid <= 1 {
+      return;
+    }
+
+    // Verify the process is actually alive before signalling.
+    let alive = unsafe { libc::kill(pid, 0) == 0 };
+    if !alive {
+      println!("  Server process (PID {pid}) already stopped");
+      let _ = std::fs::remove_file(&pid_path);
+      return;
+    }
+
+    println!("  Stopping server process (PID {pid})...");
+    unsafe { libc::kill(pid, libc::SIGTERM) };
+
+    // Wait for the server to finish its graceful shutdown (up to 10s).
+    // The server's shutdown handler can take up to 35s for sync drain,
+    // but port release happens early in that sequence.
+    for _ in 0..20 {
+      std::thread::sleep(std::time::Duration::from_millis(500));
+      let still_alive = unsafe { libc::kill(pid, 0) == 0 };
+      if !still_alive {
+        println!("  Server process stopped");
+        let _ = std::fs::remove_file(&pid_path);
+        return;
+      }
+    }
+    println!("  Server process still running after 10s — proceeding anyway");
+  }
 }
