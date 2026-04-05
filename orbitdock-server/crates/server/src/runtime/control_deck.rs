@@ -1,4 +1,6 @@
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use orbitdock_connector_codex::discover_models_for_context;
 use orbitdock_protocol::{
@@ -17,11 +19,15 @@ use crate::infrastructure::persistence::{load_config_value, PersistCommand};
 use crate::runtime::message_dispatch::{
   dispatch_send_message, DispatchMessageError, DispatchSendMessage,
 };
+use crate::runtime::restored_sessions::{load_prepared_resume_session, PreparedResumeSession};
 use crate::runtime::session_mutations::{
   update_session_config as update_runtime_session_config, SessionConfigUpdate, SessionMutationError,
 };
 use crate::runtime::session_queries::{load_full_session_state, SessionLoadError};
 use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_resume::{
+  launch_resumed_session, ResumeSessionError, ResumeSessionLaunch,
+};
 
 #[derive(Debug)]
 pub(crate) enum ControlDeckSnapshotLoadError {
@@ -308,23 +314,141 @@ pub(crate) async fn submit_control_deck_turn(
     },
   )?;
 
-  let user_row = dispatch_control_deck_turn(
+  let dispatch_request = ControlDeckDispatchRequest {
+    session_id: session_id.to_string(),
+    content: plan.text,
+    model: plan.model,
+    effort: plan.effort,
+    skills: plan.skills,
+    images: plan.images,
+    mentions: plan.mentions,
+    message_id: format!("control-deck-http-{}", orbitdock_protocol::new_id()),
+  };
+
+  let result = dispatch_control_deck_turn(state, dispatch_request.clone()).await;
+
+  let user_row = match result {
+    Ok(row) => row,
+    Err(DispatchMessageError::ConnectorUnavailable) => {
+      info!(
+        component = "control_deck",
+        event = "submit.auto_resume",
+        session_id = %session_id,
+        "No connector available — attempting auto-resume before retry"
+      );
+      auto_resume_session(state, session_id).await?;
+      dispatch_control_deck_turn(state, dispatch_request)
+        .await
+        .map_err(map_dispatch_error)?
+    }
+    Err(other) => return Err(map_dispatch_error(other)),
+  };
+
+  Ok(ControlDeckSubmitResult { row: user_row })
+}
+
+/// Attempt to transparently resume a session whose connector has died.
+/// Clears the stale in-memory actor, reloads from the database, and
+/// relaunches the connector. Returns an error only if the session cannot
+/// be resumed at all.
+async fn auto_resume_session(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+) -> Result<(), ControlDeckSubmitError> {
+  auto_resume_session_with(
     state,
-    ControlDeckDispatchRequest {
-      session_id: session_id.to_string(),
-      content: plan.text,
-      model: plan.model,
-      effort: plan.effort,
-      skills: plan.skills,
-      images: plan.images,
-      mentions: plan.mentions,
-      message_id: format!("control-deck-http-{}", orbitdock_protocol::new_id()),
+    session_id,
+    |id| {
+      let id = id.to_string();
+      async move { load_prepared_resume_session(&id).await }
+    },
+    |state, id, prepared| {
+      let state = state.clone();
+      let id = id.to_string();
+      async move { launch_resumed_session(&state, &id, prepared).await }
     },
   )
   .await
-  .map_err(map_dispatch_error)?;
+}
 
-  Ok(ControlDeckSubmitResult { row: user_row })
+async fn auto_resume_session_with<LoadPrepared, LoadFuture, LaunchResume, LaunchFuture>(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+  load_prepared: LoadPrepared,
+  launch_resume: LaunchResume,
+) -> Result<(), ControlDeckSubmitError>
+where
+  LoadPrepared: Fn(&str) -> LoadFuture,
+  LoadFuture: Future<Output = Result<Option<PreparedResumeSession>, anyhow::Error>>,
+  LaunchResume: Fn(&Arc<SessionRegistry>, &str, PreparedResumeSession) -> LaunchFuture,
+  LaunchFuture: Future<Output = Result<ResumeSessionLaunch, ResumeSessionError>>,
+{
+  // Serialize auto-resume attempts per session. Without this, concurrent submits can
+  // launch duplicate runtimes and split subsequent message routing.
+  let resume_lock = state.auto_resume_lock(session_id);
+  let _guard = resume_lock.lock().await;
+
+  // Another in-flight submit may have already reattached the connector while this call
+  // waited on the lock. If so, treat auto-resume as complete.
+  if state.has_active_connector_action_tx(session_id) {
+    info!(
+      component = "control_deck",
+      event = "submit.auto_resume.already_restored",
+      session_id = %session_id,
+      "Auto-resume skipped because a connector is already active"
+    );
+    return Ok(());
+  }
+
+  let prepared = load_prepared(session_id)
+    .await
+    .map_err(|e| {
+      warn!(
+        component = "control_deck",
+        event = "submit.auto_resume.load_failed",
+        session_id = %session_id,
+        error = %e,
+        "Auto-resume failed: could not load session from database"
+      );
+      ControlDeckSubmitError::ConnectorUnavailable
+    })?
+    .ok_or_else(|| {
+      warn!(
+        component = "control_deck",
+        event = "submit.auto_resume.not_found",
+        session_id = %session_id,
+        "Auto-resume failed: session not found in database"
+      );
+      ControlDeckSubmitError::SessionNotFound
+    })?;
+
+  let launch = launch_resume(state, session_id, prepared)
+    .await
+    .map_err(|e| {
+      warn!(
+        component = "control_deck",
+        event = "submit.auto_resume.launch_failed",
+        session_id = %session_id,
+        error = %e.message(),
+        "Auto-resume failed: connector launch error"
+      );
+      ControlDeckSubmitError::ConnectorUnavailable
+    })?;
+
+  // Wait for the connector to be ready (runtime startup has a 15s timeout
+  // internally; we add 1s buffer).
+  if let Some(startup_ready) = launch.startup_ready {
+    let _ = tokio::time::timeout(Duration::from_secs(16), startup_ready).await;
+  }
+
+  info!(
+    component = "control_deck",
+    event = "submit.auto_resume.success",
+    session_id = %session_id,
+    "Auto-resume succeeded — retrying dispatch"
+  );
+
+  Ok(())
 }
 
 async fn dispatch_control_deck_turn(
@@ -376,5 +500,150 @@ fn map_dispatch_error(error: DispatchMessageError) -> ControlDeckSubmitError {
   match error {
     DispatchMessageError::SessionNotFound => ControlDeckSubmitError::SessionNotFound,
     DispatchMessageError::ConnectorUnavailable => ControlDeckSubmitError::ConnectorUnavailable,
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{auto_resume_session_with, ControlDeckSubmitError};
+  use crate::domain::sessions::session::SessionHandle;
+  use crate::runtime::restored_sessions::PreparedResumeSession;
+  use crate::runtime::session_registry::SessionRegistry;
+  use crate::runtime::session_resume::ResumeSessionLaunch;
+  use crate::support::test_support::ensure_server_test_data_dir;
+  use orbitdock_protocol::Provider;
+  use std::sync::atomic::{AtomicUsize, Ordering};
+  use std::sync::Arc;
+  use tokio::sync::{mpsc, oneshot};
+  use tokio::time::{sleep, Duration};
+
+  fn test_prepared_resume_session(session_id: &str) -> PreparedResumeSession {
+    let handle = SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      "/tmp/orbitdock-auto-resume".to_string(),
+    );
+    let summary = handle.summary();
+    PreparedResumeSession {
+      provider: Provider::Codex,
+      project_path: "/tmp/orbitdock-auto-resume".to_string(),
+      transcript_path: None,
+      model: None,
+      codex_thread_id: None,
+      approval_policy: None,
+      sandbox_mode: None,
+      collaboration_mode: None,
+      multi_agent: None,
+      personality: None,
+      service_tier: None,
+      developer_instructions: None,
+      codex_config_mode: None,
+      codex_config_profile: None,
+      codex_model_provider: None,
+      codex_config_source: None,
+      codex_config_overrides: None,
+      claude_sdk_session_id: None,
+      row_count: 0,
+      transcript_loaded: false,
+      summary,
+      handle,
+      allow_bypass_permissions: false,
+    }
+  }
+
+  #[tokio::test]
+  async fn auto_resume_load_failure_keeps_existing_session_actor() {
+    ensure_server_test_data_dir();
+    let (persist_tx, _persist_rx) = mpsc::channel(8);
+    let state = Arc::new(SessionRegistry::new(persist_tx));
+    let session_id = "auto-resume-load-failure";
+    state.add_session(SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      "/tmp/orbitdock-auto-resume".to_string(),
+    ));
+
+    let result = auto_resume_session_with(
+      &state,
+      session_id,
+      |_id| async move { Err(anyhow::anyhow!("transient sqlite read failure")) },
+      |_state, _sid, _prepared| async move {
+        panic!("launch should not execute when loading prepared resume fails")
+      },
+    )
+    .await;
+
+    assert!(matches!(
+      result,
+      Err(ControlDeckSubmitError::ConnectorUnavailable)
+    ));
+    assert!(state.get_session(session_id).is_some());
+  }
+
+  #[tokio::test]
+  async fn auto_resume_serializes_concurrent_attempts_and_launches_once() {
+    ensure_server_test_data_dir();
+    let (persist_tx, _persist_rx) = mpsc::channel(8);
+    let state = Arc::new(SessionRegistry::new(persist_tx));
+    let session_id = "auto-resume-race";
+    state.add_session(SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      "/tmp/orbitdock-auto-resume".to_string(),
+    ));
+
+    let load_count = Arc::new(AtomicUsize::new(0));
+    let launch_count = Arc::new(AtomicUsize::new(0));
+    let load_count_assert = load_count.clone();
+
+    let run_attempt = |state: Arc<SessionRegistry>,
+                       load_count: Arc<AtomicUsize>,
+                       launch_count: Arc<AtomicUsize>| async move {
+      auto_resume_session_with(
+        &state,
+        session_id,
+        move |id| {
+          let load_count = load_count.clone();
+          let id = id.to_string();
+          async move {
+            load_count.fetch_add(1, Ordering::SeqCst);
+            Ok(Some(test_prepared_resume_session(&id)))
+          }
+        },
+        move |state, sid, prepared| {
+          let launch_count = launch_count.clone();
+          let state = state.clone();
+          let sid = sid.to_string();
+          async move {
+            launch_count.fetch_add(1, Ordering::SeqCst);
+            // Simulate connector startup work so concurrent callers would race
+            // into a duplicate launch without the per-session gate.
+            sleep(Duration::from_millis(50)).await;
+            let (tx, _rx) = mpsc::channel(1);
+            state.set_codex_action_tx(&sid, tx);
+            let (ready_tx, ready_rx) = oneshot::channel();
+            let _ = ready_tx.send(());
+            Ok(ResumeSessionLaunch {
+              summary: prepared.summary,
+              startup_ready: Some(ready_rx),
+            })
+          }
+        },
+      )
+      .await
+    };
+
+    let first = tokio::spawn(run_attempt(
+      state.clone(),
+      load_count.clone(),
+      launch_count.clone(),
+    ));
+    let second = tokio::spawn(run_attempt(state, load_count, launch_count.clone()));
+
+    let (first_result, second_result) = tokio::join!(first, second);
+    assert!(first_result.expect("first task join").is_ok());
+    assert!(second_result.expect("second task join").is_ok());
+    assert_eq!(load_count_assert.load(Ordering::SeqCst), 1);
+    assert_eq!(launch_count.load(Ordering::SeqCst), 1);
   }
 }
